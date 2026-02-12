@@ -47,7 +47,7 @@ async function generateAnalysis(quote: InstantQuote): Promise<AiAnalysis> {
     console.log('Calling AI analysis API with', quote.photo_urls.length, 'photos...');
     
     // Call your Python backend's real AI analysis
-    const response = await fetch('http://localhost:8000/analyze', {
+    const response = await fetch('https://movco-api.onrender.com/analyze', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
