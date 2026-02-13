@@ -113,6 +113,29 @@ export default function PhotoUploadComponent() {
       return;
     }
 
+    // Get user ID BEFORE starting analysis
+    const { data: sessionData } = await supabase.auth.getSession();
+    const userId = sessionData?.session?.user?.id || user?.id || null;
+    console.log('SAVE - userId before analysis:', userId);
+
+    // Save quote to Supabase FIRST (before calling slow API)
+    const { data: insertData, error: saveError } = await supabase
+      .from('instant_quotes')
+      .insert({
+        starting_address: startAddress,
+        ending_address: endAddress,
+        photo_urls: allPhotoUrls,
+        status: 'new',
+        user_id: userId,
+      })
+      .select();
+
+    if (saveError) {
+      console.error('Error saving quote:', saveError);
+    } else {
+      console.log('Quote saved successfully:', insertData);
+    }
+
     setAnalyzing(true);
     setResult(null);
 
@@ -133,36 +156,6 @@ export default function PhotoUploadComponent() {
 
       const data = await response.json();
       setResult(data);
-
-      // DEBUG: Check what user we have
-      console.log('DEBUG - user object:', user);
-      console.log('DEBUG - user id:', user?.id);
-      
-      // Also get the session directly from supabase
-      const { data: sessionData } = await supabase.auth.getSession();
-      console.log('DEBUG - session:', sessionData?.session);
-      console.log('DEBUG - session user id:', sessionData?.session?.user?.id);
-      
-      // Use the session user id as fallback
-      const userId = user?.id || sessionData?.session?.user?.id;
-      console.log('DEBUG - final userId:', userId);
-
-      // SAVE QUOTE TO SUPABASE WITH USER ID
-      const { error: saveError } = await supabase
-        .from('instant_quotes')
-        .insert({
-          starting_address: startAddress,
-          ending_address: endAddress,
-          photo_urls: allPhotoUrls,
-          status: 'new',
-          user_id: userId,
-        });
-
-      if (saveError) {
-        console.error('Error saving quote:', saveError);
-      } else {
-        console.log('Quote saved successfully with user_id:', userId);
-      }
 
     } catch (err: any) {
       console.error('Analysis error:', err);
@@ -491,4 +484,5 @@ export default function PhotoUploadComponent() {
       </div>
     </main>
   );
+}
 }
