@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import joblib
@@ -12,15 +13,24 @@ from datetime import datetime
 import os
 import traceback
 
-FT3_TO_M3 = 0.0283168
+FT3_TO_M3 = 0.0283168  # cubic feet -> cubic metres
 
+# Path to your trained MOVCO model
 MODEL_PATH = os.getenv("MOVCO_MODEL_PATH", "movco_model.joblib")
 
+# Anthropic API key
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 if not ANTHROPIC_API_KEY:
     print("[MOVCO] WARNING: ANTHROPIC_API_KEY not set - furniture detection will fail")
 else:
     print("[MOVCO] ✓ ANTHROPIC_API_KEY is configured")
+
+# Google Maps API key
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
+if not GOOGLE_MAPS_API_KEY:
+    print("[MOVCO] WARNING: GOOGLE_MAPS_API_KEY not set - will use fallback distance")
+else:
+    print("[MOVCO] ✓ GOOGLE_MAPS_API_KEY is configured")
 
 print("[MOVCO] Loading price model from:", MODEL_PATH)
 try:
@@ -32,8 +42,10 @@ except Exception as e:
 
 app = FastAPI()
 
+# Initialize Anthropic client
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
 
+# CORS setup
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -54,9 +66,12 @@ def health():
     return {
         "status": "ok",
         "anthropic_configured": bool(ANTHROPIC_API_KEY),
+        "google_maps_configured": bool(GOOGLE_MAPS_API_KEY),
         "model_loaded": model is not None
     }
 
+
+# ---------- Schemas ----------
 
 class QuoteRequest(BaseModel):
     starting_address: str
@@ -77,7 +92,11 @@ class QuoteResponse(BaseModel):
     items: List[AiItem]
     totalVolumeM3: float
     totalAreaM2: float
+    distance_miles: Optional[float] = None
+    duration_text: Optional[str] = None
 
+
+# ---------- Furniture volume estimates (average cubic feet) ----------
 
 FURNITURE_VOLUMES = {
     "sofa": 50.0,
@@ -156,6 +175,91 @@ def estimate_item_volume(item_name: str) -> float:
             return volume
     return 15.0
 
+
+# ---------- Google Maps Distance ----------
+
+def get_google_maps_distance(start: str, end: str) -> Dict[str, Any]:
+    """
+    Get real driving distance and duration using Google Maps Distance Matrix API.
+    Returns dict with distance_km, distance_miles, duration_text, duration_seconds.
+    Falls back to estimate if API fails.
+    """
+    if not GOOGLE_MAPS_API_KEY:
+        print("[MOVCO] ⚠️  No Google Maps API key - using fallback distance")
+        return fallback_distance(start, end)
+
+    try:
+        url = "https://maps.googleapis.com/maps/api/distancematrix/json"
+        params = {
+            "origins": start,
+            "destinations": end,
+            "mode": "driving",
+            "units": "imperial",
+            "region": "uk",
+            "key": GOOGLE_MAPS_API_KEY,
+        }
+
+        print(f"[MOVCO] 🗺️  Calling Google Maps Distance Matrix API...")
+        print(f"[MOVCO]    From: {start}")
+        print(f"[MOVCO]    To: {end}")
+
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+
+        print(f"[MOVCO] 🗺️  API Status: {data.get('status')}")
+
+        if data.get("status") != "OK":
+            print(f"[MOVCO] ⚠️  Google Maps API error: {data.get('status')}")
+            return fallback_distance(start, end)
+
+        element = data["rows"][0]["elements"][0]
+
+        if element.get("status") != "OK":
+            print(f"[MOVCO] ⚠️  Route not found: {element.get('status')}")
+            return fallback_distance(start, end)
+
+        distance_meters = element["distance"]["value"]
+        distance_km = distance_meters / 1000.0
+        distance_miles = distance_km * 0.621371
+        duration_seconds = element["duration"]["value"]
+        duration_text = element["duration"]["text"]
+        distance_text = element["distance"]["text"]
+
+        print(f"[MOVCO] ✅ Google Maps result:")
+        print(f"[MOVCO]    Distance: {distance_text} ({distance_km:.1f} km / {distance_miles:.1f} miles)")
+        print(f"[MOVCO]    Duration: {duration_text}")
+
+        return {
+            "distance_km": round(distance_km, 1),
+            "distance_miles": round(distance_miles, 1),
+            "duration_text": duration_text,
+            "duration_seconds": duration_seconds,
+            "source": "google_maps",
+        }
+
+    except Exception as e:
+        print(f"[MOVCO] ❌ Google Maps API error: {e}")
+        traceback.print_exc()
+        return fallback_distance(start, end)
+
+
+def fallback_distance(start: str, end: str) -> Dict[str, Any]:
+    """Fallback distance estimate when Google Maps is unavailable."""
+    # Basic estimate: assume 20 miles if we can't calculate
+    distance_km = 32.0
+    distance_miles = 20.0
+    print(f"[MOVCO] ⚠️  Using fallback distance: {distance_miles} miles")
+    return {
+        "distance_km": distance_km,
+        "distance_miles": distance_miles,
+        "duration_text": "~45 mins (estimated)",
+        "duration_seconds": 2700,
+        "source": "fallback",
+    }
+
+
+# ---------- Helper functions ----------
 
 def normalise_supabase_url(url: str) -> str:
     if "/storage/v1/object/sign/" in url:
@@ -308,13 +412,6 @@ def aggregate_items_and_volume(all_results: List[Dict[str, Any]]) -> tuple[List[
     return items, total_volume_ft3
 
 
-def rough_distance_km(start: str, end: str) -> float:
-    if not start or not end:
-        return 10.0
-    diff = abs(len(start) - len(end))
-    return 5.0 + diff * 2.0
-
-
 def estimate_rooms_from_volume(total_volume_m3: float) -> int:
     if total_volume_m3 <= 15:
         return 2
@@ -329,10 +426,8 @@ def estimate_rooms_from_volume(total_volume_m3: float) -> int:
 def build_features_for_price_model(
     total_volume_m3: float,
     items: List[AiItem],
-    starting_address: str,
-    ending_address: str,
+    distance_km: float,
 ) -> List[List[float]]:
-    distance_km = rough_distance_km(starting_address, ending_address)
     rooms = estimate_rooms_from_volume(total_volume_m3)
     stairs = 0.0
     packing = 0.0
@@ -349,6 +444,8 @@ def build_features_for_price_model(
     ]]
 
 
+# ---------- Main endpoint ----------
+
 @app.post("/analyze", response_model=QuoteResponse)
 def analyze_quote(req: QuoteRequest):
     print(f"\n[MOVCO] ========================================")
@@ -356,6 +453,18 @@ def analyze_quote(req: QuoteRequest):
     print(f"[MOVCO] 📍 From: {req.starting_address}")
     print(f"[MOVCO] 📍 To: {req.ending_address}")
     print(f"[MOVCO] ========================================\n")
+
+    # Step 1: Get real distance from Google Maps
+    distance_info = get_google_maps_distance(req.starting_address, req.ending_address)
+    distance_km = distance_info["distance_km"]
+    distance_miles = distance_info["distance_miles"]
+    duration_text = distance_info["duration_text"]
+
+    print(f"[MOVCO] 🗺️  Distance: {distance_miles} miles ({distance_km} km)")
+    print(f"[MOVCO] 🗺️  Duration: {duration_text}")
+    print(f"[MOVCO] 🗺️  Source: {distance_info['source']}\n")
+
+    # Step 2: Analyze photos with Claude
     all_results: List[Dict[str, Any]] = []
     for i, url in enumerate(req.photo_urls, 1):
         print(f"[MOVCO] 📸 Processing photo {i}/{len(req.photo_urls)}")
@@ -366,45 +475,62 @@ def analyze_quote(req: QuoteRequest):
             print(f"[MOVCO] ❌ Error analyzing photo {i}: {e}")
             traceback.print_exc()
             all_results.append({"items": [], "total_volume_ft3": 0.0})
+
+    # Step 3: Aggregate items
     items, total_volume_ft3 = aggregate_items_and_volume(all_results)
     total_volume_m3 = round(total_volume_ft3 * FT3_TO_M3, 2)
     total_area_m2 = round(total_volume_m3 * 1.3, 2)
+
     print(f"\n[MOVCO] 📊 FINAL RESULTS:")
+    print(f"[MOVCO]    Distance: {distance_miles} miles ({duration_text})")
     print(f"[MOVCO]    Total volume: {total_volume_ft3:.2f} ft³ = {total_volume_m3} m³")
     print(f"[MOVCO]    Total items detected: {len(items)}")
+
+    # Step 4: Get price from model using REAL distance
     features = build_features_for_price_model(
         total_volume_m3=total_volume_m3,
         items=items,
-        starting_address=req.starting_address,
-        ending_address=req.ending_address,
+        distance_km=distance_km,
     )
+
     try:
         raw_pred = model.predict(features)[0]
         estimate = float(raw_pred)
         print(f"[MOVCO] 💰 Price from model: £{estimate:.2f}")
     except Exception as e:
         print(f"[MOVCO] ⚠️  Error in model.predict: {e}")
-        base = 800.0
-        per_m3 = 60.0
-        estimate = float(round(base + per_m3 * total_volume_m3, 2))
+        # Improved fallback using real distance
+        base = 300.0
+        per_m3 = 50.0
+        per_mile = 2.50
+        estimate = float(round(base + (per_m3 * total_volume_m3) + (per_mile * distance_miles), 2))
         print(f"[MOVCO] 💰 Price from fallback: £{estimate:.2f}")
+
     description = (
         f"Estimate based on AI analysis of {len(req.photo_urls)} room photo(s). "
-        f"Detected {len(items)} item type(s) with total volume of {total_volume_m3:.1f} m³."
+        f"Detected {len(items)} item type(s) with total volume of {total_volume_m3:.1f} m³. "
+        f"Driving distance: {distance_miles} miles ({duration_text})."
     )
+
     print(f"[MOVCO] ✅ Analysis complete!\n")
+
     return QuoteResponse(
         estimate=estimate,
         description=description,
         items=items,
         totalVolumeM3=total_volume_m3,
         totalAreaM2=total_area_m2,
+        distance_miles=distance_miles,
+        duration_text=duration_text,
     )
 
 
 if __name__ == "__main__":
     import uvicorn
     print("\n[MOVCO] 🚀 Starting MOVCO API server...")
-    print(f"[MOVCO] 🔑 API Key configured: {bool(ANTHROPIC_API_KEY)}")
+    print(f"[MOVCO] 🔑 Anthropic API Key: {bool(ANTHROPIC_API_KEY)}")
+    print(f"[MOVCO] 🗺️  Google Maps API Key: {bool(GOOGLE_MAPS_API_KEY)}")
     print(f"[MOVCO] 📦 Model loaded: {model is not None}\n")
     uvicorn.run("api:app", host="127.0.0.1", port=8000, reload=False)
+
+    
