@@ -79,6 +79,20 @@ export default function InstantQuotePage() {
         }
       }
 
+      // Get user ID from localStorage
+      let userId = null;
+      try {
+        const storageKey = Object.keys(localStorage).find(k => k.includes('auth-token'));
+        if (storageKey) {
+          const tokenData = JSON.parse(localStorage.getItem(storageKey) || '{}');
+          userId = tokenData?.user?.id || null;
+        }
+      } catch (e) {
+        console.error('Error reading auth:', e);
+      }
+
+      console.log('Saving quote with user_id:', userId);
+
       const { data: insertData, error: insertError } = await supabase
         .from('instant_quotes')
         .insert({
@@ -86,6 +100,7 @@ export default function InstantQuotePage() {
           ending_address: endingAddress,
           photo_urls: uploadedUrls.length > 0 ? uploadedUrls : null,
           status: 'new',
+          user_id: userId,
         })
         .select()
         .single();
@@ -319,62 +334,27 @@ export default function InstantQuotePage() {
       {/* Add custom animations to global CSS */}
       <style jsx global>{`
         @keyframes fade-in {
-          from {
-            opacity: 0;
-            transform: translateY(-10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(-10px); }
+          to { opacity: 1; transform: translateY(0); }
         }
-        
         @keyframes slide-up {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
         }
-        
         @keyframes shake {
           0%, 100% { transform: translateX(0); }
           25% { transform: translateX(-10px); }
           75% { transform: translateX(10px); }
         }
-        
         @keyframes bounce-in {
-          0% {
-            opacity: 0;
-            transform: scale(0.3);
-          }
-          50% {
-            transform: scale(1.05);
-          }
-          100% {
-            opacity: 1;
-            transform: scale(1);
-          }
+          0% { opacity: 0; transform: scale(0.3); }
+          50% { transform: scale(1.05); }
+          100% { opacity: 1; transform: scale(1); }
         }
-        
-        .animate-fade-in {
-          animation: fade-in 0.6s ease-out;
-        }
-        
-        .animate-slide-up {
-          animation: slide-up 0.6s ease-out backwards;
-        }
-        
-        .animate-shake {
-          animation: shake 0.5s ease-in-out;
-        }
-        
-        .animate-bounce-in {
-          animation: bounce-in 0.5s ease-out;
-        }
+        .animate-fade-in { animation: fade-in 0.6s ease-out; }
+        .animate-slide-up { animation: slide-up 0.6s ease-out backwards; }
+        .animate-shake { animation: shake 0.5s ease-in-out; }
+        .animate-bounce-in { animation: bounce-in 0.5s ease-out; }
       `}</style>
     </main>
   );
