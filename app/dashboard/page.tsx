@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { useAuth } from '@/context/AuthContext';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 type InstantQuote = {
@@ -18,12 +20,25 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const { user, loading: authLoading, signOut } = useAuth();
+  const router = useRouter();
+
+  // Redirect if not logged in
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.push('/auth');
+    }
+  }, [user, authLoading, router]);
+
   useEffect(() => {
     async function fetchQuotes() {
+      if (!user) return;
+
       try {
         const { data, error } = await supabase
           .from('instant_quotes')
           .select('*')
+          .eq('user_id', user.id)
           .order('created_at', { ascending: false });
 
         if (error) {
@@ -40,10 +55,12 @@ export default function DashboardPage() {
       }
     }
 
-    fetchQuotes();
-  }, []);
+    if (user) {
+      fetchQuotes();
+    }
+  }, [user]);
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <main className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center p-4">
         <div className="text-center">
@@ -58,6 +75,8 @@ export default function DashboardPage() {
       </main>
     );
   }
+
+  if (!user) return null;
 
   if (error) {
     return (
@@ -92,18 +111,32 @@ export default function DashboardPage() {
                 Your Moving Quotes
               </h1>
               <p className="text-slate-600">
-                Manage and track all your moving estimates
+                Welcome back, {user.user_metadata?.full_name || user.email}
               </p>
             </div>
-            <Link
-              href="/instant-quote"
-              className="inline-flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-blue-700 hover:to-indigo-700 transform hover:scale-105 transition-all duration-200"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              <span>New Quote</span>
-            </Link>
+            <div className="flex items-center gap-3">
+              <Link
+                href="/instant-quote"
+                className="inline-flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl hover:from-blue-700 hover:to-indigo-700 transform hover:scale-105 transition-all duration-200"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                <span>New Quote</span>
+              </Link>
+              <button
+                onClick={async () => {
+                  await signOut();
+                  router.push('/auth');
+                }}
+                className="inline-flex items-center space-x-2 px-4 py-3 bg-white/80 backdrop-blur-sm text-slate-600 font-medium rounded-xl shadow-lg hover:shadow-xl border border-white/20 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all duration-200"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                <span>Sign Out</span>
+              </button>
+            </div>
           </div>
 
           {/* Stats Cards */}
@@ -232,7 +265,7 @@ export default function DashboardPage() {
 
                     <div className="flex flex-col items-end gap-3 flex-shrink-0">
                       <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                        quote.status === 'new' 
+                        quote.status === 'new'
                           ? 'bg-green-100 text-green-700'
                           : 'bg-slate-100 text-slate-700'
                       }`}>

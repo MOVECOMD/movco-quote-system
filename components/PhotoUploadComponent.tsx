@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 
 interface Room {
@@ -12,6 +13,8 @@ interface Room {
 }
 
 export default function PhotoUploadComponent() {
+  const { user } = useAuth();
+
   const [rooms, setRooms] = useState<Room[]>([
     { id: '1', name: 'Living Room', photos: [], uploading: false },
   ]);
@@ -130,6 +133,24 @@ export default function PhotoUploadComponent() {
 
       const data = await response.json();
       setResult(data);
+
+      // SAVE QUOTE TO SUPABASE WITH USER ID
+      const { error: saveError } = await supabase
+        .from('instant_quotes')
+        .insert({
+          starting_address: startAddress,
+          ending_address: endAddress,
+          photo_urls: allPhotoUrls,
+          status: 'new',
+          user_id: user?.id,
+        });
+
+      if (saveError) {
+        console.error('Error saving quote:', saveError);
+      } else {
+        console.log('Quote saved successfully with user_id:', user?.id);
+      }
+
     } catch (err: any) {
       console.error('Analysis error:', err);
       alert('Failed to analyze. Check console and backend.');
@@ -227,9 +248,7 @@ export default function PhotoUploadComponent() {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Starting Address
-              </label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Starting Address</label>
               <input
                 type="text"
                 value={startAddress}
@@ -248,9 +267,7 @@ export default function PhotoUploadComponent() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Ending Address
-              </label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Ending Address</label>
               <input
                 type="text"
                 value={endAddress}
@@ -289,11 +306,7 @@ export default function PhotoUploadComponent() {
 
           <div className="space-y-4">
             {rooms.map((room) => (
-              <div
-                key={room.id}
-                className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg p-6 border border-white/20 transition-all duration-200 hover:shadow-xl"
-              >
-                {/* Room Header */}
+              <div key={room.id} className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-lg p-6 border border-white/20 transition-all duration-200 hover:shadow-xl">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center flex-shrink-0">
                     <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -307,10 +320,7 @@ export default function PhotoUploadComponent() {
                     className="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   />
                   {rooms.length > 1 && (
-                    <button
-                      onClick={() => removeRoom(room.id)}
-                      className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                    >
+                    <button onClick={() => removeRoom(room.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors">
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                       </svg>
@@ -318,7 +328,6 @@ export default function PhotoUploadComponent() {
                   )}
                 </div>
 
-                {/* Upload Area */}
                 <label className="block cursor-pointer mb-4">
                   <div className="border-2 border-dashed border-slate-200 rounded-xl p-6 text-center hover:border-blue-400 hover:bg-blue-50/50 transition-all duration-200">
                     <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
@@ -351,19 +360,11 @@ export default function PhotoUploadComponent() {
                   />
                 </label>
 
-                {/* Photo Grid */}
                 {room.photos.length > 0 && (
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
                     {room.photos.map((photoUrl, idx) => (
-                      <div
-                        key={idx}
-                        className="relative group aspect-square rounded-xl overflow-hidden border border-slate-200 shadow-sm"
-                      >
-                        <img
-                          src={photoUrl}
-                          alt={`${room.name} photo ${idx + 1}`}
-                          className="w-full h-full object-cover"
-                        />
+                      <div key={idx} className="relative group aspect-square rounded-xl overflow-hidden border border-slate-200 shadow-sm">
+                        <img src={photoUrl} alt={`${room.name} photo ${idx + 1}`} className="w-full h-full object-cover" />
                         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all duration-200" />
                         <button
                           onClick={() => removePhoto(room.id, photoUrl)}
@@ -422,22 +423,17 @@ export default function PhotoUploadComponent() {
               <h2 className="text-xl font-bold text-slate-800">Your Quote</h2>
             </div>
 
-            {/* Price Card */}
             <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-6 mb-6 text-white text-center">
               <p className="text-sm opacity-80 mb-1">Estimated Cost</p>
               <p className="text-5xl font-bold mb-2">£{result.estimate.toFixed(2)}</p>
               <p className="text-sm opacity-80">{result.description}</p>
             </div>
 
-            {/* Items Detected */}
             <div className="mb-6">
               <h3 className="text-lg font-semibold text-slate-800 mb-3">Items Detected</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {result.items.map((item: any, idx: number) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between p-3 bg-slate-50 rounded-xl"
-                  >
+                  <div key={idx} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
                         <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -459,7 +455,6 @@ export default function PhotoUploadComponent() {
               </div>
             </div>
 
-            {/* Volume Summary */}
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
               <span className="text-slate-600 font-medium">Total Volume</span>
               <span className="text-slate-800 font-bold">
@@ -467,7 +462,6 @@ export default function PhotoUploadComponent() {
               </span>
             </div>
 
-            {/* Dashboard Link */}
             <div className="mt-6 text-center">
               <Link
                 href="/dashboard"
