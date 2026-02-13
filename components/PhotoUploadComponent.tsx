@@ -134,6 +134,19 @@ export default function PhotoUploadComponent() {
       const data = await response.json();
       setResult(data);
 
+      // DEBUG: Check what user we have
+      console.log('DEBUG - user object:', user);
+      console.log('DEBUG - user id:', user?.id);
+      
+      // Also get the session directly from supabase
+      const { data: sessionData } = await supabase.auth.getSession();
+      console.log('DEBUG - session:', sessionData?.session);
+      console.log('DEBUG - session user id:', sessionData?.session?.user?.id);
+      
+      // Use the session user id as fallback
+      const userId = user?.id || sessionData?.session?.user?.id;
+      console.log('DEBUG - final userId:', userId);
+
       // SAVE QUOTE TO SUPABASE WITH USER ID
       const { error: saveError } = await supabase
         .from('instant_quotes')
@@ -142,13 +155,13 @@ export default function PhotoUploadComponent() {
           ending_address: endAddress,
           photo_urls: allPhotoUrls,
           status: 'new',
-          user_id: user?.id,
+          user_id: userId,
         });
 
       if (saveError) {
         console.error('Error saving quote:', saveError);
       } else {
-        console.log('Quote saved successfully with user_id:', user?.id);
+        console.log('Quote saved successfully with user_id:', userId);
       }
 
     } catch (err: any) {
