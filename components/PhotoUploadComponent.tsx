@@ -113,10 +113,24 @@ export default function PhotoUploadComponent() {
       return;
     }
 
-    // Get user ID BEFORE starting analysis
+    // Get user ID from multiple sources
     const { data: sessionData } = await supabase.auth.getSession();
-    const userId = sessionData?.session?.user?.id || user?.id || null;
-    console.log('SAVE - userId before analysis:', userId);
+    let userId = sessionData?.session?.user?.id || user?.id || null;
+
+    // Fallback: read directly from localStorage
+    if (!userId) {
+      try {
+        const storageKey = Object.keys(localStorage).find(k => k.includes('auth-token'));
+        if (storageKey) {
+          const tokenData = JSON.parse(localStorage.getItem(storageKey) || '{}');
+          userId = tokenData?.user?.id || null;
+        }
+      } catch (e) {
+        console.error('Error reading auth from localStorage:', e);
+      }
+    }
+
+    console.log('SAVE - final userId:', userId);
 
     // Save quote to Supabase FIRST (before calling slow API)
     const { data: insertData, error: saveError } = await supabase
@@ -484,5 +498,4 @@ export default function PhotoUploadComponent() {
       </div>
     </main>
   );
-}
 }
