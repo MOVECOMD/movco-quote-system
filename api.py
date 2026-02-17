@@ -33,11 +33,12 @@ LWB_VAN_CAPACITY_M3 = 18.0     # Medium (long wheelbase) van
 # ---------------------------------------------------------------------------
 # Rule-based pricing constants (UK removals market rates 2025/2026)
 # ---------------------------------------------------------------------------
-BASE_RATE = 250.0               # Minimum charge / call-out (£)
-RATE_PER_M3 = 35.0              # £ per cubic metre of goods
-RATE_PER_MILE = 2.00            # £ per mile driving distance
-RATE_PER_VAN_EXTRA = 150.0      # Additional cost per extra van (beyond the first)
-RATE_PER_MOVER_HOUR = 25.0      # £ per mover per hour (for labour calc)
+BASE_RATE = 0.0                 # No base rate - price is purely van + staff + miles
+RATE_PER_M3 = 0.0              # Not used - price driven by vans/staff/miles
+RATE_PER_MILE = 0.50            # £0.50 per mile driving distance
+RATE_PER_VAN = 100.0            # £100 per van needed (all vans, not just extra)
+RATE_PER_MOVER_HOUR = 15.0      # £15 per mover per hour
+PRICE_MULTIPLIER = 2.0          # Double total cost = customer price
 MIN_HOURS_ESTIMATE = 2.0        # Minimum job time in hours
 WEEKEND_PREMIUM = 1.15          # 15% surcharge Sat/Sun
 STAIRS_SURCHARGE_PER_FLIGHT = 50.0  # £ per flight of stairs (future use)
@@ -314,53 +315,52 @@ def calculate_rule_based_price(
     stairs_flights: int = 0,
 ) -> dict:
     """
-    Calculate a transparent, rule-based price estimate.
-    Returns a breakdown dict.
+    Simple pricing model:
+      - £100 per van needed
+      - £15 per staff member per hour
+      - £0.50 per mile
+      - Total cost × 2 = customer price
     """
-    # Base charge
-    base = BASE_RATE
+    # Van cost: ALL vans, not just extras
+    van_cost = van_count * RATE_PER_VAN
 
-    # Volume charge
-    volume_charge = total_volume_m3 * RATE_PER_M3
-
-    # Distance charge
-    distance_charge = distance_miles * RATE_PER_MILE
-
-    # Extra van charge (first van included in base)
-    extra_vans = max(van_count - 1, 0)
-    van_charge = extra_vans * RATE_PER_VAN_EXTRA
-
-    # Labour charge: movers × hours × rate
+    # Labour cost: movers × hours × rate
     job_hours = estimate_job_hours(total_volume_m3, distance_miles)
-    labour_charge = movers * job_hours * RATE_PER_MOVER_HOUR
+    labour_cost = movers * job_hours * RATE_PER_MOVER_HOUR
+
+    # Distance cost
+    distance_cost = distance_miles * RATE_PER_MILE
 
     # Stairs surcharge
-    stairs_charge = stairs_flights * STAIRS_SURCHARGE_PER_FLIGHT
+    stairs_cost = stairs_flights * STAIRS_SURCHARGE_PER_FLIGHT
 
-    # Subtotal
-    subtotal = base + volume_charge + distance_charge + van_charge + labour_charge + stairs_charge
+    # Total cost
+    total_cost = van_cost + labour_cost + distance_cost + stairs_cost
 
-    # Weekend premium
+    # Weekend premium (applied before doubling)
     if is_weekend:
-        weekend_extra = subtotal * (WEEKEND_PREMIUM - 1.0)
-        total = subtotal + weekend_extra
+        weekend_extra = total_cost * (WEEKEND_PREMIUM - 1.0)
+        total_cost = total_cost + weekend_extra
     else:
         weekend_extra = 0.0
-        total = subtotal
+
+    # Customer price = cost × 2
+    customer_price = total_cost * PRICE_MULTIPLIER
 
     # Enforce minimum
-    total = max(total, MIN_QUOTE)
+    customer_price = max(customer_price, MIN_QUOTE)
 
     return {
-        "total": round(total, 2),
+        "total": round(customer_price, 2),
+        "cost": round(total_cost, 2),
         "breakdown": {
-            "base_rate": round(base, 2),
-            "volume_charge": round(volume_charge, 2),
-            "distance_charge": round(distance_charge, 2),
-            "van_surcharge": round(van_charge, 2),
-            "labour_charge": round(labour_charge, 2),
-            "stairs_charge": round(stairs_charge, 2),
+            "van_cost": round(van_cost, 2),
+            "labour_cost": round(labour_cost, 2),
+            "distance_cost": round(distance_cost, 2),
+            "stairs_cost": round(stairs_cost, 2),
             "weekend_premium": round(weekend_extra, 2),
+            "total_cost": round(total_cost, 2),
+            "multiplier": PRICE_MULTIPLIER,
         },
         "job_hours": round(job_hours, 1),
     }
@@ -787,3 +787,4 @@ if __name__ == "__main__":
     print(f"[MOVCO] 🗺️  Google Maps API Key: {bool(GOOGLE_MAPS_API_KEY)}")
     print(f"[MOVCO] 📦 Model loaded: {model is not None}\n")
     uvicorn.run("api:app", host="127.0.0.1", port=8000, reload=False)
+    
