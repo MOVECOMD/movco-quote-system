@@ -731,23 +731,9 @@ def analyze_quote(req: QuoteRequest):
     print(f"[MOVCO] 💰 Rule-based price: £{rule_price:.2f}")
     print(f"[MOVCO]    Breakdown: {rule_price_info['breakdown']}")
 
-    # Step 7: ML model prediction
-    features = build_features_for_price_model(
-        total_volume_m3=total_volume_m3,
-        items=items,
-        distance_km=distance_km,
-    )
-
-    try:
-        raw_pred = model.predict(features)[0]
-        ml_price = float(raw_pred)
-        print(f"[MOVCO] 💰 ML model price: £{ml_price:.2f}")
-    except Exception as e:
-        print(f"[MOVCO] ⚠️  ML model error: {e}")
-        ml_price = 0.0
-
-    # Step 8: Hybrid pricing — combine ML + rule-based (NEW)
-    estimate, pricing_method = calculate_hybrid_price(ml_price, rule_price)
+    # Step 7: Use rule-based price directly (simple formula: vans + staff + miles, ×2)
+    estimate = rule_price
+    pricing_method = "calculated"
 
     print(f"[MOVCO] 💰 FINAL PRICE: £{estimate:.2f} (method: {pricing_method})")
 
