@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/context/AuthContext";
 import Link from "next/link";
+import BookingModal from "@/components/BookingModal";
 
 type InstantQuote = {
   id: string | null;
@@ -27,7 +28,6 @@ type AiAnalysis = {
   items: AiItem[];
   totalVolumeM3: number;
   totalAreaM2: number;
-  // NEW fields from improved API
   distance_miles?: number;
   duration_text?: string;
   van_count?: number;
@@ -86,7 +86,6 @@ async function generateAnalysis(quote: InstantQuote): Promise<AiAnalysis> {
       })),
       totalVolumeM3: data.totalVolumeM3,
       totalAreaM2: data.totalAreaM2,
-      // NEW fields
       distance_miles: data.distance_miles,
       duration_text: data.duration_text,
       van_count: data.van_count,
@@ -126,6 +125,7 @@ export default function QuoteDetailPage() {
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showBookingModal, setShowBookingModal] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -157,6 +157,12 @@ export default function QuoteDetailPage() {
           try {
             const aiAnalysis = await generateAnalysis(data as InstantQuote);
             setAnalysis(aiAnalysis);
+
+            // Show booking modal after analysis completes
+            // Only show if user hasn't already responded
+            if (data.interested_in_booking === null || data.interested_in_booking === undefined) {
+              setShowBookingModal(true);
+            }
           } catch (err) {
             console.error("Analysis error:", err);
             setAnalysis({
@@ -265,6 +271,14 @@ export default function QuoteDetailPage() {
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6">
+      {/* Booking Modal */}
+      {showBookingModal && quote.id && (
+        <BookingModal
+          quoteId={quote.id}
+          onClose={() => setShowBookingModal(false)}
+        />
+      )}
+
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
         <header className="flex items-center justify-between">
@@ -336,7 +350,6 @@ export default function QuoteDetailPage() {
 
           {/* Key Stats Grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {/* Volume */}
             <div className="bg-blue-50 rounded-xl p-4 text-center">
               <div className="inline-flex items-center justify-center w-10 h-10 bg-blue-100 rounded-lg mb-2">
                 <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -347,7 +360,6 @@ export default function QuoteDetailPage() {
               <p className="text-xs text-blue-600 font-medium">Volume (m³)</p>
             </div>
 
-            {/* Vans */}
             <div className="bg-amber-50 rounded-xl p-4 text-center">
               <div className="inline-flex items-center justify-center w-10 h-10 bg-amber-100 rounded-lg mb-2">
                 <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -360,7 +372,6 @@ export default function QuoteDetailPage() {
               </p>
             </div>
 
-            {/* Movers */}
             <div className="bg-purple-50 rounded-xl p-4 text-center">
               <div className="inline-flex items-center justify-center w-10 h-10 bg-purple-100 rounded-lg mb-2">
                 <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -371,7 +382,6 @@ export default function QuoteDetailPage() {
               <p className="text-xs text-purple-600 font-medium">Movers</p>
             </div>
 
-            {/* Distance */}
             <div className="bg-green-50 rounded-xl p-4 text-center">
               <div className="inline-flex items-center justify-center w-10 h-10 bg-green-100 rounded-lg mb-2">
                 <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -386,7 +396,6 @@ export default function QuoteDetailPage() {
             </div>
           </div>
 
-          {/* Van Description Banner */}
           {van_description && (
             <div className="mt-4 bg-slate-50 rounded-xl p-4 flex items-center gap-3 border border-slate-200">
               <div className="flex-shrink-0 w-10 h-10 bg-slate-200 rounded-lg flex items-center justify-center">
