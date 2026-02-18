@@ -275,6 +275,16 @@ export default function QuoteDetailPage() {
       {showBookingModal && quote.id && (
         <BookingModal
           quoteId={quote.id}
+          quoteData={{
+            starting_address: quote.starting_address,
+            ending_address: quote.ending_address,
+            estimate,
+            volume_m3: totalVolumeM3,
+            van_count,
+            van_description,
+            recommended_movers,
+            distance_miles,
+          }}
           onClose={() => setShowBookingModal(false)}
         />
       )}

@@ -6,6 +6,7 @@
 #   ✅ Weekend premium detection
 #   ✅ Richer QuoteResponse with van_count, movers, breakdown
 #   ✅ Improved description with van info
+#   ✅ Email notification when customer shows booking interest
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,6 +21,9 @@ import math
 from datetime import datetime
 import os
 import traceback
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 FT3_TO_M3 = 0.0283168  # cubic feet -> cubic metres
 
@@ -47,6 +51,18 @@ STAIRS_SURCHARGE_PER_FLIGHT = 50.0  # £ per flight of stairs (future use)
 ML_LOWER_BOUND_FACTOR = 0.70    # ML price must be >= 70% of rule-based
 ML_UPPER_BOUND_FACTOR = 1.40    # ML price must be <= 140% of rule-based
 MIN_QUOTE = 200.0               # Absolute minimum quote (£)
+
+# ---------------------------------------------------------------------------
+# SMTP Email Configuration
+# ---------------------------------------------------------------------------
+SMTP_EMAIL = os.getenv("SMTP_EMAIL")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+NOTIFY_EMAIL = "zachary@movco.co.uk"  # Where booking notifications go
+
+if SMTP_EMAIL and SMTP_PASSWORD:
+    print("[MOVCO] ✓ SMTP email configured")
+else:
+    print("[MOVCO] WARNING: SMTP not configured - email notifications disabled")
 
 # ---------------------------------------------------------------------------
 # Environment & model loading
@@ -101,6 +117,7 @@ def health():
         "anthropic_configured": bool(ANTHROPIC_API_KEY),
         "google_maps_configured": bool(GOOGLE_MAPS_API_KEY),
         "model_loaded": model is not None,
+        "smtp_configured": bool(SMTP_EMAIL and SMTP_PASSWORD),
     }
 
 
@@ -133,6 +150,20 @@ class QuoteResponse(BaseModel):
     recommended_movers: int = 2
     is_weekend: bool = False
     pricing_method: str = "hybrid"  # "model", "rule_based", or "hybrid"
+
+
+class BookingNotifyRequest(BaseModel):
+    quote_id: str
+    starting_address: str
+    ending_address: str
+    estimate: Optional[float] = None
+    volume_m3: Optional[float] = None
+    van_count: Optional[int] = None
+    van_description: Optional[str] = None
+    recommended_movers: Optional[int] = None
+    distance_miles: Optional[float] = None
+    customer_email: Optional[str] = None
+    customer_name: Optional[str] = None
 
 
 # ---------- Furniture volume estimates (average cubic feet) ----------
@@ -218,12 +249,6 @@ def estimate_item_volume(item_name: str) -> float:
 # ---------- Van & Labour Estimation (NEW) ----------
 
 def calculate_van_count(total_volume_m3: float) -> dict:
-    """
-    Calculate the number and type of vans needed based on total volume.
-    Uses Luton vans (35 m³) as the standard, with smaller vans for small moves.
-
-    Returns dict with van_count, van_description, and van_type.
-    """
     if total_volume_m3 <= 0:
         return {
             "van_count": 1,
@@ -232,7 +257,6 @@ def calculate_van_count(total_volume_m3: float) -> dict:
             "capacity_used_pct": 0,
         }
 
-    # Small move: fits in a small or medium van
     if total_volume_m3 <= SWB_VAN_CAPACITY_M3:
         return {
             "van_count": 1,
@@ -249,7 +273,6 @@ def calculate_van_count(total_volume_m3: float) -> dict:
             "capacity_used_pct": round((total_volume_m3 / LWB_VAN_CAPACITY_M3) * 100),
         }
 
-    # Standard / large move: use Luton vans
     if total_volume_m3 <= LUTON_VAN_CAPACITY_M3:
         return {
             "van_count": 1,
@@ -258,7 +281,6 @@ def calculate_van_count(total_volume_m3: float) -> dict:
             "capacity_used_pct": round((total_volume_m3 / LUTON_VAN_CAPACITY_M3) * 100),
         }
 
-    # Multiple Luton vans needed
     van_count = math.ceil(total_volume_m3 / LUTON_VAN_CAPACITY_M3)
     total_capacity = van_count * LUTON_VAN_CAPACITY_M3
     pct = round((total_volume_m3 / total_capacity) * 100)
@@ -272,15 +294,6 @@ def calculate_van_count(total_volume_m3: float) -> dict:
 
 
 def calculate_movers(van_count: int, total_volume_m3: float) -> int:
-    """
-    Estimate the recommended number of movers based on van count and volume.
-    Industry standard:
-      - 1 small/medium van: 2 movers
-      - 1 Luton van: 2 movers
-      - 2 Luton vans: 3 movers
-      - 3+ Luton vans: 4 movers
-    Heavy items (high volume per item) may warrant extra.
-    """
     if van_count <= 1:
         return 2
     elif van_count == 2:
@@ -290,21 +303,14 @@ def calculate_movers(van_count: int, total_volume_m3: float) -> int:
 
 
 def estimate_job_hours(total_volume_m3: float, distance_miles: float) -> float:
-    """
-    Estimate total job time (loading + driving + unloading).
-    Rule of thumb:
-      - Loading:   ~1 hour per 15 m³
-      - Driving:   from Google Maps duration
-      - Unloading: ~80% of loading time
-    """
     loading_hours = max(total_volume_m3 / 15.0, 1.0)
-    driving_hours = max(distance_miles / 30.0, 0.5)  # assume ~30 mph avg
+    driving_hours = max(distance_miles / 30.0, 0.5)
     unloading_hours = loading_hours * 0.8
     total = loading_hours + driving_hours + unloading_hours
     return max(total, MIN_HOURS_ESTIMATE)
 
 
-# ---------- Rule-Based Pricing (NEW) ----------
+# ---------- Rule-Based Pricing ----------
 
 def calculate_rule_based_price(
     total_volume_m3: float,
@@ -314,40 +320,20 @@ def calculate_rule_based_price(
     is_weekend: bool = False,
     stairs_flights: int = 0,
 ) -> dict:
-    """
-    Simple pricing model:
-      - £100 per van needed
-      - £15 per staff member per hour
-      - £0.50 per mile
-      - Total cost × 2 = customer price
-    """
-    # Van cost: ALL vans, not just extras
     van_cost = van_count * RATE_PER_VAN
-
-    # Labour cost: movers × hours × rate
     job_hours = estimate_job_hours(total_volume_m3, distance_miles)
     labour_cost = movers * job_hours * RATE_PER_MOVER_HOUR
-
-    # Distance cost
     distance_cost = distance_miles * RATE_PER_MILE
-
-    # Stairs surcharge
     stairs_cost = stairs_flights * STAIRS_SURCHARGE_PER_FLIGHT
-
-    # Total cost
     total_cost = van_cost + labour_cost + distance_cost + stairs_cost
 
-    # Weekend premium (applied before doubling)
     if is_weekend:
         weekend_extra = total_cost * (WEEKEND_PREMIUM - 1.0)
         total_cost = total_cost + weekend_extra
     else:
         weekend_extra = 0.0
 
-    # Customer price = cost × 2
     customer_price = total_cost * PRICE_MULTIPLIER
-
-    # Enforce minimum
     customer_price = max(customer_price, MIN_QUOTE)
 
     return {
@@ -366,21 +352,12 @@ def calculate_rule_based_price(
     }
 
 
-# ---------- Hybrid Pricing (NEW) ----------
+# ---------- Hybrid Pricing ----------
 
 def calculate_hybrid_price(
     ml_prediction: float,
     rule_based_price: float,
 ) -> tuple[float, str]:
-    """
-    Combine ML model prediction with rule-based sanity bounds.
-
-    - If ML prediction is within bounds of rule-based → use ML (it's learned from real data)
-    - If ML prediction is outside bounds → clamp it and flag as 'hybrid'
-    - If ML fails entirely → use rule-based
-
-    Returns (final_price, method_used)
-    """
     lower = rule_based_price * ML_LOWER_BOUND_FACTOR
     upper = rule_based_price * ML_UPPER_BOUND_FACTOR
 
@@ -388,10 +365,8 @@ def calculate_hybrid_price(
         return max(rule_based_price, MIN_QUOTE), "rule_based"
 
     if lower <= ml_prediction <= upper:
-        # ML prediction is reasonable — trust it
         return max(round(ml_prediction, 2), MIN_QUOTE), "model"
 
-    # ML is out of range — clamp it
     clamped = max(lower, min(ml_prediction, upper))
     print(f"[MOVCO] ⚠️  ML price £{ml_prediction:.2f} outside bounds "
           f"[£{lower:.2f} – £{upper:.2f}], clamped to £{clamped:.2f}")
@@ -627,7 +602,6 @@ def aggregate_items_and_volume(
 
 
 def estimate_rooms_from_volume(total_volume_m3: float) -> int:
-    """Map volume to approximate room count for ML model feature."""
     if total_volume_m3 <= 15:
         return 2
     elif total_volume_m3 <= 30:
@@ -665,6 +639,150 @@ def is_weekend_today() -> bool:
     return datetime.now().weekday() >= 5  # 5=Sat, 6=Sun
 
 
+# ---------- Email Notification ----------
+
+def send_booking_notification(booking: BookingNotifyRequest) -> bool:
+    """Send an email notification when a customer shows booking interest."""
+    if not SMTP_EMAIL or not SMTP_PASSWORD:
+        print("[MOVCO] ⚠️  SMTP not configured - skipping email")
+        return False
+
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["From"] = SMTP_EMAIL
+        msg["To"] = NOTIFY_EMAIL
+        msg["Subject"] = f"🚚 New Booking Interest — {booking.starting_address} → {booking.ending_address}"
+
+        # Build email body
+        estimate_str = f"£{booking.estimate:,.0f}" if booking.estimate else "Not available"
+        volume_str = f"{booking.volume_m3} m³" if booking.volume_m3 else "Not available"
+        vans_str = booking.van_description or (str(booking.van_count) if booking.van_count else "Not available")
+        movers_str = str(booking.recommended_movers) if booking.recommended_movers else "Not available"
+        distance_str = f"{booking.distance_miles} miles" if booking.distance_miles else "Not available"
+        customer_str = booking.customer_name or "Not provided"
+        email_str = booking.customer_email or "Not provided"
+
+        html = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: #1e293b; color: white; padding: 24px; border-radius: 12px 12px 0 0;">
+                <h1 style="margin: 0; font-size: 22px;">🚚 New Booking Interest</h1>
+                <p style="margin: 8px 0 0; opacity: 0.8; font-size: 14px;">A customer wants to book a removals company</p>
+            </div>
+
+            <div style="background: #f8fafc; padding: 24px; border: 1px solid #e2e8f0; border-top: none;">
+                <h2 style="color: #1e293b; font-size: 16px; margin-top: 0;">Move Details</h2>
+                <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                    <tr>
+                        <td style="padding: 8px 0; color: #64748b; width: 140px;">From:</td>
+                        <td style="padding: 8px 0; color: #1e293b; font-weight: 600;">{booking.starting_address}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #64748b;">To:</td>
+                        <td style="padding: 8px 0; color: #1e293b; font-weight: 600;">{booking.ending_address}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #64748b;">Distance:</td>
+                        <td style="padding: 8px 0; color: #1e293b;">{distance_str}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #64748b;">Volume:</td>
+                        <td style="padding: 8px 0; color: #1e293b;">{volume_str}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #64748b;">Vans:</td>
+                        <td style="padding: 8px 0; color: #1e293b;">{vans_str}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #64748b;">Movers:</td>
+                        <td style="padding: 8px 0; color: #1e293b;">{movers_str}</td>
+                    </tr>
+                </table>
+
+                <div style="background: #dcfce7; border-radius: 8px; padding: 16px; margin: 16px 0;">
+                    <p style="margin: 0; font-size: 14px; color: #166534;">
+                        <strong>Estimated Quote: {estimate_str}</strong>
+                    </p>
+                </div>
+
+                <h2 style="color: #1e293b; font-size: 16px;">Customer Info</h2>
+                <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                    <tr>
+                        <td style="padding: 8px 0; color: #64748b; width: 140px;">Name:</td>
+                        <td style="padding: 8px 0; color: #1e293b;">{customer_str}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #64748b;">Email:</td>
+                        <td style="padding: 8px 0; color: #1e293b;">{email_str}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #64748b;">Quote ID:</td>
+                        <td style="padding: 8px 0; color: #64748b; font-size: 12px;">{booking.quote_id}</td>
+                    </tr>
+                </table>
+            </div>
+
+            <div style="background: #1e293b; color: white; padding: 16px; border-radius: 0 0 12px 12px; text-align: center;">
+                <p style="margin: 0; font-size: 12px; opacity: 0.7;">MOVCO Quote System — Automated Notification</p>
+            </div>
+        </body>
+        </html>
+        """
+
+        plain = f"""New Booking Interest — MOVCO
+
+From: {booking.starting_address}
+To: {booking.ending_address}
+Distance: {distance_str}
+Volume: {volume_str}
+Vans: {vans_str}
+Movers: {movers_str}
+Estimate: {estimate_str}
+
+Customer: {customer_str}
+Email: {email_str}
+Quote ID: {booking.quote_id}
+"""
+
+        msg.attach(MIMEText(plain, "plain"))
+        msg.attach(MIMEText(html, "html"))
+
+        print(f"[MOVCO] 📧 Sending booking notification email to {NOTIFY_EMAIL}...")
+
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.sendmail(SMTP_EMAIL, NOTIFY_EMAIL, msg.as_string())
+
+        print(f"[MOVCO] ✅ Booking notification email sent!")
+        return True
+
+    except Exception as e:
+        print(f"[MOVCO] ❌ Failed to send email: {e}")
+        traceback.print_exc()
+        return False
+
+
+# ---------- Booking Notification Endpoint ----------
+
+@app.post("/notify-booking")
+def notify_booking(req: BookingNotifyRequest):
+    print(f"\n[MOVCO] ========================================")
+    print(f"[MOVCO] 📧 Booking interest received!")
+    print(f"[MOVCO]    Quote: {req.quote_id}")
+    print(f"[MOVCO]    From: {req.starting_address}")
+    print(f"[MOVCO]    To: {req.ending_address}")
+    print(f"[MOVCO] ========================================\n")
+
+    email_sent = send_booking_notification(req)
+
+    return {
+        "status": "ok",
+        "email_sent": email_sent,
+        "message": "Booking interest recorded" + (" and notification sent" if email_sent else " (email failed)"),
+    }
+
+
 # ---------- Main endpoint ----------
 
 @app.post("/analyze", response_model=QuoteResponse)
@@ -700,7 +818,7 @@ def analyze_quote(req: QuoteRequest):
     total_volume_m3 = round(total_volume_ft3 * FT3_TO_M3, 2)
     total_area_m2 = round(total_volume_m3 * 1.3, 2)
 
-    # Step 4: Calculate van count & movers (NEW)
+    # Step 4: Calculate van count & movers
     van_info = calculate_van_count(total_volume_m3)
     van_count = van_info["van_count"]
     van_description = van_info["van_description"]
@@ -718,7 +836,7 @@ def analyze_quote(req: QuoteRequest):
     if weekend:
         print(f"[MOVCO]    ⚠️  Weekend premium applies (+15%)")
 
-    # Step 6: Rule-based price (NEW — always calculated as sanity check)
+    # Step 6: Rule-based price
     rule_price_info = calculate_rule_based_price(
         total_volume_m3=total_volume_m3,
         distance_miles=distance_miles,
@@ -731,13 +849,13 @@ def analyze_quote(req: QuoteRequest):
     print(f"[MOVCO] 💰 Rule-based price: £{rule_price:.2f}")
     print(f"[MOVCO]    Breakdown: {rule_price_info['breakdown']}")
 
-    # Step 7: Use rule-based price directly (simple formula: vans + staff + miles, ×2)
+    # Step 7: Use rule-based price directly
     estimate = rule_price
     pricing_method = "calculated"
 
     print(f"[MOVCO] 💰 FINAL PRICE: £{estimate:.2f} (method: {pricing_method})")
 
-    # Step 9: Build rich description (IMPROVED)
+    # Step 9: Build rich description
     weekend_note = " Weekend rates apply (+15%)." if weekend else ""
     description = (
         f"Estimate based on AI analysis of {len(req.photo_urls)} room photo(s). "

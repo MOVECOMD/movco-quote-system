@@ -2,19 +2,32 @@
 
 import { useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { useAuth } from '@/context/AuthContext';
 
 interface BookingModalProps {
   quoteId: string;
+  quoteData?: {
+    starting_address?: string;
+    ending_address?: string;
+    estimate?: number;
+    volume_m3?: number;
+    van_count?: number;
+    van_description?: string;
+    recommended_movers?: number;
+    distance_miles?: number;
+  };
   onClose: () => void;
 }
 
-export default function BookingModal({ quoteId, onClose }: BookingModalProps) {
+export default function BookingModal({ quoteId, quoteData, onClose }: BookingModalProps) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const { user } = useAuth();
 
   const handleYes = async () => {
     setSaving(true);
     try {
+      // 1. Update Supabase
       const { error } = await supabase
         .from('instant_quotes')
         .update({ interested_in_booking: true })
@@ -22,9 +35,33 @@ export default function BookingModal({ quoteId, onClose }: BookingModalProps) {
 
       if (error) {
         console.error('Failed to save booking interest:', error.message);
-      } else {
-        setSaved(true);
       }
+
+      // 2. Send email notification via backend
+      try {
+        await fetch('https://movco-api.onrender.com/notify-booking', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            quote_id: quoteId,
+            starting_address: quoteData?.starting_address || '',
+            ending_address: quoteData?.ending_address || '',
+            estimate: quoteData?.estimate,
+            volume_m3: quoteData?.volume_m3,
+            van_count: quoteData?.van_count,
+            van_description: quoteData?.van_description,
+            recommended_movers: quoteData?.recommended_movers,
+            distance_miles: quoteData?.distance_miles,
+            customer_email: user?.email || null,
+            customer_name: user?.user_metadata?.full_name || null,
+          }),
+        });
+      } catch (emailErr) {
+        console.error('Email notification failed:', emailErr);
+        // Don't block the user - booking interest is already saved
+      }
+
+      setSaved(true);
     } catch (err) {
       console.error('Booking interest error:', err);
     } finally {
