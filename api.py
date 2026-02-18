@@ -164,6 +164,7 @@ class BookingNotifyRequest(BaseModel):
     distance_miles: Optional[float] = None
     customer_email: Optional[str] = None
     customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
 
 
 # ---------- Furniture volume estimates (average cubic feet) ----------
@@ -661,6 +662,7 @@ def send_booking_notification(booking: BookingNotifyRequest) -> bool:
         distance_str = f"{booking.distance_miles} miles" if booking.distance_miles else "Not available"
         customer_str = booking.customer_name or "Not provided"
         email_str = booking.customer_email or "Not provided"
+        phone_str = booking.customer_phone or "Not provided"
 
         html = f"""
         <html>
@@ -712,6 +714,10 @@ def send_booking_notification(booking: BookingNotifyRequest) -> bool:
                         <td style="padding: 8px 0; color: #1e293b;">{customer_str}</td>
                     </tr>
                     <tr>
+                        <td style="padding: 8px 0; color: #64748b;">Phone:</td>
+                        <td style="padding: 8px 0; color: #1e293b; font-weight: 600;">{phone_str}</td>
+                    </tr>
+                    <tr>
                         <td style="padding: 8px 0; color: #64748b;">Email:</td>
                         <td style="padding: 8px 0; color: #1e293b;">{email_str}</td>
                     </tr>
@@ -740,6 +746,7 @@ Movers: {movers_str}
 Estimate: {estimate_str}
 
 Customer: {customer_str}
+Phone: {phone_str}
 Email: {email_str}
 Quote ID: {booking.quote_id}
 """
@@ -891,4 +898,3 @@ if __name__ == "__main__":
     print(f"[MOVCO] 🗺️  Google Maps API Key: {bool(GOOGLE_MAPS_API_KEY)}")
     print(f"[MOVCO] 📦 Model loaded: {model is not None}\n")
     uvicorn.run("api:app", host="127.0.0.1", port=8000, reload=False)
-    

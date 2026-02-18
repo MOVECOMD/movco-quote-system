@@ -54,11 +54,11 @@ export default function BookingModal({ quoteId, quoteData, onClose }: BookingMod
             distance_miles: quoteData?.distance_miles,
             customer_email: user?.email || null,
             customer_name: user?.user_metadata?.full_name || null,
+            customer_phone: user?.user_metadata?.phone || null,
           }),
         });
       } catch (emailErr) {
         console.error('Email notification failed:', emailErr);
-        // Don't block the user - booking interest is already saved
       }
 
       setSaved(true);
