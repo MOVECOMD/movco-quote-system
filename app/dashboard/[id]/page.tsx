@@ -160,8 +160,8 @@ export default function QuoteDetailPage() {
 
             // Show booking modal after analysis completes
             // Only show if user hasn't already responded
-            if (data.interested_in_booking === null || data.interested_in_booking === undefined) {
-              setShowBookingModal(true);
+           if (data.interested_in_booking === null || data.interested_in_booking === undefined) {
+              setTimeout(() => setShowBookingModal(true), 10000);
             }
           } catch (err) {
             console.error("Analysis error:", err);
