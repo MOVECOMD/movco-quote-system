@@ -6,7 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
-iimport DeleteQuoteButton from '@/components/DeleteQuoteButton';
+import DeleteQuoteButton from '@/components/DeleteQuoteButton';
 
 type InstantQuote = {
   id: string;
