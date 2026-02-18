@@ -410,7 +410,7 @@ export default function AdminDashboardPage() {
                         </td>
                         <td className="px-6 py-4">
                           <p className="text-xs text-white font-medium">{profile?.full_name || 'Unknown'}</p>
-                          <p className="text-[10px] text-slate-500">{profile?.email || quote.user_id.slice(0, 8) + '...'}</p>
+                          <p className="text-[10px] text-slate-500">{profile?.email || (quote.user_id ? quote.user_id.slice(0, 8) + '...' : 'Unknown')}</p>
                         </td>
                         <td className="px-6 py-4">
                           <p className="text-sm text-white font-medium truncate max-w-[180px]">{quote.starting_address}</p>
