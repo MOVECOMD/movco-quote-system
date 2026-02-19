@@ -35,6 +35,28 @@ type Profile = {
   created_at: string;
 };
 
+type Company = {
+  id: string;
+  user_id: string;
+  company_name: string;
+  contact_name: string;
+  email: string;
+  phone: string;
+  coverage_postcodes: string[];
+  balance_pence: number;
+  is_active: boolean;
+  created_at: string;
+};
+
+type LeadPurchase = {
+  id: string;
+  company_id: string;
+  quote_id: string;
+  amount_charged_pence: number;
+  status: string;
+  created_at: string;
+};
+
 type DailyCount = {
   date: string;
   count: number;
@@ -43,9 +65,11 @@ type DailyCount = {
 export default function AdminDashboardPage() {
   const [quotes, setQuotes] = useState<AdminQuote[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [leadPurchases, setLeadPurchases] = useState<LeadPurchase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'quotes'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'quotes' | 'companies'>('overview');
 
   const { user, loading: authLoading, signOut } = useAuth();
   const router = useRouter();
@@ -63,12 +87,16 @@ export default function AdminDashboardPage() {
     async function fetchData() {
       if (!user) return;
       try {
-        const [quotesRes, profilesRes] = await Promise.all([
+        const [quotesRes, profilesRes, companiesRes, leadsRes] = await Promise.all([
           supabase.from('instant_quotes').select('*').order('created_at', { ascending: false }),
           supabase.from('profiles').select('*').order('created_at', { ascending: false }),
+          supabase.from('companies').select('*').order('created_at', { ascending: false }),
+          supabase.from('lead_purchases').select('*').order('created_at', { ascending: false }),
         ]);
         if (quotesRes.error) { setError(quotesRes.error.message); } else { setQuotes(quotesRes.data as AdminQuote[]); }
         if (!profilesRes.error) { setProfiles(profilesRes.data as Profile[]); }
+        if (!companiesRes.error) { setCompanies(companiesRes.data as Company[]); }
+        if (!leadsRes.error) { setLeadPurchases(leadsRes.data as LeadPurchase[]); }
       } catch (err: any) {
         setError(err?.message || 'Failed to load data');
       } finally {
@@ -112,9 +140,15 @@ export default function AdminDashboardPage() {
   const interestedInBooking = quotes.filter(q => q.interested_in_booking === true).length;
   const notInterested = quotes.filter(q => q.interested_in_booking === false).length;
   const pendingResponse = quotes.filter(q => q.interested_in_booking === null || q.interested_in_booking === undefined).length;
-  const totalPhotos = quotes.reduce((sum, q) => sum + (q.photo_urls?.length || 0), 0);
   const uniqueUserCount = new Set(quotes.map(q => q.user_id)).size;
   const totalRegistered = profiles.length;
+
+  // Company stats
+  const totalCompanies = companies.length;
+  const activeCompanies = companies.filter(c => c.is_active).length;
+  const totalCompanyBalance = companies.reduce((sum, c) => sum + c.balance_pence, 0);
+  const totalLeadRevenue = leadPurchases.reduce((sum, l) => sum + l.amount_charged_pence, 0);
+  const totalLeadsSold = leadPurchases.length;
 
   const dailyCounts: DailyCount[] = [];
   const today = new Date();
@@ -154,14 +188,14 @@ export default function AdminDashboardPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-white">Admin Dashboard</h1>
-          <p className="text-slate-400 mt-1">Overview of all quotes, users, and booking activity</p>
+          <p className="text-slate-400 mt-1">Overview of all quotes, users, companies, and leads</p>
         </div>
 
         <div className="flex gap-1 mb-8 bg-slate-900 rounded-lg p-1 w-fit border border-slate-800">
-          {(['overview', 'users', 'quotes'] as const).map(tab => (
+          {(['overview', 'users', 'quotes', 'companies'] as const).map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
               className={`px-4 py-2 rounded-md text-sm font-medium transition ${activeTab === tab ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'}`}>
-              {tab === 'overview' ? '📊 Overview' : tab === 'users' ? '👥 Users' : '📋 Quotes'}
+              {tab === 'overview' ? '📊 Overview' : tab === 'users' ? '👥 Users' : tab === 'quotes' ? '📋 Quotes' : '🏢 Companies'}
             </button>
           ))}
         </div>
@@ -169,7 +203,7 @@ export default function AdminDashboardPage() {
         {/* ========== OVERVIEW TAB ========== */}
         {activeTab === 'overview' && (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
               <div className="bg-slate-900 rounded-xl p-5 border border-slate-800">
                 <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Total Quotes</p>
                 <p className="text-3xl font-bold text-white mt-2">{totalQuotes}</p>
@@ -189,6 +223,28 @@ export default function AdminDashboardPage() {
                 <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Conversion Rate</p>
                 <p className="text-3xl font-bold text-amber-400 mt-2">{totalQuotes > 0 ? Math.round((interestedInBooking / totalQuotes) * 100) : 0}%</p>
                 <p className="text-xs text-slate-500 mt-1">interested / total quotes</p>
+              </div>
+            </div>
+
+            {/* Company / Revenue stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              <div className="bg-slate-900 rounded-xl p-5 border border-emerald-900/50">
+                <p className="text-xs font-medium text-emerald-500 uppercase tracking-wider">Companies</p>
+                <p className="text-3xl font-bold text-emerald-400 mt-2">{totalCompanies}</p>
+                <p className="text-xs text-slate-500 mt-1">{activeCompanies} active</p>
+              </div>
+              <div className="bg-slate-900 rounded-xl p-5 border border-emerald-900/50">
+                <p className="text-xs font-medium text-emerald-500 uppercase tracking-wider">Leads Sold</p>
+                <p className="text-3xl font-bold text-emerald-400 mt-2">{totalLeadsSold}</p>
+              </div>
+              <div className="bg-slate-900 rounded-xl p-5 border border-emerald-900/50">
+                <p className="text-xs font-medium text-emerald-500 uppercase tracking-wider">Lead Revenue</p>
+                <p className="text-3xl font-bold text-emerald-400 mt-2">£{(totalLeadRevenue / 100).toFixed(0)}</p>
+              </div>
+              <div className="bg-slate-900 rounded-xl p-5 border border-emerald-900/50">
+                <p className="text-xs font-medium text-emerald-500 uppercase tracking-wider">Company Balances</p>
+                <p className="text-3xl font-bold text-emerald-400 mt-2">£{(totalCompanyBalance / 100).toFixed(0)}</p>
+                <p className="text-xs text-slate-500 mt-1">total held</p>
               </div>
             </div>
 
@@ -315,12 +371,14 @@ export default function AdminDashboardPage() {
                     <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Photos</th>
                     <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Status</th>
                     <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Booking</th>
+                    <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Leads Sent</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
                   {quotes.map((quote) => {
                     const profile = getProfile(quote.user_id);
+                    const leadsSent = leadPurchases.filter(l => l.quote_id === quote.id).length;
                     return (
                       <tr key={quote.id} className="hover:bg-slate-800/50 transition-colors">
                         <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-400">
@@ -351,6 +409,11 @@ export default function AdminDashboardPage() {
                           {quote.interested_in_booking === false && (<span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-500/20 text-red-400">Declined</span>)}
                           {(quote.interested_in_booking === null || quote.interested_in_booking === undefined) && (<span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-700 text-slate-500">Pending</span>)}
                         </td>
+                        <td className="px-6 py-4 text-center">
+                          {leadsSent > 0 ? (
+                            <span className="inline-flex items-center justify-center w-7 h-7 bg-emerald-500/20 text-emerald-400 rounded-full text-xs font-bold">{leadsSent}</span>
+                          ) : (<span className="text-xs text-slate-600">—</span>)}
+                        </td>
                         <td className="px-6 py-4 text-right">
                           <Link href={`/dashboard/${quote.id}`} className="text-blue-400 hover:text-blue-300 text-xs font-medium">View →</Link>
                         </td>
@@ -361,6 +424,112 @@ export default function AdminDashboardPage() {
               </table>
             </div>
             {quotes.length === 0 && (<div className="px-6 py-12 text-center"><p className="text-slate-500">No quotes yet</p></div>)}
+          </div>
+        )}
+
+        {/* ========== COMPANIES TAB ========== */}
+        {activeTab === 'companies' && (
+          <div className="space-y-6">
+            {/* Company stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-slate-900 rounded-xl p-5 border border-emerald-900/50">
+                <p className="text-xs font-medium text-emerald-500 uppercase tracking-wider">Total Companies</p>
+                <p className="text-3xl font-bold text-emerald-400 mt-2">{totalCompanies}</p>
+              </div>
+              <div className="bg-slate-900 rounded-xl p-5 border border-emerald-900/50">
+                <p className="text-xs font-medium text-emerald-500 uppercase tracking-wider">Active</p>
+                <p className="text-3xl font-bold text-emerald-400 mt-2">{activeCompanies}</p>
+              </div>
+              <div className="bg-slate-900 rounded-xl p-5 border border-emerald-900/50">
+                <p className="text-xs font-medium text-emerald-500 uppercase tracking-wider">Total Balances</p>
+                <p className="text-3xl font-bold text-emerald-400 mt-2">£{(totalCompanyBalance / 100).toFixed(0)}</p>
+              </div>
+              <div className="bg-slate-900 rounded-xl p-5 border border-emerald-900/50">
+                <p className="text-xs font-medium text-emerald-500 uppercase tracking-wider">Lead Revenue</p>
+                <p className="text-3xl font-bold text-emerald-400 mt-2">£{(totalLeadRevenue / 100).toFixed(0)}</p>
+              </div>
+            </div>
+
+            {/* Companies table */}
+            <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-800">
+                <h2 className="text-sm font-semibold text-white">Registered Companies ({totalCompanies})</h2>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-800">
+                      <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Company</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Contact</th>
+                      <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Balance</th>
+                      <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Leads Bought</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Coverage</th>
+                      <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Joined</th>
+                      <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800">
+                    {companies.map(company => {
+                      const companyLeads = leadPurchases.filter(l => l.company_id === company.id);
+                      const companyRevenue = companyLeads.reduce((sum, l) => sum + l.amount_charged_pence, 0);
+                      return (
+                        <tr key={company.id} className="hover:bg-slate-800/50 transition-colors">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                                <span className="text-emerald-400 text-xs font-bold">{company.company_name.charAt(0).toUpperCase()}</span>
+                              </div>
+                              <div>
+                                <p className="text-sm text-white font-semibold">{company.company_name}</p>
+                                <p className="text-[10px] text-slate-500">{company.email}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <p className="text-xs text-white">{company.contact_name}</p>
+                            <p className="text-xs text-blue-400">{company.phone}</p>
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <span className={`text-sm font-bold ${company.balance_pence > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              £{(company.balance_pence / 100).toFixed(2)}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <span className="text-sm text-white font-semibold">{companyLeads.length}</span>
+                            <span className="text-xs text-slate-500 ml-1">(£{(companyRevenue / 100).toFixed(0)})</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-wrap gap-1 max-w-[200px]">
+                              {(company.coverage_postcodes || []).slice(0, 8).map(pc => (
+                                <span key={pc} className="px-1.5 py-0.5 bg-slate-800 text-slate-400 text-[10px] font-mono rounded">{pc}</span>
+                              ))}
+                              {(company.coverage_postcodes?.length || 0) > 8 && (
+                                <span className="px-1.5 py-0.5 bg-slate-800 text-slate-500 text-[10px] rounded">+{company.coverage_postcodes.length - 8}</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-center text-xs text-slate-400">
+                            {new Date(company.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold
+                              ${company.is_active ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                              {company.is_active ? 'Active' : 'Paused'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {companies.length === 0 && (
+                <div className="px-6 py-12 text-center">
+                  <p className="text-slate-500">No companies registered yet</p>
+                  <p className="text-slate-600 text-xs mt-1">Share /for-companies with removals companies to get started</p>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </main>

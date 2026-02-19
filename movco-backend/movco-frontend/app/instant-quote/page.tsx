@@ -1,0 +1,338 @@
+'use client';
+
+import { FormEvent, useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabaseClient';
+import Image from 'next/image';
+import Link from 'next/link';
+
+export default function InstantQuotePage() {
+  const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [startingAddress, setStartingAddress] = useState('');
+  const [endingAddress, setEndingAddress] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [errorText, setErrorText] = useState<string | null>(null);
+  const [successText, setSuccessText] = useState<string | null>(null);
+  const [dragActive, setDragActive] = useState(false);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    setFiles(Array.from(e.target.files));
+  };
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setFiles(Array.from(e.dataTransfer.files));
+    }
+  };
+
+  const removeFile = (index: number) => {
+    setFiles(files.filter((_, i) => i !== index));
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setErrorText(null);
+    setSuccessText(null);
+    setSubmitting(true);
+
+    try {
+      if (!startingAddress.trim() || !endingAddress.trim()) {
+        throw new Error('Please fill in both addresses.');
+      }
+
+      const uploadedUrls: string[] = [];
+
+      for (const file of files) {
+        const filePath = `${Date.now()}-${file.name}`;
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('photos')
+          .upload(filePath, file);
+
+        if (uploadError || !uploadData) {
+          console.error('Upload error:', uploadError);
+          throw new Error(uploadError?.message || 'Failed to upload photo.');
+        }
+
+        const { data: publicData } = supabase.storage
+          .from('photos')
+          .getPublicUrl(uploadData.path);
+
+        if (publicData?.publicUrl) {
+          uploadedUrls.push(publicData.publicUrl);
+        }
+      }
+
+      let userId = null;
+      try {
+        const storageKey = Object.keys(localStorage).find(k => k.includes('auth-token'));
+        if (storageKey) {
+          const tokenData = JSON.parse(localStorage.getItem(storageKey) || '{}');
+          userId = tokenData?.user?.id || null;
+        }
+      } catch (e) {
+        console.error('Error reading auth:', e);
+      }
+
+      const { data: insertData, error: insertError } = await supabase
+        .from('instant_quotes')
+        .insert({
+          starting_address: startingAddress,
+          ending_address: endingAddress,
+          photo_urls: uploadedUrls.length > 0 ? uploadedUrls : null,
+          status: 'new',
+          user_id: userId,
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        throw new Error((insertError as any).message || 'Failed to save quote.');
+      }
+
+      setSuccessText('Quote submitted successfully! Redirecting...');
+      setTimeout(() => router.push('/dashboard'), 1500);
+    } catch (err: any) {
+      setErrorText(err?.message || 'Something went wrong.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-movco-light">
+      {/* Header */}
+      <header className="bg-movco-navy shadow-lg">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <Link href="/dashboard" className="flex items-center gap-3">
+              <Image
+                src="/movco-logo.png"
+                alt="MOVCO"
+                width={36}
+                height={36}
+                className="rounded-lg"
+              />
+              <span className="text-white font-bold text-lg tracking-wide">
+                MOVCO
+              </span>
+            </Link>
+            <Link
+              href="/dashboard"
+              className="text-gray-400 hover:text-white text-sm font-medium transition"
+            >
+              ← Back to Dashboard
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      {/* Form */}
+      <main className="max-w-2xl mx-auto px-4 py-8">
+        <div className="text-center mb-8">
+          <h1 className="text-2xl font-bold text-movco-navy">Get Your Moving Quote</h1>
+          <p className="text-gray-500 mt-1">AI-powered instant quotes for your move</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Addresses */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <h2 className="font-semibold text-movco-navy mb-4 flex items-center gap-2">
+              <svg className="w-5 h-5 text-movco-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Moving Addresses
+            </h2>
+            <div className="space-y-4">
+              <div>
+                <label className="flex items-center text-sm font-medium text-gray-600 mb-1">
+                  <svg className="w-4 h-4 mr-1 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                  </svg>
+                  Starting Address
+                </label>
+                <input
+                  type="text"
+                  value={startingAddress}
+                  onChange={(e) => setStartingAddress(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-movco-blue focus:border-transparent outline-none transition text-movco-navy"
+                  placeholder="123 Main St, London"
+                  required
+                />
+              </div>
+              <div>
+                <label className="flex items-center text-sm font-medium text-gray-600 mb-1">
+                  <svg className="w-4 h-4 mr-1 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                  </svg>
+                  Ending Address
+                </label>
+                <input
+                  type="text"
+                  value={endingAddress}
+                  onChange={(e) => setEndingAddress(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-movco-blue focus:border-transparent outline-none transition text-movco-navy"
+                  placeholder="456 Oak Ave, Manchester"
+                  required
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Photo Upload */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <h2 className="font-semibold text-movco-navy mb-2 flex items-center gap-2">
+              <svg className="w-5 h-5 text-movco-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              Upload Room Photos
+            </h2>
+            <p className="text-xs text-gray-500 mb-4">Add 3-4 photos per room for the most accurate estimate</p>
+
+            <div
+              className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 cursor-pointer ${
+                dragActive
+                  ? 'border-movco-blue bg-blue-50'
+                  : 'border-gray-200 hover:border-movco-blue hover:bg-blue-50/30'
+              }`}
+              onDragEnter={handleDrag}
+              onDragLeave={handleDrag}
+              onDragOver={handleDrag}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+              <div className="space-y-2">
+                <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-50 rounded-full mb-2">
+                  <svg className="w-6 h-6 text-movco-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                </div>
+                <p className="text-sm font-medium text-movco-navy">
+                  {files.length > 0 ? `${files.length} file(s) selected` : 'Click or drag photos here'}
+                </p>
+                <p className="text-xs text-gray-500">Living Room • Bedroom • Kitchen • Etc.</p>
+              </div>
+            </div>
+
+            {files.length > 0 && (
+              <div className="grid grid-cols-2 gap-3 mt-4">
+                {files.map((file, idx) => (
+                  <div key={idx} className="relative group bg-movco-light rounded-lg border border-gray-200 p-3 flex items-center space-x-3">
+                    <div className="flex-shrink-0 w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
+                      <svg className="w-5 h-5 text-movco-blue" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-movco-navy truncate">{file.name}</p>
+                      <p className="text-xs text-gray-500">{(file.size / 1024).toFixed(1)} KB</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); removeFile(idx); }}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 w-6 h-6 bg-red-100 rounded-full flex items-center justify-center hover:bg-red-200"
+                    >
+                      <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Messages */}
+          {errorText && (
+            <div className="flex items-center space-x-2 bg-red-50 border border-red-200 rounded-xl p-4 animate-shake">
+              <svg className="w-5 h-5 text-red-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+              <p className="text-sm text-red-700">{errorText}</p>
+            </div>
+          )}
+
+          {successText && (
+            <div className="flex items-center space-x-2 bg-green-50 border border-green-200 rounded-xl p-4 animate-bounce-in">
+              <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+              <p className="text-sm text-green-700">{successText}</p>
+            </div>
+          )}
+
+          {/* Submit */}
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full bg-movco-blue hover:bg-blue-600 text-white font-semibold py-4 rounded-xl transition-all duration-200 shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 disabled:opacity-50 disabled:cursor-not-allowed text-lg"
+          >
+            {submitting ? (
+              <span className="flex items-center justify-center gap-2">
+                <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Analyzing...
+              </span>
+            ) : (
+              <span className="flex items-center justify-center gap-2">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                Get Moving Quote
+              </span>
+            )}
+          </button>
+
+          <p className="text-xs text-center text-gray-500 pt-2">
+            ✨ Powered by AI • Instant estimates • Secure & Private
+          </p>
+        </form>
+
+        {/* Trust Indicators */}
+        <div className="mt-8 grid grid-cols-3 gap-4 text-center">
+          <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+            <div className="text-2xl font-bold text-movco-blue">&lt; 60s</div>
+            <div className="text-xs text-gray-600 font-medium mt-1">Instant Quote</div>
+          </div>
+          <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+            <div className="text-2xl font-bold text-green-600">AI</div>
+            <div className="text-xs text-gray-600 font-medium mt-1">Powered</div>
+          </div>
+          <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+            <div className="text-2xl font-bold text-purple-600">Free</div>
+            <div className="text-xs text-gray-600 font-medium mt-1">No Obligation</div>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}

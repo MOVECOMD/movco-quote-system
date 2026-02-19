@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabaseClient';
 import Image from 'next/image';
 
 export default function AuthPage() {
@@ -30,7 +31,22 @@ export default function AuthPage() {
         if (error) {
           setError(error.message);
         } else {
-          router.push('/instant-quote');
+          // Check if user is a company
+          const { data: { user: signedInUser } } = await supabase.auth.getUser();
+          if (signedInUser) {
+            const { data: company } = await supabase
+              .from('companies')
+              .select('id')
+              .eq('user_id', signedInUser.id)
+              .single();
+            if (company) {
+              router.push('/company-dashboard');
+            } else {
+              router.push('/instant-quote');
+            }
+          } else {
+            router.push('/instant-quote');
+          }
         }
       } else {
         if (!name || !phone) {

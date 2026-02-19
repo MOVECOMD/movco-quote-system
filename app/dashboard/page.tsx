@@ -29,6 +29,19 @@ export default function DashboardPage() {
     if (!authLoading && !user) {
       router.push('/auth');
     }
+    if (!authLoading && user) {
+      // Redirect companies to their dashboard
+      supabase
+        .from('companies')
+        .select('id')
+        .eq('user_id', user.id)
+        .single()
+        .then(({ data }) => {
+          if (data) {
+            router.push('/company-dashboard');
+          }
+        });
+    }
   }, [user, authLoading, router]);
 
   useEffect(() => {

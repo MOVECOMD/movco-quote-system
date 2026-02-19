@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>MOVCO AI Quote Test</title>
+</head>
+<body>
+  <h1>MOVCO AI Quote Test</h1>
+  <p>If you can read this text, the page is loading correctly.</p>
+
+  <form id="quote-form">
+    <div>
+      <label>
+        Distance (km):
+        <input type="number" step="0.1" id="distance_km" value="10">
+      </label>
+    </div>
+    <div>
+      <label>
+        Rooms:
+        <input type="number" id="rooms" value="3">
+      </label>
+    </div>
+    <div>
+      <label>
+        Stairs:
+        <input type="number" id="stairs" value="1">
+      </label>
+    </div>
+    <div>
+      <label>
+        Packing (0 = no, 1 = yes):
+        <input type="number" id="packing" value="1">
+      </label>
+    </div>
+    <div>
+      <label>
+        Day of week (0–6):
+        <input type="number" id="day_of_week" value="2">
+      </label>
+    </div>
+    <div>
+      <label>
+        Month (1–12):
+        <input type="number" id="month" value="5">
+      </label>
+    </div>
+    <button type="submit">Get AI Quote</button>
+  </form>
+
+  <h2 id="result">AI suggested price will appear here</h2>
+
+  <script>
+    const form = document.getElementById('quote-form');
+    const resultEl = document.getElementById('result');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      resultEl.textContent = 'Thinking...';
+
+      const payload = {
+        distance_km: parseFloat(document.getElementById('distance_km').value),
+        rooms: parseInt(document.getElementById('rooms').value),
+        stairs: parseInt(document.getElementById('stairs').value),
+        packing: parseInt(document.getElementById('packing').value),
+        day_of_week: parseInt(document.getElementById('day_of_week').value),
+        month: parseInt(document.getElementById('month').value)
+      };
+
+      try {
+        const response = await fetch('http://127.0.0.1:8000/predict', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          resultEl.textContent = 'Error from server: ' + response.status;
+          return;
+        }
+
+        const data = await response.json();
+        resultEl.textContent = `AI suggested price: £${data.predicted_price}`;
+      } catch (err) {
+        console.error(err);
+        resultEl.textContent = 'Error: could not reach AI server.';
+      }
+    });
+  </script>
+</body>
+</html>

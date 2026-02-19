@@ -22,6 +22,7 @@ interface BookingModalProps {
 export default function BookingModal({ quoteId, quoteData, onClose }: BookingModalProps) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [companiesMatched, setCompaniesMatched] = useState<number | null>(null);
   const { user } = useAuth();
 
   const handleYes = async () => {
@@ -37,7 +38,7 @@ export default function BookingModal({ quoteId, quoteData, onClose }: BookingMod
         console.error('Failed to save booking interest:', error.message);
       }
 
-      // 2. Send email notification via backend
+      // 2. Send email notification via backend (existing flow)
       try {
         await fetch('https://movco-api.onrender.com/notify-booking', {
           method: 'POST',
@@ -59,6 +60,21 @@ export default function BookingModal({ quoteId, quoteData, onClose }: BookingMod
         });
       } catch (emailErr) {
         console.error('Email notification failed:', emailErr);
+      }
+
+      // 3. NEW: Distribute lead to matching companies
+      try {
+        const distributeRes = await fetch('/api/distribute-lead', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quote_id: quoteId }),
+        });
+        const distributeData = await distributeRes.json();
+        console.log('Lead distribution result:', distributeData);
+        setCompaniesMatched(distributeData.distributed_to || 0);
+      } catch (distErr) {
+        console.error('Lead distribution failed:', distErr);
+        setCompaniesMatched(0);
       }
 
       setSaved(true);
@@ -92,7 +108,10 @@ export default function BookingModal({ quoteId, quoteData, onClose }: BookingMod
           </div>
           <h3 className="text-xl font-bold text-slate-900 mb-2">We&apos;ve got your interest!</h3>
           <p className="text-sm text-slate-600 mb-6">
-            A recommended removals company in your area will be in touch soon with availability and next steps.
+            {companiesMatched !== null && companiesMatched > 0
+              ? `We've matched you with ${companiesMatched} removals ${companiesMatched === 1 ? 'company' : 'companies'} in your area. They'll be in touch soon!`
+              : 'A recommended removals company in your area will be in touch soon with availability and next steps.'
+            }
           </p>
           <button
             onClick={onClose}
@@ -137,7 +156,7 @@ export default function BookingModal({ quoteId, quoteData, onClose }: BookingMod
             disabled={saving}
             className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
           >
-            {saving ? 'Saving...' : 'Yes, find a company'}
+            {saving ? 'Finding companies...' : 'Yes, find a company'}
           </button>
         </div>
       </div>
