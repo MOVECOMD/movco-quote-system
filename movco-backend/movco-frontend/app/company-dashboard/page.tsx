@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -74,7 +74,7 @@ type Transaction = {
   created_at: string;
 };
 
-export default function CompanyDashboardPage() {
+function CompanyDashboardContent() {
   const [company, setCompany] = useState<Company | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -542,5 +542,13 @@ export default function CompanyDashboardPage() {
         )}
       </main>
     </div>
+  );
+}
+
+export default function CompanyDashboardPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center"><span className="text-white">Loading...</span></div>}>
+      <CompanyDashboardContent />
+    </Suspense>
   );
 }
