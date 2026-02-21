@@ -139,10 +139,10 @@ export default function BookingModal({ quoteId, quoteData, onClose }: BookingMod
           </svg>
         </div>
         <h3 className="text-xl font-bold text-slate-900 text-center mb-2">
-          Book a Removal Company
+          Get in Contact with a Removals Company
         </h3>
         <p className="text-sm text-slate-600 text-center mb-6">
-          Would you like to go forward with a recommended removals company in your area?
+          We&apos;ll connect you with trusted removals companies in your area
         </p>
         <div className="flex gap-3">
           <button
@@ -156,7 +156,7 @@ export default function BookingModal({ quoteId, quoteData, onClose }: BookingMod
             disabled={saving}
             className="flex-1 px-4 py-2.5 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
           >
-            {saving ? 'Finding companies...' : 'Yes, find a company'}
+            {saving ? 'Finding companies...' : 'Yes, find me a company'}
           </button>
         </div>
       </div>
