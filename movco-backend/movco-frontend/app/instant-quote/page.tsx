@@ -173,6 +173,23 @@ export default function InstantQuotePage() {
     );
   }
 
+  // FULL-SCREEN LOADING — analyzing photos
+  if (submitting) {
+    return (
+      <div className="min-h-screen bg-movco-navy flex flex-col items-center justify-center">
+        <Image
+          src="/movco-logo.png"
+          alt="MOVCO"
+          width={120}
+          height={120}
+          className="animate-pulse rounded-2xl shadow-2xl"
+        />
+        <p className="text-white text-lg font-semibold mt-6">Analyzing your photos...</p>
+        <p className="text-gray-400 text-sm mt-2">This usually takes 30-60 seconds</p>
+      </div>
+    );
+  }
+
   // PAYWALL — user has used all free quotes
   if (quoteCount >= FREE_QUOTE_LIMIT) {
     return (
