@@ -24,13 +24,13 @@ export async function POST(req: Request) {
               name: 'MOVCO Quote Pack',
               description: '5 additional AI-powered instant moving quotes',
             },
-            unit_amount: 499, // £4.99 in pence
+            unit_amount: 499,
           },
           quantity: 1,
         },
       ],
       mode: 'payment',
-      success_url: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/instant-quote?purchase=success`,
+      success_url: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/dashboard?purchase=success`,
       cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/instant-quote?purchase=cancelled`,
       metadata: {
         user_id,

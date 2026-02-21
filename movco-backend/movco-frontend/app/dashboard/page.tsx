@@ -33,6 +33,15 @@ export default function DashboardPage() {
     }
   }, [user, authLoading, router]);
 
+  // Show success popup after quote pack purchase
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('purchase') === 'success') {
+      alert('🎉 New quotes to use, good luck!');
+      window.history.replaceState({}, '', '/dashboard');
+    }
+  }, []);
+
   useEffect(() => {
     async function fetchQuotes() {
       if (!user) return;
