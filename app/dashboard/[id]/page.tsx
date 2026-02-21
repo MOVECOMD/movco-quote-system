@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/context/AuthContext";
 import Link from "next/link";
+import Image from "next/image";
 import BookingModal from "@/components/BookingModal";
 
 type InstantQuote = {
@@ -14,6 +15,8 @@ type InstantQuote = {
   ending_address: string;
   photo_urls: string[] | null;
   status: string | null;
+  ai_analysis?: AiAnalysis | null;
+  interested_in_booking?: boolean | null;
 };
 
 type AiItem = {
@@ -153,27 +156,50 @@ export default function QuoteDetailPage() {
         } else {
           setQuote(data as InstantQuote);
 
-          setAnalyzing(true);
-          try {
-            const aiAnalysis = await generateAnalysis(data as InstantQuote);
-            setAnalysis(aiAnalysis);
+          // CHECK: If analysis already exists in DB, use it instead of re-calling the API
+          if (data.ai_analysis) {
+            console.log('Using cached AI analysis from database');
+            setAnalysis(data.ai_analysis as AiAnalysis);
 
-            // Show booking modal after analysis completes
-            // Only show if user hasn't already responded
-           if (data.interested_in_booking === null || data.interested_in_booking === undefined) {
+            // Still show booking modal if user hasn't responded
+            if (data.interested_in_booking === null || data.interested_in_booking === undefined) {
               setTimeout(() => setShowBookingModal(true), 10000);
             }
-          } catch (err) {
-            console.error("Analysis error:", err);
-            setAnalysis({
-              estimate: 1200,
-              description: "Analysis failed. Please try again.",
-              items: [],
-              totalVolumeM3: 20,
-              totalAreaM2: 26,
-            });
-          } finally {
-            setAnalyzing(false);
+          } else {
+            // No cached analysis — run it for the first time
+            setAnalyzing(true);
+            try {
+              const aiAnalysis = await generateAnalysis(data as InstantQuote);
+              setAnalysis(aiAnalysis);
+
+              // SAVE analysis to Supabase so we don't re-run next time
+              const { error: updateError } = await supabase
+                .from('instant_quotes')
+                .update({ ai_analysis: aiAnalysis })
+                .eq('id', id);
+
+              if (updateError) {
+                console.error('Failed to cache analysis:', updateError.message);
+              } else {
+                console.log('AI analysis cached to database');
+              }
+
+              // Show booking modal after analysis completes
+              if (data.interested_in_booking === null || data.interested_in_booking === undefined) {
+                setTimeout(() => setShowBookingModal(true), 10000);
+              }
+            } catch (err) {
+              console.error("Analysis error:", err);
+              setAnalysis({
+                estimate: 1200,
+                description: "Analysis failed. Please try again.",
+                items: [],
+                totalVolumeM3: 20,
+                totalAreaM2: 26,
+              });
+            } finally {
+              setAnalyzing(false);
+            }
           }
         }
       } catch (err: any) {
@@ -231,23 +257,22 @@ export default function QuoteDetailPage() {
 
   if (analyzing || !analysis) {
     return (
-      <main className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center p-6">
-        <div className="text-center">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-white rounded-full shadow-xl mb-6">
-            <svg className="animate-spin h-10 w-10 text-blue-600" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-            </svg>
-          </div>
-          <p className="text-slate-900 font-bold text-2xl mb-2">Analyzing Your Photos</p>
-          <p className="text-slate-700 text-lg mb-4">Claude Vision AI is detecting furniture...</p>
-          <div className="max-w-md mx-auto">
-            <div className="bg-white/60 backdrop-blur-sm rounded-xl p-4 border border-white/20">
-              <p className="text-sm text-slate-600">
-                Our AI is examining {quote.photo_urls?.length || 0} photo(s) to identify furniture,
-                calculate volumes, and generate your accurate quote.
-              </p>
-            </div>
+      <main className="min-h-screen bg-movco-navy flex flex-col items-center justify-center p-6">
+        <Image
+          src="/movco-logo.png"
+          alt="MOVCO"
+          width={120}
+          height={120}
+          className="animate-pulse rounded-2xl shadow-2xl"
+        />
+        <p className="text-white text-lg font-semibold mt-6">Analyzing your photos...</p>
+        <p className="text-gray-400 text-sm mt-2">This usually takes 30-60 seconds</p>
+        <div className="max-w-md mx-auto mt-6">
+          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/10">
+            <p className="text-sm text-gray-300 text-center">
+              Our AI is examining {quote.photo_urls?.length || 0} photo(s) to identify furniture,
+              calculate volumes, and generate your accurate quote.
+            </p>
           </div>
         </div>
       </main>
