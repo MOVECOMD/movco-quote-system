@@ -13,6 +13,16 @@ export const metadata: Metadata = {
   icons: {
     icon: "/movco-logo.png",
   },
+  manifest: "/manifest.json",
+  themeColor: "#0a0f1c",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "MOVCO",
+  },
+  other: {
+    "apple-mobile-web-app-capable": "yes",
+  },
 };
 
 export default function RootLayout({
@@ -22,6 +32,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <link rel="apple-touch-icon" href="/movco-icon-192.png" />
+      </head>
       <body
         suppressHydrationWarning
         className={`${inter.className} antialiased`}
@@ -29,6 +42,13 @@ export default function RootLayout({
         <AuthProvider>
           {children}
         </AuthProvider>
+        <script dangerouslySetInnerHTML={{ __html: `
+          if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+              navigator.serviceWorker.register('/sw.js');
+            });
+          }
+        `}} />
       </body>
     </html>
   );
