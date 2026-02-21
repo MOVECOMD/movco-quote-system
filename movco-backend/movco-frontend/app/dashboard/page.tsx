@@ -8,6 +8,8 @@ import Link from 'next/link';
 import Image from 'next/image';
 import DeleteQuoteButton from '@/components/DeleteQuoteButton';
 
+const FREE_QUOTE_LIMIT = 3;
+
 type InstantQuote = {
   id: string;
   created_at: string;
@@ -60,6 +62,8 @@ export default function DashboardPage() {
       fetchQuotes();
     }
   }, [user]);
+
+  const remainingQuotes = Math.max(0, FREE_QUOTE_LIMIT - quotes.length);
 
   if (authLoading || loading) {
     return (
@@ -156,7 +160,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -169,6 +173,41 @@ export default function DashboardPage() {
                 </svg>
               </div>
             </div>
+          </div>
+
+          {/* Free Quotes Remaining */}
+          <div className={`rounded-xl shadow-sm border p-6 ${
+            remainingQuotes === 0
+              ? 'bg-orange-50 border-orange-200'
+              : 'bg-white border-gray-100'
+          }`}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-500">Free Quotes Left</p>
+                <p className={`text-3xl font-bold mt-1 ${
+                  remainingQuotes === 0 ? 'text-orange-600' : 'text-movco-blue'
+                }`}>
+                  {remainingQuotes}/{FREE_QUOTE_LIMIT}
+                </p>
+              </div>
+              <div className={`p-3 rounded-lg ${
+                remainingQuotes === 0 ? 'bg-orange-100' : 'bg-blue-50'
+              }`}>
+                <svg className={`w-6 h-6 ${
+                  remainingQuotes === 0 ? 'text-orange-500' : 'text-movco-blue'
+                }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+              </div>
+            </div>
+            {remainingQuotes === 0 && (
+              <Link
+                href="/instant-quote"
+                className="inline-block mt-3 text-xs font-semibold text-orange-700 hover:text-orange-800 underline"
+              >
+                Buy 5 more for £4.99 →
+              </Link>
+            )}
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">

@@ -1,10 +1,12 @@
 'use client';
 
-import { FormEvent, useState, useRef } from 'react';
+import { FormEvent, useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 import Image from 'next/image';
 import Link from 'next/link';
+
+const FREE_QUOTE_LIMIT = 3;
 
 export default function InstantQuotePage() {
   const router = useRouter();
@@ -17,6 +19,48 @@ export default function InstantQuotePage() {
   const [errorText, setErrorText] = useState<string | null>(null);
   const [successText, setSuccessText] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
+
+  // Quote limit state
+  const [quoteCount, setQuoteCount] = useState(0);
+  const [quoteLimitLoading, setQuoteLimitLoading] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // Check user's quote count on load
+  useEffect(() => {
+    async function checkQuoteLimit() {
+      let uid: string | null = null;
+      try {
+        const storageKey = Object.keys(localStorage).find(k => k.includes('auth-token'));
+        if (storageKey) {
+          const tokenData = JSON.parse(localStorage.getItem(storageKey) || '{}');
+          uid = tokenData?.user?.id || null;
+        }
+      } catch (e) {
+        console.error('Error reading auth:', e);
+      }
+
+      setUserId(uid);
+
+      if (!uid) {
+        setQuoteLimitLoading(false);
+        return;
+      }
+
+      const { count, error } = await supabase
+        .from('instant_quotes')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', uid);
+
+      if (!error) {
+        setQuoteCount(count || 0);
+      }
+      setQuoteLimitLoading(false);
+    }
+
+    checkQuoteLimit();
+  }, []);
+
+  const remainingQuotes = FREE_QUOTE_LIMIT - quoteCount;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
@@ -54,6 +98,11 @@ export default function InstantQuotePage() {
     setSubmitting(true);
 
     try {
+      // Double-check quote limit before submitting
+      if (quoteCount >= FREE_QUOTE_LIMIT) {
+        throw new Error('You have used all your free quotes. Please purchase more to continue.');
+      }
+
       if (!startingAddress.trim() || !endingAddress.trim()) {
         throw new Error('Please fill in both addresses.');
       }
@@ -81,17 +130,6 @@ export default function InstantQuotePage() {
         }
       }
 
-      let userId = null;
-      try {
-        const storageKey = Object.keys(localStorage).find(k => k.includes('auth-token'));
-        if (storageKey) {
-          const tokenData = JSON.parse(localStorage.getItem(storageKey) || '{}');
-          userId = tokenData?.user?.id || null;
-        }
-      } catch (e) {
-        console.error('Error reading auth:', e);
-      }
-
       const { data: insertData, error: insertError } = await supabase
         .from('instant_quotes')
         .insert({
@@ -108,6 +146,9 @@ export default function InstantQuotePage() {
         throw new Error((insertError as any).message || 'Failed to save quote.');
       }
 
+      // Update local count
+      setQuoteCount(prev => prev + 1);
+
       setSuccessText('Quote submitted successfully! Redirecting...');
       setTimeout(() => router.push('/dashboard'), 1500);
     } catch (err: any) {
@@ -117,6 +158,118 @@ export default function InstantQuotePage() {
     }
   };
 
+  // Loading state while checking quota
+  if (quoteLimitLoading) {
+    return (
+      <div className="min-h-screen bg-movco-light flex items-center justify-center">
+        <div className="flex items-center gap-3">
+          <svg className="animate-spin h-8 w-8 text-movco-blue" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <span className="text-movco-navy font-medium">Loading...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // PAYWALL — user has used all free quotes
+  if (quoteCount >= FREE_QUOTE_LIMIT) {
+    return (
+      <div className="min-h-screen bg-movco-light">
+        {/* Header */}
+        <header className="bg-movco-navy shadow-lg">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between h-16">
+              <Link href="/dashboard" className="flex items-center gap-3">
+                <Image
+                  src="/movco-logo.png"
+                  alt="MOVCO"
+                  width={36}
+                  height={36}
+                  className="rounded-lg"
+                />
+                <span className="text-white font-bold text-lg tracking-wide">
+                  MOVCO
+                </span>
+              </Link>
+              <Link
+                href="/dashboard"
+                className="text-gray-400 hover:text-white text-sm font-medium transition"
+              >
+                ← Back to Dashboard
+              </Link>
+            </div>
+          </div>
+        </header>
+
+        <main className="max-w-lg mx-auto px-4 py-16">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 text-center">
+            {/* Lock icon */}
+            <div className="w-20 h-20 bg-orange-50 rounded-full flex items-center justify-center mx-auto mb-6">
+              <svg className="w-10 h-10 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+            </div>
+
+            <h2 className="text-2xl font-bold text-movco-navy mb-2">
+              You've Used All 3 Free Quotes
+            </h2>
+            <p className="text-gray-500 mb-8">
+              Unlock 5 more instant AI-powered moving quotes to keep planning your move.
+            </p>
+
+            {/* Pricing card */}
+            <div className="bg-gradient-to-br from-movco-navy to-blue-900 rounded-xl p-6 text-white mb-6">
+              <div className="text-sm font-medium text-blue-300 mb-1">Quote Pack</div>
+              <div className="flex items-baseline justify-center gap-1 mb-1">
+                <span className="text-4xl font-bold">£4.99</span>
+                <span className="text-blue-300 text-sm">/ 5 quotes</span>
+              </div>
+              <p className="text-blue-200 text-xs">That's less than £1 per quote</p>
+            </div>
+
+            {/* Benefits */}
+            <div className="text-left space-y-3 mb-8">
+              {[
+                '5 additional AI-powered instant quotes',
+                'Full photo analysis included',
+                'Compare multiple moves easily',
+              ].map((benefit, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-sm text-gray-700">{benefit}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* TODO: Wire this to your Stripe checkout */}
+            <button
+              onClick={() => {
+                // TODO: Replace with actual Stripe checkout redirect
+                // e.g. router.push('/api/checkout?product=quote-pack-5')
+                alert('Stripe checkout coming soon!');
+              }}
+              className="w-full bg-movco-blue hover:bg-blue-600 text-white font-semibold py-4 rounded-xl transition-all duration-200 shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 text-lg"
+            >
+              Unlock 5 More Quotes — £4.99
+            </button>
+
+            <Link
+              href="/dashboard"
+              className="inline-block mt-4 text-sm text-gray-500 hover:text-movco-navy transition"
+            >
+              ← Back to Dashboard
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // NORMAL FORM — user still has free quotes
   return (
     <div className="min-h-screen bg-movco-light">
       {/* Header */}
@@ -150,6 +303,20 @@ export default function InstantQuotePage() {
         <div className="text-center mb-8">
           <h1 className="text-2xl font-bold text-movco-navy">Get Your Moving Quote</h1>
           <p className="text-gray-500 mt-1">AI-powered instant quotes for your move</p>
+        </div>
+
+        {/* Free quotes remaining badge */}
+        <div className="mb-6 flex justify-center">
+          <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium ${
+            remainingQuotes === 1
+              ? 'bg-orange-100 text-orange-700'
+              : 'bg-blue-50 text-movco-blue'
+          }`}>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            {remainingQuotes} of {FREE_QUOTE_LIMIT} free quote{remainingQuotes !== 1 ? 's' : ''} remaining
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -313,7 +480,7 @@ export default function InstantQuotePage() {
           </button>
 
           <p className="text-xs text-center text-gray-500 pt-2">
-            ✨ Powered by AI • Instant estimates • Secure & Private
+            ✨ Powered by AI • Instant estimates • Secure &amp; Private
           </p>
         </form>
 
