@@ -22,10 +22,11 @@ export default function InstantQuotePage() {
 
   // Quote limit state
   const [quoteCount, setQuoteCount] = useState(0);
+  const [extraCredits, setExtraCredits] = useState(0);
   const [quoteLimitLoading, setQuoteLimitLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
 
-  // Check user's quote count on load
+  // Check user's quote count and purchased credits on load
   useEffect(() => {
     async function checkQuoteLimit() {
       let uid: string | null = null;
@@ -46,6 +47,7 @@ export default function InstantQuotePage() {
         return;
       }
 
+      // Count quotes used
       const { count, error } = await supabase
         .from('instant_quotes')
         .select('*', { count: 'exact', head: true })
@@ -54,13 +56,26 @@ export default function InstantQuotePage() {
       if (!error) {
         setQuoteCount(count || 0);
       }
+
+      // Check purchased credits
+      const { data: creditData } = await supabase
+        .from('user_quote_credits')
+        .select('credits')
+        .eq('user_id', uid)
+        .maybeSingle();
+
+      if (creditData) {
+        setExtraCredits(creditData.credits || 0);
+      }
+
       setQuoteLimitLoading(false);
     }
 
     checkQuoteLimit();
   }, []);
 
-  const remainingQuotes = FREE_QUOTE_LIMIT - quoteCount;
+  const totalAllowed = FREE_QUOTE_LIMIT + extraCredits;
+  const remainingQuotes = totalAllowed - quoteCount;
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
@@ -99,7 +114,7 @@ export default function InstantQuotePage() {
 
     try {
       // Double-check quote limit before submitting
-      if (quoteCount >= FREE_QUOTE_LIMIT) {
+      if (quoteCount >= totalAllowed) {
         throw new Error('You have used all your free quotes. Please purchase more to continue.');
       }
 
@@ -191,7 +206,7 @@ export default function InstantQuotePage() {
   }
 
   // PAYWALL — user has used all free quotes
-  if (quoteCount >= FREE_QUOTE_LIMIT) {
+  if (quoteCount >= totalAllowed) {
     return (
       <div className="min-h-screen bg-movco-light">
         {/* Header */}
@@ -262,12 +277,27 @@ export default function InstantQuotePage() {
               ))}
             </div>
 
-            {/* TODO: Wire this to your Stripe checkout */}
             <button
-              onClick={() => {
-                // TODO: Replace with actual Stripe checkout redirect
-                // e.g. router.push('/api/checkout?product=quote-pack-5')
-                alert('Stripe checkout coming soon!');
+              onClick={async () => {
+                try {
+                  const res = await fetch('/api/stripe/create-quote-checkout', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      user_id: userId,
+                      user_email: null,
+                    }),
+                  });
+                  const data = await res.json();
+                  if (data.url) {
+                    window.location.href = data.url;
+                  } else {
+                    alert('Something went wrong. Please try again.');
+                  }
+                } catch (err) {
+                  console.error('Checkout error:', err);
+                  alert('Something went wrong. Please try again.');
+                }
               }}
               className="w-full bg-movco-blue hover:bg-blue-600 text-white font-semibold py-4 rounded-xl transition-all duration-200 shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 text-lg"
             >
@@ -332,7 +362,7 @@ export default function InstantQuotePage() {
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
-            {remainingQuotes} of {FREE_QUOTE_LIMIT} free quote{remainingQuotes !== 1 ? 's' : ''} remaining
+            {remainingQuotes} of {totalAllowed} free quote{remainingQuotes !== 1 ? 's' : ''} remaining
           </div>
         </div>
 
