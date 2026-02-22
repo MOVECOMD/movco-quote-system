@@ -27,10 +27,12 @@ type Lead = {
 };
 
 type AiItem = {
-  item: string;
+  name?: string;
+  item?: string;       // fallback field name
   quantity: number;
-  volume_m3: number;
-  notes?: string;
+  note?: string;       // actual field: "~25 ft³"
+  notes?: string;      // alternate field name
+  volume_m3?: number;  // alternate numeric volume
 };
 
 type AiAnalysis = {
@@ -174,8 +176,15 @@ export default function LeadDetailPage() {
   };
 
   const items = aiAnalysis?.items || [];
-  const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
-  const totalVolume = items.reduce((sum, item) => sum + (item.volume_m3 * item.quantity), 0);
+  const totalItems = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
+
+  // Try to parse volume from note field (e.g. "~25 ft³") or use volume_m3
+  const parseVolume = (item: AiItem): string => {
+    if (item.volume_m3) return `${item.volume_m3} m³`;
+    if (item.note) return item.note;
+    if (item.notes) return item.notes;
+    return '—';
+  };
 
   return (
     <div className="min-h-screen bg-slate-950">
@@ -365,7 +374,7 @@ export default function LeadDetailPage() {
                 <h2 className="text-sm font-semibold text-white uppercase tracking-wider">AI-Detected Inventory</h2>
               </div>
               <p className="text-xs text-slate-500 ml-10">
-                {totalItems} item{totalItems !== 1 ? 's' : ''} detected · {totalVolume.toFixed(1)} m³ total volume
+                {totalItems} item{totalItems !== 1 ? 's' : ''} detected
               </p>
             </div>
 
@@ -375,17 +384,15 @@ export default function LeadDetailPage() {
                   <tr className="border-t border-b border-slate-800">
                     <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Item</th>
                     <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Qty</th>
-                    <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Volume (m³)</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Notes</th>
+                    <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Est. Volume</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
                   {items.map((item, i) => (
                     <tr key={i} className="hover:bg-slate-800/50 transition-colors">
-                      <td className="px-6 py-3 text-white font-medium">{item.item}</td>
+                      <td className="px-6 py-3 text-white font-medium">{item.name || item.item || 'Unknown item'}</td>
                       <td className="px-6 py-3 text-center text-slate-300">{item.quantity}</td>
-                      <td className="px-6 py-3 text-center text-slate-300">{item.volume_m3}</td>
-                      <td className="px-6 py-3 text-slate-400 text-xs">{item.notes || '—'}</td>
+                      <td className="px-6 py-3 text-center text-slate-400 text-xs">{parseVolume(item)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -394,7 +401,7 @@ export default function LeadDetailPage() {
 
             <div className="px-6 py-3 bg-slate-800/50 border-t border-slate-800 flex justify-between text-sm">
               <span className="text-slate-400 font-medium">Total</span>
-              <span className="text-white font-bold">{totalItems} items · {totalVolume.toFixed(1)} m³</span>
+              <span className="text-white font-bold">{totalItems} items total</span>
             </div>
           </div>
         )}
