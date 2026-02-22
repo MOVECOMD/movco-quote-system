@@ -178,13 +178,35 @@ export default function LeadDetailPage() {
   const items = aiAnalysis?.items || [];
   const totalItems = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
 
-  // Try to parse volume from note field (e.g. "~25 ft³") or use volume_m3
-  const parseVolume = (item: AiItem): string => {
+  // Parse numeric volume from note field (e.g. "~25 ft³") or use volume_m3
+  const parseVolumeNum = (item: AiItem): number => {
+    if (item.volume_m3) return item.volume_m3 * (item.quantity || 1);
+    const noteStr = item.note || item.notes || '';
+    const match = noteStr.match(/([\d.]+)\s*ft/i);
+    if (match) return parseFloat(match[1]) * (item.quantity || 1);
+    return 0;
+  };
+
+  const parseVolumeLabel = (item: AiItem): string => {
     if (item.volume_m3) return `${item.volume_m3} m³`;
     if (item.note) return item.note;
     if (item.notes) return item.notes;
     return '—';
   };
+
+  // Calculate totals from inventory
+  const totalVolumeFt3 = items.reduce((sum, item) => sum + parseVolumeNum(item), 0);
+  const totalVolumeM3 = Math.round(totalVolumeFt3 * 0.0283168 * 10) / 10; // ft³ to m³
+
+  // Estimate vans: ~350 ft³ per transit van, round up
+  const estimatedVans = totalVolumeFt3 > 0 ? Math.ceil(totalVolumeFt3 / 350) : null;
+  // Estimate movers: 2 for 1 van, 3 for 2+ vans
+  const estimatedMovers = estimatedVans ? (estimatedVans >= 2 ? 3 : 2) : null;
+
+  // Use lead data first, fall back to AI analysis, then calculated values
+  const displayVolume = lead.volume || (aiAnalysis?.total_volume_m3 ? `${aiAnalysis.total_volume_m3} m³` : (totalVolumeM3 > 0 ? `${totalVolumeM3} m³` : '—'));
+  const displayVans = lead.vans || (aiAnalysis?.vans_needed ? `${aiAnalysis.vans_needed}` : (estimatedVans ? `${estimatedVans}` : '—'));
+  const displayMovers = lead.movers || (aiAnalysis?.movers_recommended ? `${aiAnalysis.movers_recommended}` : (estimatedMovers ? `${estimatedMovers}` : '—'));
 
   return (
     <div className="min-h-screen bg-slate-950">
@@ -328,19 +350,19 @@ export default function LeadDetailPage() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="bg-slate-800 rounded-lg p-4 text-center">
               <p className="text-2xl font-bold text-white">
-                {lead.volume || (aiAnalysis?.total_volume_m3 ? `${aiAnalysis.total_volume_m3}` : '—')}
+                {displayVolume}
               </p>
-              <p className="text-xs text-slate-500 mt-1">Volume (m³)</p>
+              <p className="text-xs text-slate-500 mt-1">Volume</p>
             </div>
             <div className="bg-slate-800 rounded-lg p-4 text-center">
               <p className="text-2xl font-bold text-white">
-                {lead.vans || (aiAnalysis?.vans_needed ? `${aiAnalysis.vans_needed}` : '—')}
+                {displayVans}
               </p>
               <p className="text-xs text-slate-500 mt-1">Vans Needed</p>
             </div>
             <div className="bg-slate-800 rounded-lg p-4 text-center">
               <p className="text-2xl font-bold text-white">
-                {lead.movers || (aiAnalysis?.movers_recommended ? `${aiAnalysis.movers_recommended}` : '—')}
+                {displayMovers}
               </p>
               <p className="text-xs text-slate-500 mt-1">Movers</p>
             </div>
@@ -351,6 +373,14 @@ export default function LeadDetailPage() {
               <p className="text-xs text-slate-500 mt-1">Distance</p>
             </div>
           </div>
+
+          {(estimatedVans || estimatedMovers) && !lead.volume && !aiAnalysis?.total_volume_m3 && (
+            <div className="mt-3 bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
+              <p className="text-xs text-blue-400">
+                ℹ️ Volume, vans, and movers are estimated from the AI-detected inventory.
+              </p>
+            </div>
+          )}
 
           {aiAnalysis?.fallback && (
             <div className="mt-4 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
@@ -374,7 +404,7 @@ export default function LeadDetailPage() {
                 <h2 className="text-sm font-semibold text-white uppercase tracking-wider">AI-Detected Inventory</h2>
               </div>
               <p className="text-xs text-slate-500 ml-10">
-                {totalItems} item{totalItems !== 1 ? 's' : ''} detected
+                {totalItems} item{totalItems !== 1 ? 's' : ''} detected{totalVolumeM3 > 0 ? ` · ~${totalVolumeM3} m³ total volume` : ''}
               </p>
             </div>
 
@@ -392,7 +422,7 @@ export default function LeadDetailPage() {
                     <tr key={i} className="hover:bg-slate-800/50 transition-colors">
                       <td className="px-6 py-3 text-white font-medium">{item.name || item.item || 'Unknown item'}</td>
                       <td className="px-6 py-3 text-center text-slate-300">{item.quantity}</td>
-                      <td className="px-6 py-3 text-center text-slate-400 text-xs">{parseVolume(item)}</td>
+                      <td className="px-6 py-3 text-center text-slate-400 text-xs">{parseVolumeLabel(item)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -401,7 +431,7 @@ export default function LeadDetailPage() {
 
             <div className="px-6 py-3 bg-slate-800/50 border-t border-slate-800 flex justify-between text-sm">
               <span className="text-slate-400 font-medium">Total</span>
-              <span className="text-white font-bold">{totalItems} items total</span>
+              <span className="text-white font-bold">{totalItems} items{totalVolumeM3 > 0 ? ` · ~${totalVolumeM3} m³` : ''}</span>
             </div>
           </div>
         )}
