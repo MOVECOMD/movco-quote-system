@@ -347,6 +347,12 @@ function CompanyDashboardContent() {
         {/* ========== LEADS TAB ========== */}
         {activeTab === 'leads' && (
           <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
+            {/* Click hint */}
+            {leads.length > 0 && (
+              <div className="px-5 py-2.5 bg-slate-800/50 border-b border-slate-800">
+                <p className="text-xs text-slate-500">💡 Click any lead to view full details, inventory, and contact info</p>
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -362,12 +368,14 @@ function CompanyDashboardContent() {
                 </thead>
                 <tbody className="divide-y divide-slate-800">
                   {leads.map(lead => (
-                    <tr key={lead.id} className="hover:bg-slate-800/50 transition-colors">
+                    <tr key={lead.id}
+                      onClick={() => router.push(`/company-dashboard/lead/${lead.id}`)}
+                      className="hover:bg-slate-800/50 transition-colors cursor-pointer group">
                       <td className="px-5 py-4 whitespace-nowrap text-xs text-slate-400">
                         {new Date(lead.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                       </td>
                       <td className="px-5 py-4">
-                        <p className="text-sm text-white font-medium">{lead.customer_name || 'N/A'}</p>
+                        <p className="text-sm text-white font-medium group-hover:text-blue-400 transition-colors">{lead.customer_name || 'N/A'}</p>
                         <p className="text-xs text-slate-500">{lead.customer_email || ''}</p>
                         {lead.customer_phone && (
                           <p className="text-xs text-blue-400 font-medium mt-0.5">{lead.customer_phone}</p>
@@ -385,7 +393,7 @@ function CompanyDashboardContent() {
                       <td className="px-5 py-4 text-center">
                         <span className="text-sm font-bold text-white">{lead.estimated_quote || '—'}</span>
                       </td>
-                      <td className="px-5 py-4 text-center">
+                      <td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}>
                         <select value={lead.status} onChange={e => updateLeadStatus(lead.id, e.target.value)}
                           className={`text-xs font-semibold rounded-full px-3 py-1 border-0 cursor-pointer
                             ${lead.status === 'new' ? 'bg-blue-500/20 text-blue-400'
@@ -398,8 +406,9 @@ function CompanyDashboardContent() {
                           <option value="lost">Lost</option>
                         </select>
                       </td>
-                      <td className="px-5 py-4 text-right text-xs text-slate-400">
-                        £{(lead.amount_charged_pence / 100).toFixed(2)}
+                      <td className="px-5 py-4 text-right">
+                        <span className="text-xs text-slate-400">£{(lead.amount_charged_pence / 100).toFixed(2)}</span>
+                        <span className="block text-[10px] text-slate-600 group-hover:text-blue-400/50 transition-colors mt-0.5">View →</span>
                       </td>
                     </tr>
                   ))}
