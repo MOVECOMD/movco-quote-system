@@ -61,6 +61,9 @@ export default function AuthPage() {
           if (data?.user?.identities?.length === 0) {
             setError('An account with this email already exists.');
           } else {
+            // GA4: Track new sign-up
+            window.movcoTrackSignUp?.();
+
             setSuccess('Account created! You can now sign in.');
             setIsLogin(true);
             setEmail(email);

@@ -122,6 +122,9 @@ export default function InstantQuotePage() {
         throw new Error('Please fill in both addresses.');
       }
 
+      // GA4: Track quote started
+      window.movcoTrackQuoteStarted?.();
+
       const uploadedUrls: string[] = [];
 
       for (const file of files) {
@@ -163,6 +166,9 @@ export default function InstantQuotePage() {
 
       // Update local count
       setQuoteCount(prev => prev + 1);
+
+      // GA4: Track quote completed
+      window.movcoTrackQuoteCompleted?.();
 
       setSuccessText('Quote submitted successfully! Redirecting...');
       setTimeout(() => router.push('/dashboard'), 1500);

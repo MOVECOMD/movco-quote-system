@@ -77,6 +77,9 @@ export default function BookingModal({ quoteId, quoteData, onClose }: BookingMod
         setCompaniesMatched(0);
       }
 
+      // GA4: Track lead generated (highest-value conversion)
+      window.movcoTrackLeadGenerated?.();
+
       setSaved(true);
     } catch (err) {
       console.error('Booking interest error:', err);
