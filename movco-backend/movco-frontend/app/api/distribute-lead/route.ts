@@ -62,9 +62,9 @@ function extractAiSummary(aiAnalysis: any) {
     }
   }
 
-  // Estimate vans from volume if not provided (~350 ft³ per transit van ≈ ~10 m³)
+  // Estimate vans from volume if not provided (~35 m³ per transit van)
   if (!vans && volumeM3) {
-    vans = Math.ceil(volumeM3 / 10);
+    vans = Math.ceil(volumeM3 / 35);
   }
 
   // Estimate movers if not provided

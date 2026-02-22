@@ -198,8 +198,8 @@ export default function LeadDetailPage() {
   const totalVolumeFt3 = items.reduce((sum, item) => sum + parseVolumeNum(item), 0);
   const totalVolumeM3 = Math.round(totalVolumeFt3 * 0.0283168 * 10) / 10; // ft³ to m³
 
-  // Estimate vans: ~350 ft³ per transit van, round up
-  const estimatedVans = totalVolumeFt3 > 0 ? Math.ceil(totalVolumeFt3 / 350) : null;
+  // Estimate vans: ~35 m³ per transit van, round up
+  const estimatedVans = totalVolumeM3 > 0 ? Math.ceil(totalVolumeM3 / 35) : null;
   // Estimate movers: 2 for 1 van, 3 for 2+ vans
   const estimatedMovers = estimatedVans ? (estimatedVans >= 2 ? 3 : 2) : null;
 
