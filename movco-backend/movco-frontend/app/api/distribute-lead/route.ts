@@ -15,11 +15,10 @@ function extractPostcodePrefix(address: string): string | null {
   if (!address) return null;
 
   // Full UK postcode pattern - extract just the 1-2 letter area code
-  // Matches: SW1A 2AA, E1 6AN, EC1A 1BB, W1D 3SE, etc.
   const fullMatch = address.match(/\b([A-Z]{1,2})\d{1,2}[A-Z]?\s*\d[A-Z]{2}\b/i);
   if (fullMatch) return fullMatch[1].toUpperCase();
 
-  // Partial postcode at end of string (e.g. "London SW1" or "SW1A")
+  // Partial postcode at end of string
   const partialMatch = address.match(/\b([A-Z]{1,2})\d{1,2}[A-Z]?\b\s*$/i);
   if (partialMatch) return partialMatch[1].toUpperCase();
 
@@ -28,6 +27,52 @@ function extractPostcodePrefix(address: string): string | null {
   if (anyMatch) return anyMatch[1].toUpperCase();
 
   return null;
+}
+
+// Extract move summary from ai_analysis JSONB
+function extractAiSummary(aiAnalysis: any) {
+  if (!aiAnalysis) return { estimate: null, volumeM3: null, vans: null, movers: null, distanceMiles: null };
+
+  // Try top-level fields first (in case AI returns them)
+  let estimate = aiAnalysis.estimated_cost || null;
+  let volumeM3 = aiAnalysis.total_volume_m3 || null;
+  let vans = aiAnalysis.vans_needed || null;
+  let movers = aiAnalysis.movers_recommended || null;
+  let distanceMiles = aiAnalysis.distance_miles || null;
+
+  // If no top-level volume, calculate from items
+  if (!volumeM3 && aiAnalysis.items && Array.isArray(aiAnalysis.items)) {
+    let totalFt3 = 0;
+    for (const item of aiAnalysis.items) {
+      // Try volume_m3 field
+      if (item.volume_m3) {
+        totalFt3 += (item.volume_m3 * 35.3147) * (item.quantity || 1); // convert m³ to ft³ for consistency
+        continue;
+      }
+      // Parse from note field like "~25 ft³"
+      const noteStr = item.note || item.notes || '';
+      const match = noteStr.match(/([\d.]+)\s*ft/i);
+      if (match) {
+        totalFt3 += parseFloat(match[1]) * (item.quantity || 1);
+      }
+    }
+
+    if (totalFt3 > 0) {
+      volumeM3 = Math.round(totalFt3 * 0.0283168 * 10) / 10; // ft³ to m³
+    }
+  }
+
+  // Estimate vans from volume if not provided (~350 ft³ per transit van ≈ ~10 m³)
+  if (!vans && volumeM3) {
+    vans = Math.ceil(volumeM3 / 10);
+  }
+
+  // Estimate movers if not provided
+  if (!movers && vans) {
+    movers = vans >= 2 ? 3 : 2;
+  }
+
+  return { estimate, volumeM3, vans, movers, distanceMiles };
 }
 
 export async function POST(req: Request) {
@@ -60,7 +105,6 @@ export async function POST(req: Request) {
 
     if (!fromPrefix) {
       console.log('[MOVCO] ⚠️ Could not extract postcode from starting address');
-      // Still notify admin as fallback
       return NextResponse.json({
         distributed_to: 0,
         fallback: true,
@@ -68,7 +112,11 @@ export async function POST(req: Request) {
       });
     }
 
-    // 3. Get current lead price
+    // 3. Extract AI summary from ai_analysis JSONB
+    const aiSummary = extractAiSummary(quote.ai_analysis);
+    console.log(`[MOVCO] 🤖 AI Summary — Est: £${aiSummary.estimate || '?'}, Vol: ${aiSummary.volumeM3 || '?'} m³, Vans: ${aiSummary.vans || '?'}, Movers: ${aiSummary.movers || '?'}`);
+
+    // 4. Get current lead price
     const { data: pricing } = await supabase
       .from('lead_pricing')
       .select('lead_cost_pence')
@@ -81,7 +129,7 @@ export async function POST(req: Request) {
 
     console.log(`[MOVCO] 💰 Lead cost: £${(leadCost / 100).toFixed(2)}`);
 
-    // 4. Find matching active companies with enough balance
+    // 5. Find matching active companies with enough balance
     const { data: companies, error: compError } = await supabase
       .from('companies')
       .select('*')
@@ -105,14 +153,14 @@ export async function POST(req: Request) {
       });
     }
 
-    // 5. Get customer profile
+    // 6. Get customer profile
     const { data: profile } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', quote.user_id)
       .single();
 
-    // 6. Distribute to each matching company
+    // 7. Distribute to each matching company
     const distributed: string[] = [];
 
     for (const company of companies) {
@@ -139,7 +187,7 @@ export async function POST(req: Request) {
         quote_id: quote.id,
       });
 
-      // Record lead purchase with full details
+      // Record lead purchase with full details extracted from ai_analysis
       await supabase.from('lead_purchases').insert({
         company_id: company.id,
         quote_id: quote.id,
@@ -149,11 +197,11 @@ export async function POST(req: Request) {
         customer_phone: profile?.phone || null,
         from_postcode: quote.starting_address,
         to_postcode: quote.ending_address,
-        distance: quote.distance_miles ? `${quote.distance_miles} miles` : null,
-        estimated_quote: quote.estimate ? `£${quote.estimate}` : null,
-        volume: quote.total_volume_m3 ? `${quote.total_volume_m3} m³` : null,
-        vans: quote.van_description || (quote.van_count ? `${quote.van_count} van(s)` : null),
-        movers: quote.recommended_movers ? `${quote.recommended_movers}` : null,
+        distance: aiSummary.distanceMiles ? `${aiSummary.distanceMiles} miles` : null,
+        estimated_quote: aiSummary.estimate ? `£${aiSummary.estimate.toLocaleString()}` : null,
+        volume: aiSummary.volumeM3 ? `${aiSummary.volumeM3} m³` : null,
+        vans: aiSummary.vans ? `${aiSummary.vans} van${aiSummary.vans > 1 ? 's' : ''}` : null,
+        movers: aiSummary.movers ? `${aiSummary.movers}` : null,
         status: 'new',
       });
 
