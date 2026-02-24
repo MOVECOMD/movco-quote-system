@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
@@ -125,7 +125,7 @@ export default function CompanyDashboardPage() {
 
   // Quotes state
   const [crmQuotes, setCrmQuotes] = useState<CrmQuote[]>([]);
-  const [showQuoteModal, setShowQuoteModal] = useState(false);
+  const [showQuoteBuilder, setShowQuoteBuilder] = useState(false);
   const [editingQuote, setEditingQuote] = useState<CrmQuote | null>(null);
 
   // Pipeline state
@@ -213,7 +213,6 @@ export default function CompanyDashboardPage() {
   }, [user]);
 
   const loadCRMData = async (companyId: string) => {
-    // Pipeline stages
     const { data: stagesData } = await supabase
       .from('crm_pipeline_stages')
       .select('*')
@@ -224,7 +223,6 @@ export default function CompanyDashboardPage() {
       setStages(stagesData as PipelineStage[]);
     }
 
-    // Deals
     const { data: dealsData } = await supabase
       .from('crm_deals')
       .select('*')
@@ -233,7 +231,6 @@ export default function CompanyDashboardPage() {
 
     if (dealsData) setDeals(dealsData as Deal[]);
 
-    // Diary events
     const { data: eventsData } = await supabase
       .from('crm_diary_events')
       .select('*')
@@ -242,7 +239,6 @@ export default function CompanyDashboardPage() {
 
     if (eventsData) setEvents(eventsData as DiaryEvent[]);
 
-    // Customers
     const { data: customersData } = await supabase
       .from('crm_customers')
       .select('*')
@@ -251,7 +247,6 @@ export default function CompanyDashboardPage() {
 
     if (customersData) setCustomers(customersData as Customer[]);
 
-    // CRM Quotes
     const { data: quotesData } = await supabase
       .from('crm_quotes')
       .select('*')
@@ -402,29 +397,29 @@ export default function CompanyDashboardPage() {
     if (!error) setCustomers((prev) => prev.filter((c) => c.id !== customerId));
   };
 
-  // Quote CRUD
-  const saveQuote = async (quote: Partial<CrmQuote>) => {
+  // Quote save (from builder)
+  const saveQuoteFromBuilder = async (quote: Partial<CrmQuote>) => {
     if (!company) return;
-    if (editingQuote) {
-      const { error } = await supabase
-        .from('crm_quotes')
-        .update({ ...quote, updated_at: new Date().toISOString() })
-        .eq('id', editingQuote.id);
-      if (!error) {
-        setCrmQuotes((prev) => prev.map((q) => (q.id === editingQuote.id ? { ...q, ...quote } as CrmQuote : q)));
-      }
-    } else {
-      const { data, error } = await supabase
-        .from('crm_quotes')
-        .insert({ ...quote, company_id: company.id })
-        .select()
-        .single();
-      if (!error && data) {
-        setCrmQuotes((prev) => [data as CrmQuote, ...prev]);
-      }
+    const { data, error } = await supabase
+      .from('crm_quotes')
+      .insert({ ...quote, company_id: company.id })
+      .select()
+      .single();
+    if (!error && data) {
+      setCrmQuotes((prev) => [data as CrmQuote, ...prev]);
     }
-    setShowQuoteModal(false);
-    setEditingQuote(null);
+    setShowQuoteBuilder(false);
+  };
+
+  // Quote simple edit (for status/notes changes on existing quotes)
+  const updateQuoteFields = async (quoteId: string, fields: Partial<CrmQuote>) => {
+    const { error } = await supabase
+      .from('crm_quotes')
+      .update({ ...fields, updated_at: new Date().toISOString() })
+      .eq('id', quoteId);
+    if (!error) {
+      setCrmQuotes((prev) => prev.map((q) => (q.id === quoteId ? { ...q, ...fields } as CrmQuote : q)));
+    }
   };
 
   const deleteQuote = async (quoteId: string) => {
@@ -434,13 +429,7 @@ export default function CompanyDashboardPage() {
   };
 
   const updateQuoteStatus = async (quoteId: string, status: string) => {
-    const { error } = await supabase
-      .from('crm_quotes')
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq('id', quoteId);
-    if (!error) {
-      setCrmQuotes((prev) => prev.map((q) => (q.id === quoteId ? { ...q, status } : q)));
-    }
+    await updateQuoteFields(quoteId, { status } as any);
   };
 
   // Convert quote to deal
@@ -493,10 +482,6 @@ export default function CompanyDashboardPage() {
   const crmTabs: Tab[] = ['quotes', 'pipeline', 'diary', 'customers', 'reports'];
   const isCrmTab = crmTabs.includes(activeTab);
 
-  // ============================================
-  // NAV ITEMS CONFIG
-  // ============================================
-
   const navItems: { tab: Tab; label: string; icon: string; crm: boolean }[] = [
     { tab: 'leads', label: 'Leads', icon: 'inbox', crm: false },
     { tab: 'quotes', label: 'Quotes', icon: 'document', crm: true },
@@ -520,7 +505,6 @@ export default function CompanyDashboardPage() {
 
       {/* ==================== SIDEBAR ==================== */}
       <aside className={`fixed lg:static inset-y-0 left-0 z-50 w-64 bg-[#0a0f1c] text-white flex flex-col transform transition-transform duration-200 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
-        {/* Logo */}
         <div className="p-5 border-b border-white/10">
           <div className="flex items-center gap-3">
             <Image src="/movco-logo.png" alt="MOVCO" width={36} height={36} className="rounded-lg" />
@@ -531,12 +515,11 @@ export default function CompanyDashboardPage() {
           </div>
         </div>
 
-        {/* Navigation */}
         <nav className="flex-1 p-3 space-y-1">
           {navItems.map((item) => (
             <button
               key={item.tab}
-              onClick={() => { setActiveTab(item.tab); setSidebarOpen(false); }}
+              onClick={() => { setActiveTab(item.tab); setSidebarOpen(false); setShowQuoteBuilder(false); }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-150 ${
                 activeTab === item.tab
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
@@ -554,7 +537,6 @@ export default function CompanyDashboardPage() {
           ))}
         </nav>
 
-        {/* Subscription badge */}
         <div className="p-4 border-t border-white/10">
           {crmActive ? (
             <div className="bg-green-500/20 border border-green-500/30 rounded-xl px-4 py-3">
@@ -573,7 +555,6 @@ export default function CompanyDashboardPage() {
           )}
         </div>
 
-        {/* Sign out */}
         <div className="p-4 border-t border-white/10">
           <button
             onClick={async () => { await signOut(); router.push('/auth'); }}
@@ -589,7 +570,6 @@ export default function CompanyDashboardPage() {
 
       {/* ==================== MAIN CONTENT ==================== */}
       <main className="flex-1 min-h-screen overflow-hidden">
-        {/* Top bar (mobile) */}
         <div className="lg:hidden flex items-center justify-between bg-white border-b px-4 py-3">
           <button onClick={() => setSidebarOpen(true)} className="p-2 text-gray-600">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -606,17 +586,22 @@ export default function CompanyDashboardPage() {
             <CRMLockOverlay tab={activeTab} onSubscribe={startCrmSubscription} />
           )}
 
-          {/* Tab content */}
           <div className={isCrmTab && !crmActive ? 'filter blur-sm pointer-events-none select-none' : ''}>
             {activeTab === 'leads' && <LeadsTab leads={leads} company={company} />}
-            {activeTab === 'quotes' && (
+            {activeTab === 'quotes' && !showQuoteBuilder && (
               <QuotesTab
                 quotes={crmQuotes}
-                onAddQuote={() => { setEditingQuote(null); setShowQuoteModal(true); }}
-                onEditQuote={(q) => { setEditingQuote(q); setShowQuoteModal(true); }}
+                onAddQuote={() => { setEditingQuote(null); setShowQuoteBuilder(true); }}
                 onDeleteQuote={deleteQuote}
                 onUpdateStatus={updateQuoteStatus}
                 onConvertToDeal={convertQuoteToDeal}
+              />
+            )}
+            {activeTab === 'quotes' && showQuoteBuilder && (
+              <QuoteBuilder
+                company={company}
+                onSave={saveQuoteFromBuilder}
+                onCancel={() => setShowQuoteBuilder(false)}
               />
             )}
             {activeTab === 'pipeline' && (
@@ -683,13 +668,6 @@ export default function CompanyDashboardPage() {
           onClose={() => { setShowCustomerModal(false); setEditingCustomer(null); }}
         />
       )}
-      {showQuoteModal && (
-        <QuoteModal
-          quote={editingQuote}
-          onSave={saveQuote}
-          onClose={() => { setShowQuoteModal(false); setEditingQuote(null); }}
-        />
-      )}
     </div>
   );
 }
@@ -700,42 +678,13 @@ export default function CompanyDashboardPage() {
 
 function NavIcon({ name }: { name: string }) {
   const icons: Record<string, React.ReactNode> = {
-    inbox: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-      </svg>
-    ),
-    document: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-      </svg>
-    ),
-    pipeline: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
-      </svg>
-    ),
-    calendar: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-      </svg>
-    ),
-    users: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-      </svg>
-    ),
-    chart: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-      </svg>
-    ),
-    settings: (
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-      </svg>
-    ),
+    inbox: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>),
+    document: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>),
+    pipeline: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" /></svg>),
+    calendar: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>),
+    users: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>),
+    chart: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>),
+    settings: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>),
   };
   return icons[name] || null;
 }
@@ -746,26 +695,11 @@ function NavIcon({ name }: { name: string }) {
 
 function CRMLockOverlay({ tab, onSubscribe }: { tab: Tab; onSubscribe: () => void }) {
   const features: Record<string, { title: string; bullets: string[] }> = {
-    quotes: {
-      title: 'Quote Builder',
-      bullets: ['Create professional moving quotes', 'Track quote status (draft, sent, accepted)', 'Itemised inventory & volume calculator', 'Convert accepted quotes to pipeline deals'],
-    },
-    pipeline: {
-      title: 'Pipeline Management',
-      bullets: ['Kanban drag & drop board', 'Track deals from lead to completion', 'Custom stages & deal values', 'Never lose track of a job'],
-    },
-    diary: {
-      title: 'Diary & Scheduling',
-      bullets: ['Calendar view of all jobs', 'Schedule surveys & callbacks', 'Track job completion', 'Never double-book again'],
-    },
-    customers: {
-      title: 'Customer Database',
-      bullets: ['Searchable customer records', 'Contact details & notes', 'Job history & revenue tracking', 'Build lasting relationships'],
-    },
-    reports: {
-      title: 'Reports & Analytics',
-      bullets: ['Revenue tracking & trends', 'Lead conversion rates', 'Pipeline performance', 'Data-driven decisions'],
-    },
+    quotes: { title: 'AI Quote Builder', bullets: ['Upload photos & get AI-powered item detection', 'Auto-calculate volume, vans & movers needed', 'Adjust pricing before sending to customer', 'Convert accepted quotes to pipeline deals'] },
+    pipeline: { title: 'Pipeline Management', bullets: ['Kanban drag & drop board', 'Track deals from lead to completion', 'Custom stages & deal values', 'Never lose track of a job'] },
+    diary: { title: 'Diary & Scheduling', bullets: ['Calendar view of all jobs', 'Schedule surveys & callbacks', 'Track job completion', 'Never double-book again'] },
+    customers: { title: 'Customer Database', bullets: ['Searchable customer records', 'Contact details & notes', 'Job history & revenue tracking', 'Build lasting relationships'] },
+    reports: { title: 'Reports & Analytics', bullets: ['Revenue tracking & trends', 'Lead conversion rates', 'Pipeline performance', 'Data-driven decisions'] },
   };
 
   const feature = features[tab] || features.pipeline;
@@ -779,10 +713,8 @@ function CRMLockOverlay({ tab, onSubscribe }: { tab: Tab; onSubscribe: () => voi
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
           </div>
-
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Unlock {feature.title}</h2>
           <p className="text-gray-500 mb-6 text-sm">Get the full MOVCO CRM to manage your removal business like a pro.</p>
-
           <div className="bg-gradient-to-br from-[#0a0f1c] to-blue-900 rounded-xl p-5 text-white mb-6">
             <p className="text-sm font-medium text-blue-300 mb-1">CRM Pro</p>
             <div className="flex items-baseline justify-center gap-1 mb-1">
@@ -791,27 +723,478 @@ function CRMLockOverlay({ tab, onSubscribe }: { tab: Tab; onSubscribe: () => voi
             </div>
             <p className="text-blue-200 text-xs">Cancel anytime • All features included</p>
           </div>
-
           <div className="text-left space-y-2.5 mb-6">
             {feature.bullets.map((b, i) => (
               <div key={i} className="flex items-center gap-2.5">
-                <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
+                <svg className="w-5 h-5 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
                 <span className="text-sm text-gray-700">{b}</span>
               </div>
             ))}
           </div>
-
-          <button
-            onClick={onSubscribe}
-            className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg text-lg"
-          >
+          <button onClick={onSubscribe} className="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg text-lg">
             Start CRM Pro
           </button>
           <p className="text-xs text-gray-400 mt-3">Includes Quotes, Pipeline, Diary, Customers & Reports</p>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ============================================
+// AI QUOTE BUILDER (replaces simple form)
+// ============================================
+
+function QuoteBuilder({ company, onSave, onCancel }: {
+  company: Company;
+  onSave: (q: Partial<CrmQuote>) => void;
+  onCancel: () => void;
+}) {
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+
+  // Step: 'details' | 'photos' | 'analyzing' | 'results'
+  const [step, setStep] = useState<'details' | 'photos' | 'analyzing' | 'results'>('details');
+
+  // Customer form
+  const [customerName, setCustomerName] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [movingFrom, setMovingFrom] = useState('');
+  const [movingTo, setMovingTo] = useState('');
+  const [movingDate, setMovingDate] = useState('');
+  const [notes, setNotes] = useState('');
+
+  // Photo state
+  const [files, setFiles] = useState<File[]>([]);
+  const [uploadedUrls, setUploadedUrls] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+
+  // AI results
+  const [aiResult, setAiResult] = useState<any>(null);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+
+  // Editable result fields
+  const [editItems, setEditItems] = useState<any[]>([]);
+  const [editPrice, setEditPrice] = useState('');
+  const [editVolume, setEditVolume] = useState('');
+  const [editVans, setEditVans] = useState('1');
+  const [editMovers, setEditMovers] = useState('2');
+
+  // Photo handlers
+  const handleCameraChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    setFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
+    e.target.value = '';
+  };
+
+  const handleGalleryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    setFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
+    e.target.value = '';
+  };
+
+  const removeFile = (idx: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  // Upload photos to Supabase then analyze
+  const uploadAndAnalyze = async () => {
+    if (files.length === 0) {
+      alert('Please upload at least one photo');
+      return;
+    }
+    if (!movingFrom.trim() || !movingTo.trim()) {
+      alert('Please enter moving from and moving to addresses');
+      return;
+    }
+
+    setStep('analyzing');
+    setAnalyzeError(null);
+
+    try {
+      // 1. Upload all photos to Supabase storage
+      const urls: string[] = [];
+      for (const file of files) {
+        const filePath = `crm-quotes/${company.id}/${Date.now()}-${file.name}`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('movco-photos')
+          .upload(filePath, file);
+
+        if (uploadError) {
+          // Fallback to 'photos' bucket
+          const { data: uploadData2, error: uploadError2 } = await supabase.storage
+            .from('photos')
+            .upload(filePath, file);
+          if (uploadError2) {
+            console.error('Upload error:', uploadError2);
+            continue;
+          }
+          const { data: pubData2 } = supabase.storage.from('photos').getPublicUrl(filePath);
+          if (pubData2?.publicUrl) urls.push(pubData2.publicUrl);
+        } else {
+          const { data: pubData } = supabase.storage.from('movco-photos').getPublicUrl(filePath);
+          if (pubData?.publicUrl) urls.push(pubData.publicUrl);
+        }
+      }
+
+      setUploadedUrls(urls);
+
+      if (urls.length === 0) {
+        throw new Error('Failed to upload photos. Please try again.');
+      }
+
+      // 2. Call the AI analyze API
+      const response = await fetch('https://movco-api.onrender.com/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          starting_address: movingFrom,
+          ending_address: movingTo,
+          photo_urls: urls,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Analysis failed (${response.status}). Please try again.`);
+      }
+
+      const data = await response.json();
+      setAiResult(data);
+
+      // Set editable fields from AI result
+      setEditItems(data.items || []);
+      setEditPrice(data.estimate?.toFixed(2) || '');
+      setEditVolume(data.totalVolumeM3?.toString() || '');
+
+      // Estimate vans based on volume
+      const vol = data.totalVolumeM3 || 0;
+      setEditVans(vol <= 15 ? '1' : vol <= 30 ? '2' : '3');
+      setEditMovers(vol <= 15 ? '2' : vol <= 30 ? '3' : '4');
+
+      setStep('results');
+    } catch (err: any) {
+      console.error('Analyze error:', err);
+      setAnalyzeError(err?.message || 'Something went wrong. Please try again.');
+      setStep('photos');
+    }
+  };
+
+  // Save final quote
+  const handleSaveQuote = () => {
+    if (!customerName.trim()) {
+      alert('Please enter a customer name');
+      return;
+    }
+
+    onSave({
+      customer_name: customerName,
+      customer_email: customerEmail || null,
+      customer_phone: customerPhone || null,
+      moving_from: movingFrom || null,
+      moving_to: movingTo || null,
+      moving_date: movingDate || null,
+      items: editItems,
+      total_volume_m3: editVolume ? parseFloat(editVolume) : 0,
+      van_count: parseInt(editVans) || 1,
+      movers: parseInt(editMovers) || 2,
+      estimated_price: editPrice ? parseFloat(editPrice) : null,
+      notes: notes || null,
+      status: 'draft',
+    } as any);
+  };
+
+  // Step indicator
+  const steps = [
+    { key: 'details', label: 'Customer Details' },
+    { key: 'photos', label: 'Upload Photos' },
+    { key: 'results', label: 'Review & Save' },
+  ];
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <button onClick={onCancel} className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+          </button>
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900">New AI Quote</h2>
+            <p className="text-sm text-gray-500">Upload photos for AI-powered item detection & pricing</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Step indicator */}
+      <div className="flex items-center gap-2 mb-8">
+        {steps.map((s, i) => {
+          const stepKeys = ['details', 'photos', 'results'];
+          const currentIdx = stepKeys.indexOf(step === 'analyzing' ? 'photos' : step);
+          const isActive = stepKeys.indexOf(s.key) === currentIdx;
+          const isDone = stepKeys.indexOf(s.key) < currentIdx;
+          return (
+            <div key={s.key} className="flex items-center gap-2 flex-1">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${isDone ? 'bg-green-500 text-white' : isActive ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'}`}>
+                {isDone ? '✓' : i + 1}
+              </div>
+              <span className={`text-sm font-medium hidden sm:block ${isActive ? 'text-blue-600' : isDone ? 'text-green-600' : 'text-gray-400'}`}>{s.label}</span>
+              {i < steps.length - 1 && <div className={`flex-1 h-0.5 ${isDone ? 'bg-green-500' : 'bg-gray-200'}`} />}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ===== STEP 1: Customer Details ===== */}
+      {step === 'details' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl border p-6">
+            <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+              Customer Details
+            </h3>
+            <div className="space-y-3">
+              <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Customer name *" className="w-full px-4 py-3 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <input value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="Email" className="px-4 py-3 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                <input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="Phone" className="px-4 py-3 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border p-6">
+            <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+              Move Details
+            </h3>
+            <div className="space-y-3">
+              <input value={movingFrom} onChange={(e) => setMovingFrom(e.target.value)} placeholder="Moving from *" className="w-full px-4 py-3 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              <input value={movingTo} onChange={(e) => setMovingTo(e.target.value)} placeholder="Moving to *" className="w-full px-4 py-3 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Moving date</label>
+                  <input type="date" value={movingDate} onChange={(e) => setMovingDate(e.target.value)} className="w-full px-4 py-3 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+              </div>
+              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Additional notes..." rows={2} className="w-full px-4 py-3 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+            </div>
+          </div>
+
+          <button
+            onClick={() => {
+              if (!customerName.trim()) return alert('Customer name is required');
+              if (!movingFrom.trim() || !movingTo.trim()) return alert('Moving from and moving to are required');
+              setStep('photos');
+            }}
+            className="w-full bg-blue-600 text-white font-semibold py-3.5 rounded-xl hover:bg-blue-700 transition text-lg"
+          >
+            Next — Upload Photos →
+          </button>
+        </div>
+      )}
+
+      {/* ===== STEP 2: Photo Upload ===== */}
+      {step === 'photos' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl border p-6">
+            <h3 className="font-bold text-gray-900 mb-2 flex items-center gap-2">
+              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+              Upload Room Photos
+            </h3>
+            <p className="text-sm text-gray-500 mb-5">Take photos of each room or upload from gallery. Our AI will detect all items and calculate volumes.</p>
+
+            {analyzeError && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4 flex items-center gap-2">
+                <svg className="w-5 h-5 text-red-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
+                <p className="text-sm text-red-700">{analyzeError}</p>
+              </div>
+            )}
+
+            {/* Upload buttons */}
+            <div className="grid grid-cols-2 gap-4 mb-5">
+              <div
+                className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:border-blue-400 hover:bg-blue-50/50 transition-all cursor-pointer"
+                onClick={() => cameraInputRef.current?.click()}
+              >
+                <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleCameraChange} className="hidden" />
+                <div className="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </div>
+                <p className="font-medium text-gray-800">Take Photo</p>
+                <p className="text-xs text-gray-500 mt-0.5">Use your camera</p>
+              </div>
+
+              <div
+                className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:border-green-400 hover:bg-green-50/50 transition-all cursor-pointer"
+                onClick={() => galleryInputRef.current?.click()}
+              >
+                <input ref={galleryInputRef} type="file" accept="image/*" multiple onChange={handleGalleryChange} className="hidden" />
+                <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-7 h-7 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <p className="font-medium text-gray-800">Upload Photos</p>
+                <p className="text-xs text-gray-500 mt-0.5">Choose from gallery</p>
+              </div>
+            </div>
+
+            {/* Photo thumbnails */}
+            {files.length > 0 && (
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-3">{files.length} photo{files.length !== 1 ? 's' : ''} ready</p>
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
+                  {files.map((file, idx) => (
+                    <div key={idx} className="relative group aspect-square rounded-xl overflow-hidden border border-gray-200 shadow-sm bg-gray-100">
+                      <img src={URL.createObjectURL(file)} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
+                      <button
+                        onClick={() => removeFile(idx)}
+                        className="absolute top-1.5 right-1.5 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-red-600 shadow"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-3">
+            <button onClick={() => setStep('details')} className="px-6 py-3.5 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200 transition">
+              ← Back
+            </button>
+            <button
+              onClick={uploadAndAnalyze}
+              disabled={files.length === 0}
+              className={`flex-1 font-semibold py-3.5 rounded-xl transition text-lg ${
+                files.length === 0
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-lg'
+              }`}
+            >
+              <span className="flex items-center justify-center gap-2">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                Analyze with AI ({files.length} photo{files.length !== 1 ? 's' : ''})
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ===== ANALYZING STATE ===== */}
+      {step === 'analyzing' && (
+        <div className="flex flex-col items-center justify-center py-20">
+          <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center mb-6 animate-pulse shadow-2xl">
+            <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+          </div>
+          <h3 className="text-xl font-bold text-gray-900 mb-2">Analyzing Photos...</h3>
+          <p className="text-gray-500 text-sm mb-6">Our AI is detecting items and calculating volumes</p>
+          <div className="flex items-center gap-2">
+            <svg className="animate-spin h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+            <span className="text-blue-600 font-medium text-sm">This usually takes 30-60 seconds...</span>
+          </div>
+        </div>
+      )}
+
+      {/* ===== STEP 3: Results ===== */}
+      {step === 'results' && aiResult && (
+        <div className="space-y-6">
+          {/* Summary card */}
+          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-6 text-white">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-sm text-blue-200">AI Estimated Cost</p>
+                <p className="text-4xl font-bold">£{parseFloat(editPrice || '0').toFixed(2)}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm text-blue-200">Customer</p>
+                <p className="text-lg font-semibold">{customerName}</p>
+              </div>
+            </div>
+            <p className="text-sm text-blue-200">{movingFrom} → {movingTo}</p>
+          </div>
+
+          {/* Editable pricing */}
+          <div className="bg-white rounded-xl border p-6">
+            <h3 className="font-bold text-gray-900 mb-4">Adjust Pricing & Logistics</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Volume (m³)</label>
+                <input type="number" value={editVolume} onChange={(e) => setEditVolume(e.target.value)} className="w-full px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Vans</label>
+                <input type="number" value={editVans} onChange={(e) => setEditVans(e.target.value)} className="w-full px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none" min="1" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Movers</label>
+                <input type="number" value={editMovers} onChange={(e) => setEditMovers(e.target.value)} className="w-full px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none" min="1" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Your Price (£)</label>
+                <input type="number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-full px-3 py-2.5 border rounded-lg text-sm font-bold text-green-600 focus:ring-2 focus:ring-blue-500 outline-none" />
+              </div>
+            </div>
+          </div>
+
+          {/* Items detected */}
+          <div className="bg-white rounded-xl border p-6">
+            <h3 className="font-bold text-gray-900 mb-4">Items Detected ({editItems.length})</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {editItems.map((item: any, idx: number) => (
+                <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                      <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
+                    </div>
+                    <span className="text-sm font-medium text-gray-700">{item.name}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-sm font-semibold text-gray-800">×{item.quantity}</span>
+                    {item.estimated_volume_ft3 && (
+                      <span className="text-xs text-gray-500 ml-2">{item.estimated_volume_ft3?.toFixed(1)} ft³</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Photo thumbnails */}
+          {uploadedUrls.length > 0 && (
+            <div className="bg-white rounded-xl border p-6">
+              <h3 className="font-bold text-gray-900 mb-4">Photos ({uploadedUrls.length})</h3>
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                {uploadedUrls.map((url, idx) => (
+                  <div key={idx} className="aspect-square rounded-lg overflow-hidden border">
+                    <img src={url} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Save / Back buttons */}
+          <div className="flex gap-3">
+            <button onClick={() => setStep('photos')} className="px-6 py-3.5 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200 transition">
+              ← Back
+            </button>
+            <button
+              onClick={handleSaveQuote}
+              className="flex-1 bg-green-600 text-white font-semibold py-3.5 rounded-xl hover:bg-green-700 transition text-lg shadow-lg"
+            >
+              Save Quote — £{parseFloat(editPrice || '0').toFixed(2)}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -828,13 +1211,8 @@ function LeadsTab({ leads, company }: { leads: Lead[]; company: Company }) {
           <h2 className="text-2xl font-bold text-gray-900">Leads</h2>
           <p className="text-sm text-gray-500 mt-1">{leads.length} total leads • Balance: £{company.balance?.toFixed(2) || '0.00'}</p>
         </div>
-        <Link
-          href={`/company-dashboard/topup`}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
+        <Link href="/company-dashboard/topup" className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
           Top Up Balance
         </Link>
       </div>
@@ -842,9 +1220,7 @@ function LeadsTab({ leads, company }: { leads: Lead[]; company: Company }) {
       {leads.length === 0 ? (
         <div className="bg-white rounded-xl border p-12 text-center">
           <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-            </svg>
+            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
           </div>
           <h3 className="text-lg font-bold text-gray-800 mb-2">No leads yet</h3>
           <p className="text-gray-500 text-sm">Leads will appear here when customers in your postcode areas request quotes.</p>
@@ -856,20 +1232,10 @@ function LeadsTab({ leads, company }: { leads: Lead[]; company: Company }) {
               <div className="bg-white rounded-xl border p-5 hover:shadow-md hover:border-blue-200 transition-all">
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-900 truncate">
-                      {lead.instant_quotes?.starting_address || 'Unknown'} → {lead.instant_quotes?.ending_address || 'Unknown'}
-                    </p>
-                    <p className="text-sm text-gray-500 mt-1">
-                      {new Date(lead.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} • £{lead.price?.toFixed(2)}
-                    </p>
+                    <p className="font-semibold text-gray-900 truncate">{lead.instant_quotes?.starting_address || 'Unknown'} → {lead.instant_quotes?.ending_address || 'Unknown'}</p>
+                    <p className="text-sm text-gray-500 mt-1">{new Date(lead.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} • £{lead.price?.toFixed(2)}</p>
                   </div>
-                  <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                    lead.status === 'new' ? 'bg-green-100 text-green-700' :
-                    lead.status === 'won' ? 'bg-blue-100 text-blue-700' :
-                    'bg-red-100 text-red-700'
-                  }`}>
-                    {lead.status}
-                  </span>
+                  <span className={`px-3 py-1 rounded-full text-xs font-semibold ${lead.status === 'new' ? 'bg-green-100 text-green-700' : lead.status === 'won' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>{lead.status}</span>
                 </div>
               </div>
             </Link>
@@ -881,22 +1247,19 @@ function LeadsTab({ leads, company }: { leads: Lead[]; company: Company }) {
 }
 
 // ============================================
-// QUOTES TAB
+// QUOTES TAB (list view)
 // ============================================
 
-function QuotesTab({ quotes, onAddQuote, onEditQuote, onDeleteQuote, onUpdateStatus, onConvertToDeal }: {
+function QuotesTab({ quotes, onAddQuote, onDeleteQuote, onUpdateStatus, onConvertToDeal }: {
   quotes: CrmQuote[];
   onAddQuote: () => void;
-  onEditQuote: (q: CrmQuote) => void;
   onDeleteQuote: (id: string) => void;
   onUpdateStatus: (id: string, status: string) => void;
   onConvertToDeal: (q: CrmQuote) => void;
 }) {
   const [filterStatus, setFilterStatus] = useState<string>('all');
 
-  const filtered = filterStatus === 'all'
-    ? quotes
-    : quotes.filter((q) => q.status === filterStatus);
+  const filtered = filterStatus === 'all' ? quotes : quotes.filter((q) => q.status === filterStatus);
 
   const statusCounts: Record<string, number> = {
     all: quotes.length,
@@ -925,25 +1288,14 @@ function QuotesTab({ quotes, onAddQuote, onEditQuote, onDeleteQuote, onUpdateSta
           <p className="text-sm text-gray-500 mt-1">{quotes.length} quotes • £{totalQuoteValue.toLocaleString()} total value • £{acceptedValue.toLocaleString()} accepted</p>
         </div>
         <button onClick={onAddQuote} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          New Quote
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+          + New AI Quote
         </button>
       </div>
 
-      {/* Status filter tabs */}
       <div className="flex gap-2 mb-6 flex-wrap">
         {['all', 'draft', 'sent', 'accepted', 'declined'].map((status) => (
-          <button
-            key={status}
-            onClick={() => setFilterStatus(status)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-              filterStatus === status
-                ? 'bg-blue-600 text-white'
-                : 'bg-white border text-gray-600 hover:bg-gray-50'
-            }`}
-          >
+          <button key={status} onClick={() => setFilterStatus(status)} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${filterStatus === status ? 'bg-blue-600 text-white' : 'bg-white border text-gray-600 hover:bg-gray-50'}`}>
             {status.charAt(0).toUpperCase() + status.slice(1)} ({statusCounts[status] || 0})
           </button>
         ))}
@@ -952,16 +1304,13 @@ function QuotesTab({ quotes, onAddQuote, onEditQuote, onDeleteQuote, onUpdateSta
       {filtered.length === 0 ? (
         <div className="bg-white rounded-xl border p-12 text-center">
           <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
+            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
           </div>
-          <h3 className="text-lg font-bold text-gray-800 mb-2">
-            {filterStatus === 'all' ? 'No quotes yet' : `No ${filterStatus} quotes`}
-          </h3>
-          <p className="text-gray-500 text-sm mb-4">Create quotes for your customers with itemised inventory and pricing.</p>
+          <h3 className="text-lg font-bold text-gray-800 mb-2">{filterStatus === 'all' ? 'No quotes yet' : `No ${filterStatus} quotes`}</h3>
+          <p className="text-gray-500 text-sm mb-4">Upload photos and let AI create accurate quotes for your customers.</p>
           <button onClick={onAddQuote} className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm">
-            Create Your First Quote
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+            Create Your First AI Quote
           </button>
         </div>
       ) : (
@@ -972,19 +1321,13 @@ function QuotesTab({ quotes, onAddQuote, onEditQuote, onDeleteQuote, onUpdateSta
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-2">
                     <h3 className="font-semibold text-gray-900">{quote.customer_name}</h3>
-                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusStyles[quote.status] || statusStyles.draft}`}>
-                      {quote.status}
-                    </span>
+                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusStyles[quote.status] || statusStyles.draft}`}>{quote.status}</span>
                   </div>
                   {(quote.moving_from || quote.moving_to) && (
-                    <p className="text-sm text-gray-600 mb-1">
-                      {quote.moving_from || '—'} → {quote.moving_to || '—'}
-                    </p>
+                    <p className="text-sm text-gray-600 mb-1">{quote.moving_from || '—'} → {quote.moving_to || '—'}</p>
                   )}
                   <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
-                    {quote.moving_date && (
-                      <span>📅 {new Date(quote.moving_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-                    )}
+                    {quote.moving_date && <span>📅 {new Date(quote.moving_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>}
                     {quote.total_volume_m3 > 0 && <span>📦 {quote.total_volume_m3} m³</span>}
                     {quote.van_count && <span>🚛 {quote.van_count} van{quote.van_count !== 1 ? 's' : ''}</span>}
                     {quote.movers && <span>👷 {quote.movers} movers</span>}
@@ -992,55 +1335,23 @@ function QuotesTab({ quotes, onAddQuote, onEditQuote, onDeleteQuote, onUpdateSta
                     <span>{new Date(quote.created_at).toLocaleDateString('en-GB')}</span>
                   </div>
                 </div>
-
                 <div className="flex flex-col items-end gap-2 flex-shrink-0">
                   {quote.estimated_price && (
                     <p className="text-xl font-bold text-green-600">£{quote.estimated_price.toLocaleString()}</p>
                   )}
                 </div>
               </div>
-
-              {/* Actions row */}
               <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-100 flex-wrap">
-                <button
-                  onClick={() => onEditQuote(quote)}
-                  className="text-xs font-medium text-blue-600 hover:text-blue-800 px-3 py-1.5 bg-blue-50 rounded-lg hover:bg-blue-100 transition"
-                >
-                  Edit
-                </button>
-
                 {quote.status === 'draft' && (
-                  <button
-                    onClick={() => onUpdateStatus(quote.id, 'sent')}
-                    className="text-xs font-medium text-indigo-600 hover:text-indigo-800 px-3 py-1.5 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition"
-                  >
-                    Mark as Sent
-                  </button>
+                  <button onClick={() => onUpdateStatus(quote.id, 'sent')} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 px-3 py-1.5 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition">Mark as Sent</button>
                 )}
-
                 {quote.status === 'sent' && (
                   <>
-                    <button
-                      onClick={() => onConvertToDeal(quote)}
-                      className="text-xs font-medium text-green-600 hover:text-green-800 px-3 py-1.5 bg-green-50 rounded-lg hover:bg-green-100 transition"
-                    >
-                      Accepted → Pipeline
-                    </button>
-                    <button
-                      onClick={() => onUpdateStatus(quote.id, 'declined')}
-                      className="text-xs font-medium text-orange-600 hover:text-orange-800 px-3 py-1.5 bg-orange-50 rounded-lg hover:bg-orange-100 transition"
-                    >
-                      Declined
-                    </button>
+                    <button onClick={() => onConvertToDeal(quote)} className="text-xs font-medium text-green-600 hover:text-green-800 px-3 py-1.5 bg-green-50 rounded-lg hover:bg-green-100 transition">Accepted → Pipeline</button>
+                    <button onClick={() => onUpdateStatus(quote.id, 'declined')} className="text-xs font-medium text-orange-600 hover:text-orange-800 px-3 py-1.5 bg-orange-50 rounded-lg hover:bg-orange-100 transition">Declined</button>
                   </>
                 )}
-
-                <button
-                  onClick={() => onDeleteQuote(quote.id)}
-                  className="text-xs font-medium text-red-500 hover:text-red-700 px-3 py-1.5 bg-red-50 rounded-lg hover:bg-red-100 transition ml-auto"
-                >
-                  Delete
-                </button>
+                <button onClick={() => onDeleteQuote(quote.id)} className="text-xs font-medium text-red-500 hover:text-red-700 px-3 py-1.5 bg-red-50 rounded-lg hover:bg-red-100 transition ml-auto">Delete</button>
               </div>
             </div>
           ))}
@@ -1051,16 +1362,13 @@ function QuotesTab({ quotes, onAddQuote, onEditQuote, onDeleteQuote, onUpdateSta
 }
 
 // ============================================
-// PIPELINE TAB (Kanban Board)
+// PIPELINE TAB
 // ============================================
 
 function PipelineTab({ stages, deals, onMoveDeal, onAddDeal, onEditDeal, onDeleteDeal }: {
-  stages: PipelineStage[];
-  deals: Deal[];
+  stages: PipelineStage[]; deals: Deal[];
   onMoveDeal: (dealId: string, stageId: string) => void;
-  onAddDeal: () => void;
-  onEditDeal: (deal: Deal) => void;
-  onDeleteDeal: (dealId: string) => void;
+  onAddDeal: () => void; onEditDeal: (deal: Deal) => void; onDeleteDeal: (dealId: string) => void;
 }) {
   const [draggedDealId, setDraggedDealId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
@@ -1068,74 +1376,35 @@ function PipelineTab({ stages, deals, onMoveDeal, onAddDeal, onEditDeal, onDelet
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Pipeline</h2>
-          <p className="text-sm text-gray-500 mt-1">{deals.length} deals in pipeline</p>
-        </div>
+        <div><h2 className="text-2xl font-bold text-gray-900">Pipeline</h2><p className="text-sm text-gray-500 mt-1">{deals.length} deals in pipeline</p></div>
         <button onClick={onAddDeal} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Add Deal
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>Add Deal
         </button>
       </div>
-
       {stages.length === 0 ? (
-        <div className="bg-white rounded-xl border p-12 text-center">
-          <p className="text-gray-500">Pipeline stages will be set up automatically. Add your first deal to get started.</p>
-        </div>
+        <div className="bg-white rounded-xl border p-12 text-center"><p className="text-gray-500">Pipeline stages will be set up automatically. Add your first deal to get started.</p></div>
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-4">
           {stages.map((stage) => {
             const stageDeals = deals.filter((d) => d.stage_id === stage.id);
             return (
-              <div
-                key={stage.id}
-                className={`flex-shrink-0 w-72 bg-gray-100 rounded-xl p-3 transition-all ${
-                  dragOverStage === stage.id ? 'ring-2 ring-blue-400 bg-blue-50' : ''
-                }`}
+              <div key={stage.id} className={`flex-shrink-0 w-72 bg-gray-100 rounded-xl p-3 transition-all ${dragOverStage === stage.id ? 'ring-2 ring-blue-400 bg-blue-50' : ''}`}
                 onDragOver={(e) => { e.preventDefault(); setDragOverStage(stage.id); }}
                 onDragLeave={() => setDragOverStage(null)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDragOverStage(null);
-                  if (draggedDealId) {
-                    onMoveDeal(draggedDealId, stage.id);
-                    setDraggedDealId(null);
-                  }
-                }}
-              >
+                onDrop={(e) => { e.preventDefault(); setDragOverStage(null); if (draggedDealId) { onMoveDeal(draggedDealId, stage.id); setDraggedDealId(null); } }}>
                 <div className="flex items-center gap-2 mb-3 px-1">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: stage.color }} />
                   <h3 className="font-semibold text-gray-800 text-sm">{stage.name}</h3>
-                  <span className="ml-auto bg-white text-gray-600 text-xs font-bold px-2 py-0.5 rounded-full">
-                    {stageDeals.length}
-                  </span>
+                  <span className="ml-auto bg-white text-gray-600 text-xs font-bold px-2 py-0.5 rounded-full">{stageDeals.length}</span>
                 </div>
-
                 <div className="space-y-2 min-h-[60px]">
                   {stageDeals.map((deal) => (
-                    <div
-                      key={deal.id}
-                      draggable
-                      onDragStart={() => setDraggedDealId(deal.id)}
-                      onDragEnd={() => setDraggedDealId(null)}
-                      className={`bg-white rounded-lg p-3 shadow-sm border cursor-grab active:cursor-grabbing hover:shadow-md transition-all ${
-                        draggedDealId === deal.id ? 'opacity-50' : ''
-                      }`}
-                    >
+                    <div key={deal.id} draggable onDragStart={() => setDraggedDealId(deal.id)} onDragEnd={() => setDraggedDealId(null)}
+                      className={`bg-white rounded-lg p-3 shadow-sm border cursor-grab active:cursor-grabbing hover:shadow-md transition-all ${draggedDealId === deal.id ? 'opacity-50' : ''}`}>
                       <p className="font-medium text-gray-900 text-sm truncate">{deal.customer_name}</p>
-                      {deal.moving_from && (
-                        <p className="text-xs text-gray-500 mt-1 truncate">{deal.moving_from} → {deal.moving_to}</p>
-                      )}
-                      {deal.estimated_value && (
-                        <p className="text-sm font-bold text-green-600 mt-1">£{deal.estimated_value.toLocaleString()}</p>
-                      )}
-                      {deal.moving_date && (
-                        <p className="text-xs text-gray-400 mt-1">
-                          {new Date(deal.moving_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                        </p>
-                      )}
+                      {deal.moving_from && <p className="text-xs text-gray-500 mt-1 truncate">{deal.moving_from} → {deal.moving_to}</p>}
+                      {deal.estimated_value && <p className="text-sm font-bold text-green-600 mt-1">£{deal.estimated_value.toLocaleString()}</p>}
+                      {deal.moving_date && <p className="text-xs text-gray-400 mt-1">{new Date(deal.moving_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>}
                       <div className="flex gap-1 mt-2">
                         <button onClick={(e) => { e.stopPropagation(); onEditDeal(deal); }} className="text-xs text-blue-600 hover:text-blue-800">Edit</button>
                         <span className="text-gray-300">·</span>
@@ -1158,20 +1427,14 @@ function PipelineTab({ stages, deals, onMoveDeal, onAddDeal, onEditDeal, onDelet
 // ============================================
 
 function DiaryTab({ events, selectedDate, onSelectDate, onAddEvent, onEditEvent, onDeleteEvent, onToggleComplete }: {
-  events: DiaryEvent[];
-  selectedDate: Date;
-  onSelectDate: (date: Date) => void;
-  onAddEvent: () => void;
-  onEditEvent: (event: DiaryEvent) => void;
-  onDeleteEvent: (id: string) => void;
-  onToggleComplete: (id: string, completed: boolean) => void;
+  events: DiaryEvent[]; selectedDate: Date; onSelectDate: (d: Date) => void;
+  onAddEvent: () => void; onEditEvent: (e: DiaryEvent) => void; onDeleteEvent: (id: string) => void; onToggleComplete: (id: string, c: boolean) => void;
 }) {
   const year = selectedDate.getFullYear();
   const month = selectedDate.getMonth();
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const today = new Date();
-
   const days: (number | null)[] = [];
   const startPad = firstDay === 0 ? 6 : firstDay - 1;
   for (let i = 0; i < startPad; i++) days.push(null);
@@ -1182,53 +1445,31 @@ function DiaryTab({ events, selectedDate, onSelectDate, onAddEvent, onEditEvent,
     return events.filter((e) => e.start_time.startsWith(dateStr));
   };
 
-  const prevMonth = () => onSelectDate(new Date(year, month - 1, 1));
-  const nextMonth = () => onSelectDate(new Date(year, month + 1, 1));
-
   const todaysEvents = events.filter((e) => {
     const d = new Date(e.start_time);
     return d.getDate() === selectedDate.getDate() && d.getMonth() === selectedDate.getMonth() && d.getFullYear() === selectedDate.getFullYear();
   });
 
-  const eventTypeColors: Record<string, string> = {
-    job: 'bg-blue-100 text-blue-700',
-    survey: 'bg-purple-100 text-purple-700',
-    callback: 'bg-yellow-100 text-yellow-700',
-    delivery: 'bg-green-100 text-green-700',
-    other: 'bg-gray-100 text-gray-700',
-  };
+  const eventTypeColors: Record<string, string> = { job: 'bg-blue-100 text-blue-700', survey: 'bg-purple-100 text-purple-700', callback: 'bg-yellow-100 text-yellow-700', delivery: 'bg-green-100 text-green-700', other: 'bg-gray-100 text-gray-700' };
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Diary</h2>
-          <p className="text-sm text-gray-500 mt-1">{events.length} scheduled events</p>
-        </div>
+        <div><h2 className="text-2xl font-bold text-gray-900">Diary</h2><p className="text-sm text-gray-500 mt-1">{events.length} scheduled events</p></div>
         <button onClick={onAddEvent} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Add Event
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>Add Event
         </button>
       </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-white rounded-xl border p-5">
           <div className="flex items-center justify-between mb-4">
-            <button onClick={prevMonth} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-            </button>
+            <button onClick={() => onSelectDate(new Date(year, month - 1, 1))} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
             <h3 className="font-bold text-gray-900">{selectedDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</h3>
-            <button onClick={nextMonth} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-            </button>
+            <button onClick={() => onSelectDate(new Date(year, month + 1, 1))} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg></button>
           </div>
-
           <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-gray-500 mb-2">
             {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => <div key={d} className="py-1">{d}</div>)}
           </div>
-
           <div className="grid grid-cols-7 gap-1">
             {days.map((day, idx) => {
               if (day === null) return <div key={idx} />;
@@ -1238,22 +1479,15 @@ function DiaryTab({ events, selectedDate, onSelectDate, onAddEvent, onEditEvent,
               return (
                 <button key={idx} onClick={() => onSelectDate(new Date(year, month, day))} className={`p-2 rounded-lg text-sm transition-all min-h-[48px] flex flex-col items-center ${isSelected ? 'bg-blue-600 text-white' : isToday ? 'bg-blue-50 text-blue-700 font-bold' : 'hover:bg-gray-100 text-gray-700'}`}>
                   <span>{day}</span>
-                  {dayEvents.length > 0 && (
-                    <div className="flex gap-0.5 mt-1">
-                      {dayEvents.slice(0, 3).map((_, i) => <div key={i} className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-blue-500'}`} />)}
-                    </div>
-                  )}
+                  {dayEvents.length > 0 && <div className="flex gap-0.5 mt-1">{dayEvents.slice(0, 3).map((_, i) => <div key={i} className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-blue-500'}`} />)}</div>}
                 </button>
               );
             })}
           </div>
         </div>
-
         <div className="bg-white rounded-xl border p-5">
           <h3 className="font-bold text-gray-900 mb-3">{selectedDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</h3>
-          {todaysEvents.length === 0 ? (
-            <p className="text-sm text-gray-400 py-4">No events scheduled</p>
-          ) : (
+          {todaysEvents.length === 0 ? <p className="text-sm text-gray-400 py-4">No events scheduled</p> : (
             <div className="space-y-3">
               {todaysEvents.map((event) => (
                 <div key={event.id} className={`p-3 rounded-lg border ${event.completed ? 'opacity-50' : ''}`}>
@@ -1266,18 +1500,11 @@ function DiaryTab({ events, selectedDate, onSelectDate, onAddEvent, onEditEvent,
                       <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${eventTypeColors[event.event_type] || eventTypeColors.other}`}>{event.event_type}</span>
                       {event.customer_name && <p className="text-xs text-gray-500 mt-1">{event.customer_name}</p>}
                       {event.location && <p className="text-xs text-gray-400">{event.location}</p>}
-                      <p className="text-xs text-gray-400 mt-1">
-                        {new Date(event.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                        {event.end_time && ` - ${new Date(event.end_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}
-                      </p>
+                      <p className="text-xs text-gray-400 mt-1">{new Date(event.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}{event.end_time && ` - ${new Date(event.end_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}</p>
                     </div>
                     <div className="flex gap-1 ml-2">
-                      <button onClick={() => onEditEvent(event)} className="p-1 text-blue-500 hover:text-blue-700">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                      </button>
-                      <button onClick={() => onDeleteEvent(event.id)} className="p-1 text-red-500 hover:text-red-700">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                      </button>
+                      <button onClick={() => onEditEvent(event)} className="p-1 text-blue-500 hover:text-blue-700"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
+                      <button onClick={() => onDeleteEvent(event.id)} className="p-1 text-red-500 hover:text-red-700"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                     </div>
                   </div>
                 </div>
@@ -1295,60 +1522,28 @@ function DiaryTab({ events, selectedDate, onSelectDate, onAddEvent, onEditEvent,
 // ============================================
 
 function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEditCustomer, onDeleteCustomer }: {
-  customers: Customer[];
-  search: string;
-  onSearchChange: (s: string) => void;
-  onAddCustomer: () => void;
-  onEditCustomer: (c: Customer) => void;
-  onDeleteCustomer: (id: string) => void;
+  customers: Customer[]; search: string; onSearchChange: (s: string) => void;
+  onAddCustomer: () => void; onEditCustomer: (c: Customer) => void; onDeleteCustomer: (id: string) => void;
 }) {
-  const filtered = customers.filter((c) =>
-    c.name.toLowerCase().includes(search.toLowerCase()) ||
-    (c.email || '').toLowerCase().includes(search.toLowerCase()) ||
-    (c.phone || '').includes(search)
-  );
+  const filtered = customers.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()) || (c.email || '').toLowerCase().includes(search.toLowerCase()) || (c.phone || '').includes(search));
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Customers</h2>
-          <p className="text-sm text-gray-500 mt-1">{customers.length} total customers</p>
-        </div>
-        <button onClick={onAddCustomer} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-          Add Customer
-        </button>
+        <div><h2 className="text-2xl font-bold text-gray-900">Customers</h2><p className="text-sm text-gray-500 mt-1">{customers.length} total customers</p></div>
+        <button onClick={onAddCustomer} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>Add Customer</button>
       </div>
-
-      <div className="mb-4">
-        <input type="text" value={search} onChange={(e) => onSearchChange(e.target.value)} placeholder="Search customers by name, email or phone..." className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-      </div>
-
+      <div className="mb-4"><input type="text" value={search} onChange={(e) => onSearchChange(e.target.value)} placeholder="Search customers..." className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
       {filtered.length === 0 ? (
-        <div className="bg-white rounded-xl border p-12 text-center">
-          <p className="text-gray-500">{search ? 'No customers match your search' : 'Add your first customer to get started'}</p>
-        </div>
+        <div className="bg-white rounded-xl border p-12 text-center"><p className="text-gray-500">{search ? 'No customers match your search' : 'Add your first customer to get started'}</p></div>
       ) : (
         <div className="bg-white rounded-xl border overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="text-left px-5 py-3 font-semibold text-gray-700">Name</th>
-                <th className="text-left px-5 py-3 font-semibold text-gray-700 hidden md:table-cell">Email</th>
-                <th className="text-left px-5 py-3 font-semibold text-gray-700 hidden md:table-cell">Phone</th>
-                <th className="text-left px-5 py-3 font-semibold text-gray-700 hidden lg:table-cell">Jobs</th>
-                <th className="text-left px-5 py-3 font-semibold text-gray-700 hidden lg:table-cell">Revenue</th>
-                <th className="text-right px-5 py-3 font-semibold text-gray-700">Actions</th>
-              </tr>
-            </thead>
+            <thead className="bg-gray-50"><tr><th className="text-left px-5 py-3 font-semibold text-gray-700">Name</th><th className="text-left px-5 py-3 font-semibold text-gray-700 hidden md:table-cell">Email</th><th className="text-left px-5 py-3 font-semibold text-gray-700 hidden md:table-cell">Phone</th><th className="text-left px-5 py-3 font-semibold text-gray-700 hidden lg:table-cell">Jobs</th><th className="text-left px-5 py-3 font-semibold text-gray-700 hidden lg:table-cell">Revenue</th><th className="text-right px-5 py-3 font-semibold text-gray-700">Actions</th></tr></thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.map((customer) => (
                 <tr key={customer.id} className="hover:bg-gray-50 transition">
-                  <td className="px-5 py-3">
-                    <p className="font-medium text-gray-900">{customer.name}</p>
-                    {customer.address && <p className="text-xs text-gray-400 truncate max-w-[200px]">{customer.address}</p>}
-                  </td>
+                  <td className="px-5 py-3"><p className="font-medium text-gray-900">{customer.name}</p>{customer.address && <p className="text-xs text-gray-400 truncate max-w-[200px]">{customer.address}</p>}</td>
                   <td className="px-5 py-3 text-gray-600 hidden md:table-cell">{customer.email || '—'}</td>
                   <td className="px-5 py-3 text-gray-600 hidden md:table-cell">{customer.phone || '—'}</td>
                   <td className="px-5 py-3 text-gray-600 hidden lg:table-cell">{customer.total_jobs}</td>
@@ -1372,14 +1567,8 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
 // ============================================
 
 function ReportsTab({ leads, deals, customers, events, crmQuotes, company }: {
-  leads: Lead[];
-  deals: Deal[];
-  customers: Customer[];
-  events: DiaryEvent[];
-  crmQuotes: CrmQuote[];
-  company: Company;
+  leads: Lead[]; deals: Deal[]; customers: Customer[]; events: DiaryEvent[]; crmQuotes: CrmQuote[]; company: Company;
 }) {
-  const totalLeadRevenue = leads.reduce((s, l) => s + (l.price || 0), 0);
   const totalDealValue = deals.reduce((s, d) => s + (d.estimated_value || 0), 0);
   const totalQuoteValue = crmQuotes.reduce((s, q) => s + (q.estimated_price || 0), 0);
   const acceptedQuoteValue = crmQuotes.filter((q) => q.status === 'accepted').reduce((s, q) => s + (q.estimated_price || 0), 0);
@@ -1405,28 +1594,17 @@ function ReportsTab({ leads, deals, customers, events, crmQuotes, company }: {
 
   return (
     <div>
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Reports</h2>
-        <p className="text-sm text-gray-500 mt-1">Overview of your business performance</p>
-      </div>
-
+      <div className="mb-6"><h2 className="text-2xl font-bold text-gray-900">Reports</h2><p className="text-sm text-gray-500 mt-1">Overview of your business performance</p></div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         {stats.map((stat, i) => (
-          <div key={i} className="bg-white rounded-xl border p-5">
-            <p className="text-xs font-medium text-gray-500 mb-1">{stat.label}</p>
-            <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
-          </div>
+          <div key={i} className="bg-white rounded-xl border p-5"><p className="text-xs font-medium text-gray-500 mb-1">{stat.label}</p><p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p></div>
         ))}
       </div>
-
       <div className="bg-white rounded-xl border p-5">
         <h3 className="font-bold text-gray-900 mb-4">Recent Leads</h3>
         {leads.slice(0, 10).map((lead) => (
           <div key={lead.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-            <div>
-              <p className="text-sm font-medium text-gray-800 truncate">{lead.instant_quotes?.starting_address || 'Unknown'}</p>
-              <p className="text-xs text-gray-400">{new Date(lead.created_at).toLocaleDateString('en-GB')}</p>
-            </div>
+            <div><p className="text-sm font-medium text-gray-800 truncate">{lead.instant_quotes?.starting_address || 'Unknown'}</p><p className="text-xs text-gray-400">{new Date(lead.created_at).toLocaleDateString('en-GB')}</p></div>
             <span className={`px-2 py-0.5 rounded text-xs font-semibold ${lead.status === 'new' ? 'bg-green-100 text-green-700' : lead.status === 'won' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>{lead.status}</span>
           </div>
         ))}
@@ -1442,10 +1620,7 @@ function ReportsTab({ leads, deals, customers, events, crmQuotes, company }: {
 function SettingsTab({ company, crmActive, onSubscribe }: { company: Company; crmActive: boolean; onSubscribe: () => void }) {
   return (
     <div>
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Settings & Billing</h2>
-      </div>
-
+      <div className="mb-6"><h2 className="text-2xl font-bold text-gray-900">Settings & Billing</h2></div>
       <div className="bg-white rounded-xl border p-6 mb-6">
         <h3 className="font-bold text-gray-900 mb-4">Company Information</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
@@ -1455,191 +1630,24 @@ function SettingsTab({ company, crmActive, onSubscribe }: { company: Company; cr
           <div><p className="text-gray-500">Coverage Postcodes</p><p className="font-medium text-gray-900">{company.coverage_postcodes?.join(', ') || 'None set'}</p></div>
         </div>
       </div>
-
       <div className="bg-white rounded-xl border p-6 mb-6">
         <h3 className="font-bold text-gray-900 mb-4">Lead Balance</h3>
         <p className="text-3xl font-bold text-blue-600">£{company.balance?.toFixed(2) || '0.00'}</p>
         <p className="text-sm text-gray-500 mt-1">Used for purchasing leads at £10.00 each</p>
       </div>
-
       <div className="bg-white rounded-xl border p-6">
         <h3 className="font-bold text-gray-900 mb-4">CRM Subscription</h3>
         {crmActive ? (
           <div className="flex items-center gap-3">
             <div className="w-3 h-3 bg-green-500 rounded-full" />
-            <div>
-              <p className="font-semibold text-green-700">CRM Pro — Active</p>
-              <p className="text-sm text-gray-500">£129.99/month • Quotes, Pipeline, Diary, Customers & Reports</p>
-            </div>
+            <div><p className="font-semibold text-green-700">CRM Pro — Active</p><p className="text-sm text-gray-500">£129.99/month • Quotes, Pipeline, Diary, Customers & Reports</p></div>
           </div>
         ) : (
           <div>
             <p className="text-gray-500 mb-4">Unlock the full CRM suite to manage your removal business.</p>
-            <button onClick={onSubscribe} className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white font-bold px-6 py-3 rounded-xl hover:from-yellow-600 hover:to-orange-600 transition-all">
-              Start CRM Pro — £129.99/month
-            </button>
+            <button onClick={onSubscribe} className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white font-bold px-6 py-3 rounded-xl hover:from-yellow-600 hover:to-orange-600 transition-all">Start CRM Pro — £129.99/month</button>
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-// ============================================
-// QUOTE MODAL
-// ============================================
-
-function QuoteModal({ quote, onSave, onClose }: {
-  quote: CrmQuote | null;
-  onSave: (q: Partial<CrmQuote>) => void;
-  onClose: () => void;
-}) {
-  const [form, setForm] = useState({
-    customer_name: quote?.customer_name || '',
-    customer_email: quote?.customer_email || '',
-    customer_phone: quote?.customer_phone || '',
-    moving_from: quote?.moving_from || '',
-    moving_to: quote?.moving_to || '',
-    moving_date: quote?.moving_date || '',
-    total_volume_m3: quote?.total_volume_m3?.toString() || '',
-    van_count: quote?.van_count?.toString() || '1',
-    movers: quote?.movers?.toString() || '2',
-    estimated_price: quote?.estimated_price?.toString() || '',
-    notes: quote?.notes || '',
-    valid_until: quote?.valid_until || '',
-    status: quote?.status || 'draft',
-  });
-
-  // Items management
-  const [items, setItems] = useState<{ name: string; quantity: number; volume_ft3: string }[]>(
-    quote?.items?.map((i: any) => ({ name: i.name || '', quantity: i.quantity || 1, volume_ft3: i.volume_ft3 || '' })) || []
-  );
-
-  const addItem = () => {
-    setItems([...items, { name: '', quantity: 1, volume_ft3: '' }]);
-  };
-
-  const updateItem = (idx: number, field: string, value: string | number) => {
-    setItems(items.map((item, i) => i === idx ? { ...item, [field]: value } : item));
-  };
-
-  const removeItem = (idx: number) => {
-    setItems(items.filter((_, i) => i !== idx));
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">{quote ? 'Edit Quote' : 'New Quote'}</h2>
-
-        <div className="space-y-4">
-          {/* Customer details */}
-          <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-            <h3 className="font-semibold text-gray-700 text-sm">Customer Details</h3>
-            <input value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} placeholder="Customer name *" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-            <div className="grid grid-cols-2 gap-3">
-              <input value={form.customer_email} onChange={(e) => setForm({ ...form, customer_email: e.target.value })} placeholder="Email" className="px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-              <input value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} placeholder="Phone" className="px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-            </div>
-          </div>
-
-          {/* Move details */}
-          <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-            <h3 className="font-semibold text-gray-700 text-sm">Move Details</h3>
-            <input value={form.moving_from} onChange={(e) => setForm({ ...form, moving_from: e.target.value })} placeholder="Moving from" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-            <input value={form.moving_to} onChange={(e) => setForm({ ...form, moving_to: e.target.value })} placeholder="Moving to" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Moving date</label>
-                <input type="date" value={form.moving_date} onChange={(e) => setForm({ ...form, moving_date: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Valid until</label>
-                <input type="date" value={form.valid_until} onChange={(e) => setForm({ ...form, valid_until: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-              </div>
-            </div>
-          </div>
-
-          {/* Items */}
-          <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-700 text-sm">Items / Inventory</h3>
-              <button onClick={addItem} className="text-xs font-medium text-blue-600 hover:text-blue-800 px-3 py-1 bg-blue-50 rounded-lg">+ Add Item</button>
-            </div>
-            {items.length === 0 ? (
-              <p className="text-xs text-gray-400">No items added. Click "Add Item" to build the inventory.</p>
-            ) : (
-              <div className="space-y-2">
-                {items.map((item, idx) => (
-                  <div key={idx} className="flex items-center gap-2">
-                    <input value={item.name} onChange={(e) => updateItem(idx, 'name', e.target.value)} placeholder="Item name" className="flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-                    <input type="number" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', parseInt(e.target.value) || 1)} className="w-16 px-3 py-2 border rounded-lg text-sm text-center focus:ring-2 focus:ring-blue-500 outline-none" min="1" />
-                    <input value={item.volume_ft3} onChange={(e) => updateItem(idx, 'volume_ft3', e.target.value)} placeholder="ft³" className="w-20 px-3 py-2 border rounded-lg text-sm text-center focus:ring-2 focus:ring-blue-500 outline-none" />
-                    <button onClick={() => removeItem(idx)} className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Pricing */}
-          <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-            <h3 className="font-semibold text-gray-700 text-sm">Pricing & Logistics</h3>
-            <div className="grid grid-cols-4 gap-3">
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Volume (m³)</label>
-                <input type="number" value={form.total_volume_m3} onChange={(e) => setForm({ ...form, total_volume_m3: e.target.value })} className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Vans</label>
-                <input type="number" value={form.van_count} onChange={(e) => setForm({ ...form, van_count: e.target.value })} className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" min="1" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Movers</label>
-                <input type="number" value={form.movers} onChange={(e) => setForm({ ...form, movers: e.target.value })} className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" min="1" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Price (£) *</label>
-                <input type="number" value={form.estimated_price} onChange={(e) => setForm({ ...form, estimated_price: e.target.value })} className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold" />
-              </div>
-            </div>
-          </div>
-
-          {/* Notes */}
-          <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Additional notes (terms, conditions, special requirements...)" rows={3} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
-        </div>
-
-        <div className="flex gap-3 mt-5">
-          <button
-            onClick={() => {
-              if (!form.customer_name.trim()) return alert('Customer name is required');
-              onSave({
-                customer_name: form.customer_name,
-                customer_email: form.customer_email || null,
-                customer_phone: form.customer_phone || null,
-                moving_from: form.moving_from || null,
-                moving_to: form.moving_to || null,
-                moving_date: form.moving_date || null,
-                items: items.filter((i) => i.name.trim()),
-                total_volume_m3: form.total_volume_m3 ? parseFloat(form.total_volume_m3) : 0,
-                van_count: parseInt(form.van_count) || 1,
-                movers: parseInt(form.movers) || 2,
-                estimated_price: form.estimated_price ? parseFloat(form.estimated_price) : null,
-                notes: form.notes || null,
-                valid_until: form.valid_until || null,
-                status: form.status,
-              });
-            }}
-            className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition"
-          >
-            {quote ? 'Update' : 'Create'} Quote
-          </button>
-          <button onClick={onClose} className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">
-            Cancel
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -1649,22 +1657,11 @@ function QuoteModal({ quote, onSave, onClose }: {
 // DEAL MODAL
 // ============================================
 
-function DealModal({ deal, stages, onSave, onClose }: {
-  deal: Deal | null;
-  stages: PipelineStage[];
-  onSave: (deal: Partial<Deal>) => void;
-  onClose: () => void;
-}) {
+function DealModal({ deal, stages, onSave, onClose }: { deal: Deal | null; stages: PipelineStage[]; onSave: (deal: Partial<Deal>) => void; onClose: () => void; }) {
   const [form, setForm] = useState({
-    customer_name: deal?.customer_name || '',
-    customer_email: deal?.customer_email || '',
-    customer_phone: deal?.customer_phone || '',
-    moving_from: deal?.moving_from || '',
-    moving_to: deal?.moving_to || '',
-    moving_date: deal?.moving_date || '',
-    estimated_value: deal?.estimated_value?.toString() || '',
-    notes: deal?.notes || '',
-    stage_id: deal?.stage_id || stages[0]?.id || '',
+    customer_name: deal?.customer_name || '', customer_email: deal?.customer_email || '', customer_phone: deal?.customer_phone || '',
+    moving_from: deal?.moving_from || '', moving_to: deal?.moving_to || '', moving_date: deal?.moving_date || '',
+    estimated_value: deal?.estimated_value?.toString() || '', notes: deal?.notes || '', stage_id: deal?.stage_id || stages[0]?.id || '',
   });
 
   return (
@@ -1689,7 +1686,7 @@ function DealModal({ deal, stages, onSave, onClose }: {
           <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes" rows={3} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
         </div>
         <div className="flex gap-3 mt-5">
-          <button onClick={() => { if (!form.customer_name.trim()) return alert('Customer name is required'); onSave({ ...form, estimated_value: form.estimated_value ? parseFloat(form.estimated_value) : null, customer_email: form.customer_email || null, customer_phone: form.customer_phone || null, moving_from: form.moving_from || null, moving_to: form.moving_to || null, moving_date: form.moving_date || null, notes: form.notes || null }); }} className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition">{deal ? 'Update' : 'Create'} Deal</button>
+          <button onClick={() => { if (!form.customer_name.trim()) return alert('Customer name is required'); onSave({ ...form, estimated_value: form.estimated_value ? parseFloat(form.estimated_value) : null, customer_email: form.customer_email || null, customer_phone: form.customer_phone || null, moving_from: form.moving_from || null, moving_to: form.moving_to || null, moving_date: form.moving_date || null, notes: form.notes || null } as any); }} className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition">{deal ? 'Update' : 'Create'} Deal</button>
           <button onClick={onClose} className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">Cancel</button>
         </div>
       </div>
@@ -1701,19 +1698,10 @@ function DealModal({ deal, stages, onSave, onClose }: {
 // EVENT MODAL
 // ============================================
 
-function EventModal({ event, onSave, onClose }: {
-  event: DiaryEvent | null;
-  onSave: (event: Partial<DiaryEvent>) => void;
-  onClose: () => void;
-}) {
+function EventModal({ event, onSave, onClose }: { event: DiaryEvent | null; onSave: (e: Partial<DiaryEvent>) => void; onClose: () => void; }) {
   const [form, setForm] = useState({
-    title: event?.title || '',
-    description: event?.description || '',
-    start_time: event?.start_time ? event.start_time.slice(0, 16) : '',
-    end_time: event?.end_time ? event.end_time.slice(0, 16) : '',
-    event_type: event?.event_type || 'job',
-    customer_name: event?.customer_name || '',
-    location: event?.location || '',
+    title: event?.title || '', description: event?.description || '', start_time: event?.start_time ? event.start_time.slice(0, 16) : '',
+    end_time: event?.end_time ? event.end_time.slice(0, 16) : '', event_type: event?.event_type || 'job', customer_name: event?.customer_name || '', location: event?.location || '',
   });
 
   return (
@@ -1746,18 +1734,8 @@ function EventModal({ event, onSave, onClose }: {
 // CUSTOMER MODAL
 // ============================================
 
-function CustomerModal({ customer, onSave, onClose }: {
-  customer: Customer | null;
-  onSave: (c: Partial<Customer>) => void;
-  onClose: () => void;
-}) {
-  const [form, setForm] = useState({
-    name: customer?.name || '',
-    email: customer?.email || '',
-    phone: customer?.phone || '',
-    address: customer?.address || '',
-    notes: customer?.notes || '',
-  });
+function CustomerModal({ customer, onSave, onClose }: { customer: Customer | null; onSave: (c: Partial<Customer>) => void; onClose: () => void; }) {
+  const [form, setForm] = useState({ name: customer?.name || '', email: customer?.email || '', phone: customer?.phone || '', address: customer?.address || '', notes: customer?.notes || '' });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
