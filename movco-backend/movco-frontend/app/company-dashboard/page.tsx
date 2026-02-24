@@ -11,7 +11,7 @@ import Image from 'next/image';
 // TYPES
 // ============================================
 
-type Tab = 'leads' | 'pipeline' | 'diary' | 'customers' | 'reports' | 'settings';
+type Tab = 'leads' | 'quotes' | 'pipeline' | 'diary' | 'customers' | 'reports' | 'settings';
 
 type Company = {
   id: string;
@@ -83,6 +83,26 @@ type DiaryEvent = {
   completed: boolean;
 };
 
+type CrmQuote = {
+  id: string;
+  company_id: string;
+  customer_name: string;
+  customer_email: string | null;
+  customer_phone: string | null;
+  moving_from: string | null;
+  moving_to: string | null;
+  moving_date: string | null;
+  items: any[];
+  total_volume_m3: number;
+  van_count: number;
+  movers: number;
+  estimated_price: number | null;
+  status: string;
+  notes: string | null;
+  valid_until: string | null;
+  created_at: string;
+};
+
 // ============================================
 // MAIN DASHBOARD COMPONENT
 // ============================================
@@ -102,6 +122,11 @@ export default function CompanyDashboardPage() {
 
   // Leads state
   const [leads, setLeads] = useState<Lead[]>([]);
+
+  // Quotes state
+  const [crmQuotes, setCrmQuotes] = useState<CrmQuote[]>([]);
+  const [showQuoteModal, setShowQuoteModal] = useState(false);
+  const [editingQuote, setEditingQuote] = useState<CrmQuote | null>(null);
 
   // Pipeline state
   const [stages, setStages] = useState<PipelineStage[]>([]);
@@ -143,7 +168,6 @@ export default function CompanyDashboardPage() {
     async function loadData() {
       if (!user) return;
 
-      // Get company
       const { data: companyData } = await supabase
         .from('companies')
         .select('*')
@@ -226,6 +250,15 @@ export default function CompanyDashboardPage() {
       .order('created_at', { ascending: false });
 
     if (customersData) setCustomers(customersData as Customer[]);
+
+    // CRM Quotes
+    const { data: quotesData } = await supabase
+      .from('crm_quotes')
+      .select('*')
+      .eq('company_id', companyId)
+      .order('created_at', { ascending: false });
+
+    if (quotesData) setCrmQuotes(quotesData as CrmQuote[]);
   };
 
   // ============================================
@@ -369,6 +402,74 @@ export default function CompanyDashboardPage() {
     if (!error) setCustomers((prev) => prev.filter((c) => c.id !== customerId));
   };
 
+  // Quote CRUD
+  const saveQuote = async (quote: Partial<CrmQuote>) => {
+    if (!company) return;
+    if (editingQuote) {
+      const { error } = await supabase
+        .from('crm_quotes')
+        .update({ ...quote, updated_at: new Date().toISOString() })
+        .eq('id', editingQuote.id);
+      if (!error) {
+        setCrmQuotes((prev) => prev.map((q) => (q.id === editingQuote.id ? { ...q, ...quote } as CrmQuote : q)));
+      }
+    } else {
+      const { data, error } = await supabase
+        .from('crm_quotes')
+        .insert({ ...quote, company_id: company.id })
+        .select()
+        .single();
+      if (!error && data) {
+        setCrmQuotes((prev) => [data as CrmQuote, ...prev]);
+      }
+    }
+    setShowQuoteModal(false);
+    setEditingQuote(null);
+  };
+
+  const deleteQuote = async (quoteId: string) => {
+    if (!confirm('Delete this quote?')) return;
+    const { error } = await supabase.from('crm_quotes').delete().eq('id', quoteId);
+    if (!error) setCrmQuotes((prev) => prev.filter((q) => q.id !== quoteId));
+  };
+
+  const updateQuoteStatus = async (quoteId: string, status: string) => {
+    const { error } = await supabase
+      .from('crm_quotes')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', quoteId);
+    if (!error) {
+      setCrmQuotes((prev) => prev.map((q) => (q.id === quoteId ? { ...q, status } : q)));
+    }
+  };
+
+  // Convert quote to deal
+  const convertQuoteToDeal = async (quote: CrmQuote) => {
+    if (!company || stages.length === 0) return;
+    const { data, error } = await supabase
+      .from('crm_deals')
+      .insert({
+        company_id: company.id,
+        stage_id: stages[0].id,
+        customer_name: quote.customer_name,
+        customer_email: quote.customer_email,
+        customer_phone: quote.customer_phone,
+        moving_from: quote.moving_from,
+        moving_to: quote.moving_to,
+        moving_date: quote.moving_date,
+        estimated_value: quote.estimated_price,
+        notes: quote.notes,
+      })
+      .select()
+      .single();
+
+    if (!error && data) {
+      setDeals((prev) => [data as Deal, ...prev]);
+      await updateQuoteStatus(quote.id, 'accepted');
+      alert('Quote converted to pipeline deal!');
+    }
+  };
+
   // ============================================
   // LOADING / AUTH GUARD
   // ============================================
@@ -389,7 +490,7 @@ export default function CompanyDashboardPage() {
 
   if (!user || !company) return null;
 
-  const crmTabs: Tab[] = ['pipeline', 'diary', 'customers', 'reports'];
+  const crmTabs: Tab[] = ['quotes', 'pipeline', 'diary', 'customers', 'reports'];
   const isCrmTab = crmTabs.includes(activeTab);
 
   // ============================================
@@ -398,6 +499,7 @@ export default function CompanyDashboardPage() {
 
   const navItems: { tab: Tab; label: string; icon: string; crm: boolean }[] = [
     { tab: 'leads', label: 'Leads', icon: 'inbox', crm: false },
+    { tab: 'quotes', label: 'Quotes', icon: 'document', crm: true },
     { tab: 'pipeline', label: 'Pipeline', icon: 'pipeline', crm: true },
     { tab: 'diary', label: 'Diary', icon: 'calendar', crm: true },
     { tab: 'customers', label: 'Customers', icon: 'users', crm: true },
@@ -504,9 +606,19 @@ export default function CompanyDashboardPage() {
             <CRMLockOverlay tab={activeTab} onSubscribe={startCrmSubscription} />
           )}
 
-          {/* Tab content — rendered behind overlay if locked */}
+          {/* Tab content */}
           <div className={isCrmTab && !crmActive ? 'filter blur-sm pointer-events-none select-none' : ''}>
             {activeTab === 'leads' && <LeadsTab leads={leads} company={company} />}
+            {activeTab === 'quotes' && (
+              <QuotesTab
+                quotes={crmQuotes}
+                onAddQuote={() => { setEditingQuote(null); setShowQuoteModal(true); }}
+                onEditQuote={(q) => { setEditingQuote(q); setShowQuoteModal(true); }}
+                onDeleteQuote={deleteQuote}
+                onUpdateStatus={updateQuoteStatus}
+                onConvertToDeal={convertQuoteToDeal}
+              />
+            )}
             {activeTab === 'pipeline' && (
               <PipelineTab
                 stages={stages}
@@ -539,7 +651,7 @@ export default function CompanyDashboardPage() {
               />
             )}
             {activeTab === 'reports' && (
-              <ReportsTab leads={leads} deals={deals} customers={customers} events={events} company={company} />
+              <ReportsTab leads={leads} deals={deals} customers={customers} events={events} crmQuotes={crmQuotes} company={company} />
             )}
             {activeTab === 'settings' && (
               <SettingsTab company={company} crmActive={crmActive} onSubscribe={startCrmSubscription} />
@@ -571,6 +683,13 @@ export default function CompanyDashboardPage() {
           onClose={() => { setShowCustomerModal(false); setEditingCustomer(null); }}
         />
       )}
+      {showQuoteModal && (
+        <QuoteModal
+          quote={editingQuote}
+          onSave={saveQuote}
+          onClose={() => { setShowQuoteModal(false); setEditingQuote(null); }}
+        />
+      )}
     </div>
   );
 }
@@ -584,6 +703,11 @@ function NavIcon({ name }: { name: string }) {
     inbox: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+      </svg>
+    ),
+    document: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
       </svg>
     ),
     pipeline: (
@@ -622,6 +746,10 @@ function NavIcon({ name }: { name: string }) {
 
 function CRMLockOverlay({ tab, onSubscribe }: { tab: Tab; onSubscribe: () => void }) {
   const features: Record<string, { title: string; bullets: string[] }> = {
+    quotes: {
+      title: 'Quote Builder',
+      bullets: ['Create professional moving quotes', 'Track quote status (draft, sent, accepted)', 'Itemised inventory & volume calculator', 'Convert accepted quotes to pipeline deals'],
+    },
     pipeline: {
       title: 'Pipeline Management',
       bullets: ['Kanban drag & drop board', 'Track deals from lead to completion', 'Custom stages & deal values', 'Never lose track of a job'],
@@ -681,7 +809,7 @@ function CRMLockOverlay({ tab, onSubscribe }: { tab: Tab; onSubscribe: () => voi
           >
             Start CRM Pro
           </button>
-          <p className="text-xs text-gray-400 mt-3">Includes Pipeline, Diary, Customers & Reports</p>
+          <p className="text-xs text-gray-400 mt-3">Includes Quotes, Pipeline, Diary, Customers & Reports</p>
         </div>
       </div>
     </div>
@@ -753,6 +881,176 @@ function LeadsTab({ leads, company }: { leads: Lead[]; company: Company }) {
 }
 
 // ============================================
+// QUOTES TAB
+// ============================================
+
+function QuotesTab({ quotes, onAddQuote, onEditQuote, onDeleteQuote, onUpdateStatus, onConvertToDeal }: {
+  quotes: CrmQuote[];
+  onAddQuote: () => void;
+  onEditQuote: (q: CrmQuote) => void;
+  onDeleteQuote: (id: string) => void;
+  onUpdateStatus: (id: string, status: string) => void;
+  onConvertToDeal: (q: CrmQuote) => void;
+}) {
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+
+  const filtered = filterStatus === 'all'
+    ? quotes
+    : quotes.filter((q) => q.status === filterStatus);
+
+  const statusCounts: Record<string, number> = {
+    all: quotes.length,
+    draft: quotes.filter((q) => q.status === 'draft').length,
+    sent: quotes.filter((q) => q.status === 'sent').length,
+    accepted: quotes.filter((q) => q.status === 'accepted').length,
+    declined: quotes.filter((q) => q.status === 'declined').length,
+  };
+
+  const totalQuoteValue = quotes.reduce((s, q) => s + (q.estimated_price || 0), 0);
+  const acceptedValue = quotes.filter((q) => q.status === 'accepted').reduce((s, q) => s + (q.estimated_price || 0), 0);
+
+  const statusStyles: Record<string, string> = {
+    draft: 'bg-gray-100 text-gray-700',
+    sent: 'bg-blue-100 text-blue-700',
+    accepted: 'bg-green-100 text-green-700',
+    declined: 'bg-red-100 text-red-700',
+    expired: 'bg-yellow-100 text-yellow-700',
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Quotes</h2>
+          <p className="text-sm text-gray-500 mt-1">{quotes.length} quotes • £{totalQuoteValue.toLocaleString()} total value • £{acceptedValue.toLocaleString()} accepted</p>
+        </div>
+        <button onClick={onAddQuote} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          New Quote
+        </button>
+      </div>
+
+      {/* Status filter tabs */}
+      <div className="flex gap-2 mb-6 flex-wrap">
+        {['all', 'draft', 'sent', 'accepted', 'declined'].map((status) => (
+          <button
+            key={status}
+            onClick={() => setFilterStatus(status)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+              filterStatus === status
+                ? 'bg-blue-600 text-white'
+                : 'bg-white border text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            {status.charAt(0).toUpperCase() + status.slice(1)} ({statusCounts[status] || 0})
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="bg-white rounded-xl border p-12 text-center">
+          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-bold text-gray-800 mb-2">
+            {filterStatus === 'all' ? 'No quotes yet' : `No ${filterStatus} quotes`}
+          </h3>
+          <p className="text-gray-500 text-sm mb-4">Create quotes for your customers with itemised inventory and pricing.</p>
+          <button onClick={onAddQuote} className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm">
+            Create Your First Quote
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((quote) => (
+            <div key={quote.id} className="bg-white rounded-xl border p-5 hover:shadow-md transition-all">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-3 mb-2">
+                    <h3 className="font-semibold text-gray-900">{quote.customer_name}</h3>
+                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusStyles[quote.status] || statusStyles.draft}`}>
+                      {quote.status}
+                    </span>
+                  </div>
+                  {(quote.moving_from || quote.moving_to) && (
+                    <p className="text-sm text-gray-600 mb-1">
+                      {quote.moving_from || '—'} → {quote.moving_to || '—'}
+                    </p>
+                  )}
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                    {quote.moving_date && (
+                      <span>📅 {new Date(quote.moving_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                    )}
+                    {quote.total_volume_m3 > 0 && <span>📦 {quote.total_volume_m3} m³</span>}
+                    {quote.van_count && <span>🚛 {quote.van_count} van{quote.van_count !== 1 ? 's' : ''}</span>}
+                    {quote.movers && <span>👷 {quote.movers} movers</span>}
+                    {quote.items && quote.items.length > 0 && <span>🪑 {quote.items.length} items</span>}
+                    <span>{new Date(quote.created_at).toLocaleDateString('en-GB')}</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                  {quote.estimated_price && (
+                    <p className="text-xl font-bold text-green-600">£{quote.estimated_price.toLocaleString()}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Actions row */}
+              <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-100 flex-wrap">
+                <button
+                  onClick={() => onEditQuote(quote)}
+                  className="text-xs font-medium text-blue-600 hover:text-blue-800 px-3 py-1.5 bg-blue-50 rounded-lg hover:bg-blue-100 transition"
+                >
+                  Edit
+                </button>
+
+                {quote.status === 'draft' && (
+                  <button
+                    onClick={() => onUpdateStatus(quote.id, 'sent')}
+                    className="text-xs font-medium text-indigo-600 hover:text-indigo-800 px-3 py-1.5 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition"
+                  >
+                    Mark as Sent
+                  </button>
+                )}
+
+                {quote.status === 'sent' && (
+                  <>
+                    <button
+                      onClick={() => onConvertToDeal(quote)}
+                      className="text-xs font-medium text-green-600 hover:text-green-800 px-3 py-1.5 bg-green-50 rounded-lg hover:bg-green-100 transition"
+                    >
+                      Accepted → Pipeline
+                    </button>
+                    <button
+                      onClick={() => onUpdateStatus(quote.id, 'declined')}
+                      className="text-xs font-medium text-orange-600 hover:text-orange-800 px-3 py-1.5 bg-orange-50 rounded-lg hover:bg-orange-100 transition"
+                    >
+                      Declined
+                    </button>
+                  </>
+                )}
+
+                <button
+                  onClick={() => onDeleteQuote(quote.id)}
+                  className="text-xs font-medium text-red-500 hover:text-red-700 px-3 py-1.5 bg-red-50 rounded-lg hover:bg-red-100 transition ml-auto"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================
 // PIPELINE TAB (Kanban Board)
 // ============================================
 
@@ -807,7 +1105,6 @@ function PipelineTab({ stages, deals, onMoveDeal, onAddDeal, onEditDeal, onDelet
                   }
                 }}
               >
-                {/* Stage header */}
                 <div className="flex items-center gap-2 mb-3 px-1">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: stage.color }} />
                   <h3 className="font-semibold text-gray-800 text-sm">{stage.name}</h3>
@@ -816,7 +1113,6 @@ function PipelineTab({ stages, deals, onMoveDeal, onAddDeal, onEditDeal, onDelet
                   </span>
                 </div>
 
-                {/* Deal cards */}
                 <div className="space-y-2 min-h-[60px]">
                   {stageDeals.map((deal) => (
                     <div
@@ -841,19 +1137,9 @@ function PipelineTab({ stages, deals, onMoveDeal, onAddDeal, onEditDeal, onDelet
                         </p>
                       )}
                       <div className="flex gap-1 mt-2">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); onEditDeal(deal); }}
-                          className="text-xs text-blue-600 hover:text-blue-800"
-                        >
-                          Edit
-                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); onEditDeal(deal); }} className="text-xs text-blue-600 hover:text-blue-800">Edit</button>
                         <span className="text-gray-300">·</span>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); onDeleteDeal(deal.id); }}
-                          className="text-xs text-red-500 hover:text-red-700"
-                        >
-                          Delete
-                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); onDeleteDeal(deal.id); }} className="text-xs text-red-500 hover:text-red-700">Delete</button>
                       </div>
                     </div>
                   ))}
@@ -887,7 +1173,6 @@ function DiaryTab({ events, selectedDate, onSelectDate, onAddEvent, onEditEvent,
   const today = new Date();
 
   const days: (number | null)[] = [];
-  // Pad start (Monday-based: 0=Mon)
   const startPad = firstDay === 0 ? 6 : firstDay - 1;
   for (let i = 0; i < startPad; i++) days.push(null);
   for (let d = 1; d <= daysInMonth; d++) days.push(d);
@@ -929,28 +1214,19 @@ function DiaryTab({ events, selectedDate, onSelectDate, onAddEvent, onEditEvent,
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Calendar */}
         <div className="lg:col-span-2 bg-white rounded-xl border p-5">
           <div className="flex items-center justify-between mb-4">
             <button onClick={prevMonth} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             </button>
-            <h3 className="font-bold text-gray-900">
-              {selectedDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}
-            </h3>
+            <h3 className="font-bold text-gray-900">{selectedDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</h3>
             <button onClick={nextMonth} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             </button>
           </div>
 
           <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-gray-500 mb-2">
-            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
-              <div key={d} className="py-1">{d}</div>
-            ))}
+            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => <div key={d} className="py-1">{d}</div>)}
           </div>
 
           <div className="grid grid-cols-7 gap-1">
@@ -959,23 +1235,12 @@ function DiaryTab({ events, selectedDate, onSelectDate, onAddEvent, onEditEvent,
               const dayEvents = getEventsForDay(day);
               const isToday = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
               const isSelected = day === selectedDate.getDate() && month === selectedDate.getMonth();
-
               return (
-                <button
-                  key={idx}
-                  onClick={() => onSelectDate(new Date(year, month, day))}
-                  className={`p-2 rounded-lg text-sm transition-all min-h-[48px] flex flex-col items-center ${
-                    isSelected ? 'bg-blue-600 text-white' :
-                    isToday ? 'bg-blue-50 text-blue-700 font-bold' :
-                    'hover:bg-gray-100 text-gray-700'
-                  }`}
-                >
+                <button key={idx} onClick={() => onSelectDate(new Date(year, month, day))} className={`p-2 rounded-lg text-sm transition-all min-h-[48px] flex flex-col items-center ${isSelected ? 'bg-blue-600 text-white' : isToday ? 'bg-blue-50 text-blue-700 font-bold' : 'hover:bg-gray-100 text-gray-700'}`}>
                   <span>{day}</span>
                   {dayEvents.length > 0 && (
                     <div className="flex gap-0.5 mt-1">
-                      {dayEvents.slice(0, 3).map((_, i) => (
-                        <div key={i} className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-blue-500'}`} />
-                      ))}
+                      {dayEvents.slice(0, 3).map((_, i) => <div key={i} className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-blue-500'}`} />)}
                     </div>
                   )}
                 </button>
@@ -984,11 +1249,8 @@ function DiaryTab({ events, selectedDate, onSelectDate, onAddEvent, onEditEvent,
           </div>
         </div>
 
-        {/* Day's events */}
         <div className="bg-white rounded-xl border p-5">
-          <h3 className="font-bold text-gray-900 mb-3">
-            {selectedDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
-          </h3>
+          <h3 className="font-bold text-gray-900 mb-3">{selectedDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</h3>
           {todaysEvents.length === 0 ? (
             <p className="text-sm text-gray-400 py-4">No events scheduled</p>
           ) : (
@@ -998,19 +1260,10 @@ function DiaryTab({ events, selectedDate, onSelectDate, onAddEvent, onEditEvent,
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <input
-                          type="checkbox"
-                          checked={event.completed}
-                          onChange={(e) => onToggleComplete(event.id, e.target.checked)}
-                          className="rounded"
-                        />
-                        <span className={`font-medium text-sm ${event.completed ? 'line-through text-gray-400' : 'text-gray-900'}`}>
-                          {event.title}
-                        </span>
+                        <input type="checkbox" checked={event.completed} onChange={(e) => onToggleComplete(event.id, e.target.checked)} className="rounded" />
+                        <span className={`font-medium text-sm ${event.completed ? 'line-through text-gray-400' : 'text-gray-900'}`}>{event.title}</span>
                       </div>
-                      <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${eventTypeColors[event.event_type] || eventTypeColors.other}`}>
-                        {event.event_type}
-                      </span>
+                      <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${eventTypeColors[event.event_type] || eventTypeColors.other}`}>{event.event_type}</span>
                       {event.customer_name && <p className="text-xs text-gray-500 mt-1">{event.customer_name}</p>}
                       {event.location && <p className="text-xs text-gray-400">{event.location}</p>}
                       <p className="text-xs text-gray-400 mt-1">
@@ -1020,14 +1273,10 @@ function DiaryTab({ events, selectedDate, onSelectDate, onAddEvent, onEditEvent,
                     </div>
                     <div className="flex gap-1 ml-2">
                       <button onClick={() => onEditEvent(event)} className="p-1 text-blue-500 hover:text-blue-700">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                       </button>
                       <button onClick={() => onDeleteEvent(event.id)} className="p-1 text-red-500 hover:text-red-700">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                       </button>
                     </div>
                   </div>
@@ -1067,22 +1316,13 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
           <p className="text-sm text-gray-500 mt-1">{customers.length} total customers</p>
         </div>
         <button onClick={onAddCustomer} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
           Add Customer
         </button>
       </div>
 
-      {/* Search */}
       <div className="mb-4">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="Search customers by name, email or phone..."
-          className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
+        <input type="text" value={search} onChange={(e) => onSearchChange(e.target.value)} placeholder="Search customers by name, email or phone..." className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" />
       </div>
 
       {filtered.length === 0 ? (
@@ -1131,40 +1371,37 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
 // REPORTS TAB
 // ============================================
 
-function ReportsTab({ leads, deals, customers, events, company }: {
+function ReportsTab({ leads, deals, customers, events, crmQuotes, company }: {
   leads: Lead[];
   deals: Deal[];
   customers: Customer[];
   events: DiaryEvent[];
+  crmQuotes: CrmQuote[];
   company: Company;
 }) {
   const totalLeadRevenue = leads.reduce((s, l) => s + (l.price || 0), 0);
   const totalDealValue = deals.reduce((s, d) => s + (d.estimated_value || 0), 0);
+  const totalQuoteValue = crmQuotes.reduce((s, q) => s + (q.estimated_price || 0), 0);
+  const acceptedQuoteValue = crmQuotes.filter((q) => q.status === 'accepted').reduce((s, q) => s + (q.estimated_price || 0), 0);
   const completedEvents = events.filter((e) => e.completed).length;
   const wonLeads = leads.filter((l) => l.status === 'won').length;
   const conversionRate = leads.length > 0 ? ((wonLeads / leads.length) * 100).toFixed(1) : '0';
+  const quoteConversion = crmQuotes.length > 0 ? ((crmQuotes.filter(q => q.status === 'accepted').length / crmQuotes.length) * 100).toFixed(1) : '0';
 
   const stats = [
-    { label: 'Total Leads', value: leads.length, color: 'blue', icon: 'inbox' },
-    { label: 'Won Leads', value: wonLeads, color: 'green', icon: 'check' },
-    { label: 'Conversion Rate', value: `${conversionRate}%`, color: 'purple', icon: 'trending' },
-    { label: 'Pipeline Value', value: `£${totalDealValue.toLocaleString()}`, color: 'yellow', icon: 'cash' },
-    { label: 'Total Customers', value: customers.length, color: 'indigo', icon: 'users' },
-    { label: 'Pipeline Deals', value: deals.length, color: 'orange', icon: 'pipeline' },
-    { label: 'Jobs Completed', value: completedEvents, color: 'teal', icon: 'check' },
-    { label: 'Account Balance', value: `£${company.balance?.toFixed(2) || '0.00'}`, color: 'emerald', icon: 'cash' },
+    { label: 'Total Leads', value: leads.length, color: 'text-blue-700' },
+    { label: 'Won Leads', value: wonLeads, color: 'text-green-700' },
+    { label: 'Lead Conversion', value: `${conversionRate}%`, color: 'text-purple-700' },
+    { label: 'Pipeline Value', value: `£${totalDealValue.toLocaleString()}`, color: 'text-yellow-700' },
+    { label: 'Quotes Sent', value: crmQuotes.length, color: 'text-indigo-700' },
+    { label: 'Quote Conversion', value: `${quoteConversion}%`, color: 'text-teal-700' },
+    { label: 'Total Quote Value', value: `£${totalQuoteValue.toLocaleString()}`, color: 'text-orange-700' },
+    { label: 'Accepted Value', value: `£${acceptedQuoteValue.toLocaleString()}`, color: 'text-emerald-700' },
+    { label: 'Total Customers', value: customers.length, color: 'text-indigo-700' },
+    { label: 'Pipeline Deals', value: deals.length, color: 'text-orange-700' },
+    { label: 'Jobs Completed', value: completedEvents, color: 'text-teal-700' },
+    { label: 'Account Balance', value: `£${company.balance?.toFixed(2) || '0.00'}`, color: 'text-emerald-700' },
   ];
-
-  const colorMap: Record<string, string> = {
-    blue: 'bg-blue-50 text-blue-700',
-    green: 'bg-green-50 text-green-700',
-    purple: 'bg-purple-50 text-purple-700',
-    yellow: 'bg-yellow-50 text-yellow-700',
-    indigo: 'bg-indigo-50 text-indigo-700',
-    orange: 'bg-orange-50 text-orange-700',
-    teal: 'bg-teal-50 text-teal-700',
-    emerald: 'bg-emerald-50 text-emerald-700',
-  };
 
   return (
     <div>
@@ -1177,33 +1414,20 @@ function ReportsTab({ leads, deals, customers, events, company }: {
         {stats.map((stat, i) => (
           <div key={i} className="bg-white rounded-xl border p-5">
             <p className="text-xs font-medium text-gray-500 mb-1">{stat.label}</p>
-            <p className={`text-2xl font-bold ${colorMap[stat.color]?.split(' ')[1] || 'text-gray-900'}`}>
-              {stat.value}
-            </p>
+            <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
           </div>
         ))}
       </div>
 
-      {/* Recent activity */}
       <div className="bg-white rounded-xl border p-5">
         <h3 className="font-bold text-gray-900 mb-4">Recent Leads</h3>
         {leads.slice(0, 10).map((lead) => (
           <div key={lead.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
             <div>
-              <p className="text-sm font-medium text-gray-800 truncate">
-                {lead.instant_quotes?.starting_address || 'Unknown'}
-              </p>
-              <p className="text-xs text-gray-400">
-                {new Date(lead.created_at).toLocaleDateString('en-GB')}
-              </p>
+              <p className="text-sm font-medium text-gray-800 truncate">{lead.instant_quotes?.starting_address || 'Unknown'}</p>
+              <p className="text-xs text-gray-400">{new Date(lead.created_at).toLocaleDateString('en-GB')}</p>
             </div>
-            <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
-              lead.status === 'new' ? 'bg-green-100 text-green-700' :
-              lead.status === 'won' ? 'bg-blue-100 text-blue-700' :
-              'bg-red-100 text-red-700'
-            }`}>
-              {lead.status}
-            </span>
+            <span className={`px-2 py-0.5 rounded text-xs font-semibold ${lead.status === 'new' ? 'bg-green-100 text-green-700' : lead.status === 'won' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>{lead.status}</span>
           </div>
         ))}
       </div>
@@ -1222,37 +1446,22 @@ function SettingsTab({ company, crmActive, onSubscribe }: { company: Company; cr
         <h2 className="text-2xl font-bold text-gray-900">Settings & Billing</h2>
       </div>
 
-      {/* Company Info */}
       <div className="bg-white rounded-xl border p-6 mb-6">
         <h3 className="font-bold text-gray-900 mb-4">Company Information</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-          <div>
-            <p className="text-gray-500">Name</p>
-            <p className="font-medium text-gray-900">{company.name}</p>
-          </div>
-          <div>
-            <p className="text-gray-500">Email</p>
-            <p className="font-medium text-gray-900">{company.email}</p>
-          </div>
-          <div>
-            <p className="text-gray-500">Phone</p>
-            <p className="font-medium text-gray-900">{company.phone || '—'}</p>
-          </div>
-          <div>
-            <p className="text-gray-500">Coverage Postcodes</p>
-            <p className="font-medium text-gray-900">{company.coverage_postcodes?.join(', ') || 'None set'}</p>
-          </div>
+          <div><p className="text-gray-500">Name</p><p className="font-medium text-gray-900">{company.name}</p></div>
+          <div><p className="text-gray-500">Email</p><p className="font-medium text-gray-900">{company.email}</p></div>
+          <div><p className="text-gray-500">Phone</p><p className="font-medium text-gray-900">{company.phone || '—'}</p></div>
+          <div><p className="text-gray-500">Coverage Postcodes</p><p className="font-medium text-gray-900">{company.coverage_postcodes?.join(', ') || 'None set'}</p></div>
         </div>
       </div>
 
-      {/* Lead Balance */}
       <div className="bg-white rounded-xl border p-6 mb-6">
         <h3 className="font-bold text-gray-900 mb-4">Lead Balance</h3>
         <p className="text-3xl font-bold text-blue-600">£{company.balance?.toFixed(2) || '0.00'}</p>
         <p className="text-sm text-gray-500 mt-1">Used for purchasing leads at £10.00 each</p>
       </div>
 
-      {/* CRM Subscription */}
       <div className="bg-white rounded-xl border p-6">
         <h3 className="font-bold text-gray-900 mb-4">CRM Subscription</h3>
         {crmActive ? (
@@ -1260,20 +1469,177 @@ function SettingsTab({ company, crmActive, onSubscribe }: { company: Company; cr
             <div className="w-3 h-3 bg-green-500 rounded-full" />
             <div>
               <p className="font-semibold text-green-700">CRM Pro — Active</p>
-              <p className="text-sm text-gray-500">£129.99/month • Pipeline, Diary, Customers & Reports</p>
+              <p className="text-sm text-gray-500">£129.99/month • Quotes, Pipeline, Diary, Customers & Reports</p>
             </div>
           </div>
         ) : (
           <div>
             <p className="text-gray-500 mb-4">Unlock the full CRM suite to manage your removal business.</p>
-            <button
-              onClick={onSubscribe}
-              className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white font-bold px-6 py-3 rounded-xl hover:from-yellow-600 hover:to-orange-600 transition-all"
-            >
+            <button onClick={onSubscribe} className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white font-bold px-6 py-3 rounded-xl hover:from-yellow-600 hover:to-orange-600 transition-all">
               Start CRM Pro — £129.99/month
             </button>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// QUOTE MODAL
+// ============================================
+
+function QuoteModal({ quote, onSave, onClose }: {
+  quote: CrmQuote | null;
+  onSave: (q: Partial<CrmQuote>) => void;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState({
+    customer_name: quote?.customer_name || '',
+    customer_email: quote?.customer_email || '',
+    customer_phone: quote?.customer_phone || '',
+    moving_from: quote?.moving_from || '',
+    moving_to: quote?.moving_to || '',
+    moving_date: quote?.moving_date || '',
+    total_volume_m3: quote?.total_volume_m3?.toString() || '',
+    van_count: quote?.van_count?.toString() || '1',
+    movers: quote?.movers?.toString() || '2',
+    estimated_price: quote?.estimated_price?.toString() || '',
+    notes: quote?.notes || '',
+    valid_until: quote?.valid_until || '',
+    status: quote?.status || 'draft',
+  });
+
+  // Items management
+  const [items, setItems] = useState<{ name: string; quantity: number; volume_ft3: string }[]>(
+    quote?.items?.map((i: any) => ({ name: i.name || '', quantity: i.quantity || 1, volume_ft3: i.volume_ft3 || '' })) || []
+  );
+
+  const addItem = () => {
+    setItems([...items, { name: '', quantity: 1, volume_ft3: '' }]);
+  };
+
+  const updateItem = (idx: number, field: string, value: string | number) => {
+    setItems(items.map((item, i) => i === idx ? { ...item, [field]: value } : item));
+  };
+
+  const removeItem = (idx: number) => {
+    setItems(items.filter((_, i) => i !== idx));
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">
+        <h2 className="text-xl font-bold text-gray-900 mb-4">{quote ? 'Edit Quote' : 'New Quote'}</h2>
+
+        <div className="space-y-4">
+          {/* Customer details */}
+          <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+            <h3 className="font-semibold text-gray-700 text-sm">Customer Details</h3>
+            <input value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} placeholder="Customer name *" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            <div className="grid grid-cols-2 gap-3">
+              <input value={form.customer_email} onChange={(e) => setForm({ ...form, customer_email: e.target.value })} placeholder="Email" className="px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              <input value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} placeholder="Phone" className="px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+          </div>
+
+          {/* Move details */}
+          <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+            <h3 className="font-semibold text-gray-700 text-sm">Move Details</h3>
+            <input value={form.moving_from} onChange={(e) => setForm({ ...form, moving_from: e.target.value })} placeholder="Moving from" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            <input value={form.moving_to} onChange={(e) => setForm({ ...form, moving_to: e.target.value })} placeholder="Moving to" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Moving date</label>
+                <input type="date" value={form.moving_date} onChange={(e) => setForm({ ...form, moving_date: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Valid until</label>
+                <input type="date" value={form.valid_until} onChange={(e) => setForm({ ...form, valid_until: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              </div>
+            </div>
+          </div>
+
+          {/* Items */}
+          <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-gray-700 text-sm">Items / Inventory</h3>
+              <button onClick={addItem} className="text-xs font-medium text-blue-600 hover:text-blue-800 px-3 py-1 bg-blue-50 rounded-lg">+ Add Item</button>
+            </div>
+            {items.length === 0 ? (
+              <p className="text-xs text-gray-400">No items added. Click "Add Item" to build the inventory.</p>
+            ) : (
+              <div className="space-y-2">
+                {items.map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <input value={item.name} onChange={(e) => updateItem(idx, 'name', e.target.value)} placeholder="Item name" className="flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <input type="number" value={item.quantity} onChange={(e) => updateItem(idx, 'quantity', parseInt(e.target.value) || 1)} className="w-16 px-3 py-2 border rounded-lg text-sm text-center focus:ring-2 focus:ring-blue-500 outline-none" min="1" />
+                    <input value={item.volume_ft3} onChange={(e) => updateItem(idx, 'volume_ft3', e.target.value)} placeholder="ft³" className="w-20 px-3 py-2 border rounded-lg text-sm text-center focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <button onClick={() => removeItem(idx)} className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Pricing */}
+          <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+            <h3 className="font-semibold text-gray-700 text-sm">Pricing & Logistics</h3>
+            <div className="grid grid-cols-4 gap-3">
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Volume (m³)</label>
+                <input type="number" value={form.total_volume_m3} onChange={(e) => setForm({ ...form, total_volume_m3: e.target.value })} className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Vans</label>
+                <input type="number" value={form.van_count} onChange={(e) => setForm({ ...form, van_count: e.target.value })} className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" min="1" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Movers</label>
+                <input type="number" value={form.movers} onChange={(e) => setForm({ ...form, movers: e.target.value })} className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" min="1" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Price (£) *</label>
+                <input type="number" value={form.estimated_price} onChange={(e) => setForm({ ...form, estimated_price: e.target.value })} className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold" />
+              </div>
+            </div>
+          </div>
+
+          {/* Notes */}
+          <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Additional notes (terms, conditions, special requirements...)" rows={3} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+        </div>
+
+        <div className="flex gap-3 mt-5">
+          <button
+            onClick={() => {
+              if (!form.customer_name.trim()) return alert('Customer name is required');
+              onSave({
+                customer_name: form.customer_name,
+                customer_email: form.customer_email || null,
+                customer_phone: form.customer_phone || null,
+                moving_from: form.moving_from || null,
+                moving_to: form.moving_to || null,
+                moving_date: form.moving_date || null,
+                items: items.filter((i) => i.name.trim()),
+                total_volume_m3: form.total_volume_m3 ? parseFloat(form.total_volume_m3) : 0,
+                van_count: parseInt(form.van_count) || 1,
+                movers: parseInt(form.movers) || 2,
+                estimated_price: form.estimated_price ? parseFloat(form.estimated_price) : null,
+                notes: form.notes || null,
+                valid_until: form.valid_until || null,
+                status: form.status,
+              });
+            }}
+            className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition"
+          >
+            {quote ? 'Update' : 'Create'} Quote
+          </button>
+          <button onClick={onClose} className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1305,7 +1671,6 @@ function DealModal({ deal, stages, onSave, onClose }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
         <h2 className="text-xl font-bold text-gray-900 mb-4">{deal ? 'Edit Deal' : 'New Deal'}</h2>
-
         <div className="space-y-3">
           <input value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} placeholder="Customer name *" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
           <div className="grid grid-cols-2 gap-3">
@@ -1323,29 +1688,9 @@ function DealModal({ deal, stages, onSave, onClose }: {
           </select>
           <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes" rows={3} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
         </div>
-
         <div className="flex gap-3 mt-5">
-          <button
-            onClick={() => {
-              if (!form.customer_name.trim()) return alert('Customer name is required');
-              onSave({
-                ...form,
-                estimated_value: form.estimated_value ? parseFloat(form.estimated_value) : null,
-                customer_email: form.customer_email || null,
-                customer_phone: form.customer_phone || null,
-                moving_from: form.moving_from || null,
-                moving_to: form.moving_to || null,
-                moving_date: form.moving_date || null,
-                notes: form.notes || null,
-              });
-            }}
-            className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition"
-          >
-            {deal ? 'Update' : 'Create'} Deal
-          </button>
-          <button onClick={onClose} className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">
-            Cancel
-          </button>
+          <button onClick={() => { if (!form.customer_name.trim()) return alert('Customer name is required'); onSave({ ...form, estimated_value: form.estimated_value ? parseFloat(form.estimated_value) : null, customer_email: form.customer_email || null, customer_phone: form.customer_phone || null, moving_from: form.moving_from || null, moving_to: form.moving_to || null, moving_date: form.moving_date || null, notes: form.notes || null }); }} className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition">{deal ? 'Update' : 'Create'} Deal</button>
+          <button onClick={onClose} className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">Cancel</button>
         </div>
       </div>
     </div>
@@ -1375,52 +1720,22 @@ function EventModal({ event, onSave, onClose }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
         <h2 className="text-xl font-bold text-gray-900 mb-4">{event ? 'Edit Event' : 'New Event'}</h2>
-
         <div className="space-y-3">
           <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Event title *" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
           <select value={form.event_type} onChange={(e) => setForm({ ...form, event_type: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-            <option value="job">Job</option>
-            <option value="survey">Survey</option>
-            <option value="callback">Callback</option>
-            <option value="delivery">Delivery</option>
-            <option value="other">Other</option>
+            <option value="job">Job</option><option value="survey">Survey</option><option value="callback">Callback</option><option value="delivery">Delivery</option><option value="other">Other</option>
           </select>
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Start time *</label>
-              <input type="datetime-local" value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-            </div>
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">End time</label>
-              <input type="datetime-local" value={form.end_time} onChange={(e) => setForm({ ...form, end_time: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-            </div>
+            <div><label className="text-xs text-gray-500 mb-1 block">Start time *</label><input type="datetime-local" value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" /></div>
+            <div><label className="text-xs text-gray-500 mb-1 block">End time</label><input type="datetime-local" value={form.end_time} onChange={(e) => setForm({ ...form, end_time: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" /></div>
           </div>
           <input value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} placeholder="Customer name" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
           <input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Location" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
           <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Description" rows={2} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
         </div>
-
         <div className="flex gap-3 mt-5">
-          <button
-            onClick={() => {
-              if (!form.title.trim()) return alert('Title is required');
-              if (!form.start_time) return alert('Start time is required');
-              onSave({
-                ...form,
-                start_time: new Date(form.start_time).toISOString(),
-                end_time: form.end_time ? new Date(form.end_time).toISOString() : null,
-                description: form.description || null,
-                customer_name: form.customer_name || null,
-                location: form.location || null,
-              });
-            }}
-            className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition"
-          >
-            {event ? 'Update' : 'Create'} Event
-          </button>
-          <button onClick={onClose} className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">
-            Cancel
-          </button>
+          <button onClick={() => { if (!form.title.trim()) return alert('Title is required'); if (!form.start_time) return alert('Start time is required'); onSave({ ...form, start_time: new Date(form.start_time).toISOString(), end_time: form.end_time ? new Date(form.end_time).toISOString() : null, description: form.description || null, customer_name: form.customer_name || null, location: form.location || null }); }} className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition">{event ? 'Update' : 'Create'} Event</button>
+          <button onClick={onClose} className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">Cancel</button>
         </div>
       </div>
     </div>
@@ -1448,7 +1763,6 @@ function CustomerModal({ customer, onSave, onClose }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
         <h2 className="text-xl font-bold text-gray-900 mb-4">{customer ? 'Edit Customer' : 'New Customer'}</h2>
-
         <div className="space-y-3">
           <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Customer name *" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
           <div className="grid grid-cols-2 gap-3">
@@ -1458,26 +1772,9 @@ function CustomerModal({ customer, onSave, onClose }: {
           <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Address" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
           <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes" rows={3} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
         </div>
-
         <div className="flex gap-3 mt-5">
-          <button
-            onClick={() => {
-              if (!form.name.trim()) return alert('Name is required');
-              onSave({
-                ...form,
-                email: form.email || null,
-                phone: form.phone || null,
-                address: form.address || null,
-                notes: form.notes || null,
-              });
-            }}
-            className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition"
-          >
-            {customer ? 'Update' : 'Create'} Customer
-          </button>
-          <button onClick={onClose} className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">
-            Cancel
-          </button>
+          <button onClick={() => { if (!form.name.trim()) return alert('Name is required'); onSave({ ...form, email: form.email || null, phone: form.phone || null, address: form.address || null, notes: form.notes || null }); }} className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition">{customer ? 'Update' : 'Create'} Customer</button>
+          <button onClick={onClose} className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">Cancel</button>
         </div>
       </div>
     </div>
