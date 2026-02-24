@@ -483,12 +483,12 @@ export default function CompanyDashboardPage() {
   const isCrmTab = crmTabs.includes(activeTab);
 
   const navItems: { tab: Tab; label: string; icon: string; crm: boolean }[] = [
-    { tab: 'leads', label: 'Leads', icon: 'inbox', crm: false },
     { tab: 'quotes', label: 'Quotes', icon: 'document', crm: true },
     { tab: 'pipeline', label: 'Pipeline', icon: 'pipeline', crm: true },
     { tab: 'diary', label: 'Diary', icon: 'calendar', crm: true },
     { tab: 'customers', label: 'Customers', icon: 'users', crm: true },
     { tab: 'reports', label: 'Reports', icon: 'chart', crm: true },
+    { tab: 'leads', label: 'Leads', icon: 'inbox', crm: false },
     { tab: 'settings', label: 'Settings', icon: 'settings', crm: false },
   ];
 
