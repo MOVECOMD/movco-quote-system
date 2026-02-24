@@ -1609,6 +1609,7 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
 
       {/* ===== MONTH VIEW ===== */}
       {viewMode === 'month' && (
+        <>
         <div className="bg-white rounded-xl border p-5">
           <div className="flex items-center justify-between mb-4">
             <button onClick={() => onSelectDate(new Date(year, month - 1, 1))} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600">
@@ -1711,6 +1712,7 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
             <p className="text-xl font-bold text-green-600">£{monthlyRevenue.toLocaleString()}</p>
           </div>
         </div>
+        </>
       )}
       {viewMode === 'day' && (
         <div className="bg-white rounded-xl border overflow-hidden">
