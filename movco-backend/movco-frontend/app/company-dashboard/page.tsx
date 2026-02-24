@@ -617,6 +617,7 @@ export default function CompanyDashboardPage() {
             {activeTab === 'diary' && (
               <DiaryTab
                 events={events}
+                deals={deals}
                 selectedDate={selectedDate}
                 onSelectDate={setSelectedDate}
                 onAddEvent={() => { setEditingEvent(null); setShowEventModal(true); }}
@@ -1426,8 +1427,8 @@ function PipelineTab({ stages, deals, onMoveDeal, onAddDeal, onEditDeal, onDelet
 // DIARY TAB
 // ============================================
 
-function DiaryTab({ events, selectedDate, onSelectDate, onAddEvent, onEditEvent, onDeleteEvent, onToggleComplete }: {
-  events: DiaryEvent[]; selectedDate: Date; onSelectDate: (d: Date) => void;
+function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEditEvent, onDeleteEvent, onToggleComplete }: {
+  events: DiaryEvent[]; deals: Deal[]; selectedDate: Date; onSelectDate: (d: Date) => void;
   onAddEvent: () => void; onEditEvent: (e: DiaryEvent) => void; onDeleteEvent: (id: string) => void; onToggleComplete: (id: string, c: boolean) => void;
 }) {
   const [viewMode, setViewMode] = useState<'month' | 'day'>('month');
@@ -1514,6 +1515,62 @@ function DiaryTab({ events, selectedDate, onSelectDate, onAddEvent, onEditEvent,
   const isToday = selectedDate.getDate() === today.getDate() && selectedDate.getMonth() === today.getMonth() && selectedDate.getFullYear() === today.getFullYear();
   const currentTimeTop = (nowHour - 6) * 64;
 
+  // Revenue calculations — deals with moving_date in selected month
+  const monthDeals = deals.filter((d) => {
+    if (!d.moving_date) return false;
+    const dd = new Date(d.moving_date);
+    return dd.getMonth() === month && dd.getFullYear() === year;
+  });
+
+  const monthlyRevenue = monthDeals.reduce((s, d) => s + (d.estimated_value || 0), 0);
+
+  // Get week number within the month (1-indexed)
+  const getWeekOfMonth = (date: Date) => {
+    const firstOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+    const firstMonday = new Date(firstOfMonth);
+    const dayOfWeek = firstOfMonth.getDay();
+    const daysUntilMonday = dayOfWeek === 0 ? 1 : dayOfWeek === 1 ? 0 : 8 - dayOfWeek;
+    firstMonday.setDate(1 + daysUntilMonday);
+    if (date < firstMonday) return 1;
+    return Math.ceil(((date.getTime() - firstMonday.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1) + (daysUntilMonday > 0 ? 1 : 0);
+  };
+
+  // Group deals by week
+  const weeklyRevenue: Record<number, { revenue: number; deals: number; startDate: Date; endDate: Date }> = {};
+  
+  // Build week ranges for the month
+  const firstOfMonth = new Date(year, month, 1);
+  const lastOfMonth = new Date(year, month + 1, 0);
+  let weekStart = new Date(firstOfMonth);
+  // Adjust to Monday
+  const dow = weekStart.getDay();
+  if (dow !== 1) weekStart.setDate(weekStart.getDate() - (dow === 0 ? 6 : dow - 1));
+  
+  let weekNum = 1;
+  while (weekStart <= lastOfMonth) {
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    weeklyRevenue[weekNum] = { revenue: 0, deals: 0, startDate: new Date(weekStart), endDate: new Date(weekEnd) };
+    
+    monthDeals.forEach((deal) => {
+      const dd = new Date(deal.moving_date!);
+      if (dd >= weekStart && dd <= weekEnd) {
+        weeklyRevenue[weekNum].revenue += deal.estimated_value || 0;
+        weeklyRevenue[weekNum].deals += 1;
+      }
+    });
+    
+    weekStart.setDate(weekStart.getDate() + 7);
+    weekNum++;
+  }
+
+  // Also count completed job events for revenue context
+  const completedJobsThisMonth = events.filter((e) => {
+    if (!e.completed || e.event_type !== 'job') return false;
+    const d = new Date(e.start_time);
+    return d.getMonth() === month && d.getFullYear() === year;
+  }).length;
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -1598,9 +1655,63 @@ function DiaryTab({ events, selectedDate, onSelectDate, onAddEvent, onEditEvent,
             })}
           </div>
         </div>
-      )}
 
-      {/* ===== DAY VIEW ===== */}
+        {/* Weekly & Monthly Revenue */}
+        <div className="bg-white rounded-xl border p-5 mt-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-gray-900 flex items-center gap-2">
+              <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              Revenue — {selectedDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}
+            </h3>
+            <div className="text-right">
+              <p className="text-2xl font-bold text-green-600">£{monthlyRevenue.toLocaleString()}</p>
+              <p className="text-xs text-gray-500">{monthDeals.length} deal{monthDeals.length !== 1 ? 's' : ''} • {completedJobsThisMonth} job{completedJobsThisMonth !== 1 ? 's' : ''} completed</p>
+            </div>
+          </div>
+          
+          <div className="space-y-2">
+            {Object.entries(weeklyRevenue).map(([week, data]) => {
+              const weekLabel = `${data.startDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${data.endDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
+              const percentage = monthlyRevenue > 0 ? (data.revenue / monthlyRevenue) * 100 : 0;
+              return (
+                <div key={week} className="flex items-center gap-3">
+                  <div className="w-24 flex-shrink-0">
+                    <p className="text-xs font-semibold text-gray-700">Week {week}</p>
+                    <p className="text-[10px] text-gray-400">{weekLabel}</p>
+                  </div>
+                  <div className="flex-1">
+                    <div className="h-6 bg-gray-100 rounded-full overflow-hidden relative">
+                      <div 
+                        className="h-full bg-gradient-to-r from-green-400 to-green-600 rounded-full transition-all duration-500"
+                        style={{ width: `${Math.max(percentage, data.revenue > 0 ? 8 : 0)}%` }}
+                      />
+                      {data.revenue > 0 && (
+                        <span className="absolute inset-0 flex items-center justify-center text-[11px] font-bold text-gray-700">
+                          {data.deals} deal{data.deals !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="w-20 text-right flex-shrink-0">
+                    <p className={`text-sm font-bold ${data.revenue > 0 ? 'text-green-600' : 'text-gray-300'}`}>
+                      £{data.revenue.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Monthly total bar */}
+          <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 bg-green-500 rounded-full" />
+              <span className="text-sm font-semibold text-gray-800">Monthly Total</span>
+            </div>
+            <p className="text-xl font-bold text-green-600">£{monthlyRevenue.toLocaleString()}</p>
+          </div>
+        </div>
+      )}
       {viewMode === 'day' && (
         <div className="bg-white rounded-xl border overflow-hidden">
           {/* Day header */}
@@ -1612,7 +1723,20 @@ function DiaryTab({ events, selectedDate, onSelectDate, onAddEvent, onEditEvent,
               <h3 className="font-bold text-gray-900 text-lg">
                 {selectedDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
               </h3>
-              <p className="text-xs text-gray-500 mt-0.5">{selectedDayEvents.length} event{selectedDayEvents.length !== 1 ? 's' : ''}</p>
+              <div className="flex items-center justify-center gap-3 mt-0.5">
+                <p className="text-xs text-gray-500">{selectedDayEvents.length} event{selectedDayEvents.length !== 1 ? 's' : ''}</p>
+                {(() => {
+                  const dayDeals = deals.filter((d) => {
+                    if (!d.moving_date) return false;
+                    const dd = new Date(d.moving_date);
+                    return dd.getDate() === selectedDate.getDate() && dd.getMonth() === selectedDate.getMonth() && dd.getFullYear() === selectedDate.getFullYear();
+                  });
+                  const dayRev = dayDeals.reduce((s, d) => s + (d.estimated_value || 0), 0);
+                  return dayRev > 0 ? (
+                    <span className="text-xs font-semibold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">£{dayRev.toLocaleString()} revenue</span>
+                  ) : null;
+                })()}
+              </div>
             </div>
             <button onClick={goToNextDay} className="p-2 hover:bg-gray-200 rounded-lg text-gray-600 transition">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
