@@ -1430,6 +1430,8 @@ function DiaryTab({ events, selectedDate, onSelectDate, onAddEvent, onEditEvent,
   events: DiaryEvent[]; selectedDate: Date; onSelectDate: (d: Date) => void;
   onAddEvent: () => void; onEditEvent: (e: DiaryEvent) => void; onDeleteEvent: (id: string) => void; onToggleComplete: (id: string, c: boolean) => void;
 }) {
+  const [viewMode, setViewMode] = useState<'month' | 'day'>('month');
+
   const year = selectedDate.getFullYear();
   const month = selectedDate.getMonth();
   const firstDay = new Date(year, month, 1).getDay();
@@ -1445,74 +1447,277 @@ function DiaryTab({ events, selectedDate, onSelectDate, onAddEvent, onEditEvent,
     return events.filter((e) => e.start_time.startsWith(dateStr));
   };
 
-  const todaysEvents = events.filter((e) => {
+  const selectedDayEvents = events.filter((e) => {
     const d = new Date(e.start_time);
     return d.getDate() === selectedDate.getDate() && d.getMonth() === selectedDate.getMonth() && d.getFullYear() === selectedDate.getFullYear();
   });
 
-  const eventTypeColors: Record<string, string> = { job: 'bg-blue-100 text-blue-700', survey: 'bg-purple-100 text-purple-700', callback: 'bg-yellow-100 text-yellow-700', delivery: 'bg-green-100 text-green-700', other: 'bg-gray-100 text-gray-700' };
+  const handleDayClick = (day: number) => {
+    onSelectDate(new Date(year, month, day));
+    setViewMode('day');
+  };
+
+  const goToPrevDay = () => {
+    const prev = new Date(selectedDate);
+    prev.setDate(prev.getDate() - 1);
+    onSelectDate(prev);
+  };
+
+  const goToNextDay = () => {
+    const next = new Date(selectedDate);
+    next.setDate(next.getDate() + 1);
+    onSelectDate(next);
+  };
+
+  const eventTypeColors: Record<string, { bg: string; border: string; text: string }> = {
+    job: { bg: 'bg-blue-100', border: 'border-blue-400', text: 'text-blue-800' },
+    survey: { bg: 'bg-purple-100', border: 'border-purple-400', text: 'text-purple-800' },
+    callback: { bg: 'bg-yellow-100', border: 'border-yellow-400', text: 'text-yellow-800' },
+    delivery: { bg: 'bg-green-100', border: 'border-green-400', text: 'text-green-800' },
+    other: { bg: 'bg-gray-100', border: 'border-gray-400', text: 'text-gray-800' },
+  };
+
+  const eventTypeBadges: Record<string, string> = {
+    job: 'bg-blue-100 text-blue-700',
+    survey: 'bg-purple-100 text-purple-700',
+    callback: 'bg-yellow-100 text-yellow-700',
+    delivery: 'bg-green-100 text-green-700',
+    other: 'bg-gray-100 text-gray-700',
+  };
+
+  // Hours for day view (6am to 10pm)
+  const hours = Array.from({ length: 17 }, (_, i) => i + 6); // 6, 7, 8 ... 22
+
+  // Get event position and height for day view
+  const getEventStyle = (event: DiaryEvent) => {
+    const start = new Date(event.start_time);
+    const startHour = start.getHours() + start.getMinutes() / 60;
+    const end = event.end_time ? new Date(event.end_time) : new Date(start.getTime() + 60 * 60 * 1000); // default 1 hour
+    const endHour = end.getHours() + end.getMinutes() / 60;
+    const duration = Math.max(endHour - startHour, 0.5); // minimum half hour
+
+    const top = (startHour - 6) * 64; // 64px per hour
+    const height = Math.max(duration * 64, 28); // minimum 28px
+
+    return { top: `${top}px`, height: `${height}px` };
+  };
+
+  // Check if event falls within visible hours
+  const isEventVisible = (event: DiaryEvent) => {
+    const start = new Date(event.start_time);
+    const hour = start.getHours();
+    return hour >= 6 && hour <= 22;
+  };
+
+  // Current time indicator
+  const nowHour = today.getHours() + today.getMinutes() / 60;
+  const isToday = selectedDate.getDate() === today.getDate() && selectedDate.getMonth() === today.getMonth() && selectedDate.getFullYear() === today.getFullYear();
+  const currentTimeTop = (nowHour - 6) * 64;
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <div><h2 className="text-2xl font-bold text-gray-900">Diary</h2><p className="text-sm text-gray-500 mt-1">{events.length} scheduled events</p></div>
-        <button onClick={onAddEvent} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>Add Event
-        </button>
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Diary</h2>
+          <p className="text-sm text-gray-500 mt-1">{events.length} scheduled events</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {/* View toggle */}
+          <div className="flex bg-gray-100 rounded-lg p-0.5">
+            <button
+              onClick={() => setViewMode('month')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${viewMode === 'month' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Month
+            </button>
+            <button
+              onClick={() => setViewMode('day')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${viewMode === 'day' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Day
+            </button>
+          </div>
+          <button
+            onClick={() => { onSelectDate(new Date()); setViewMode('day'); }}
+            className="px-3 py-2 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition"
+          >
+            Today
+          </button>
+          <button onClick={onAddEvent} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            Add Event
+          </button>
+        </div>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white rounded-xl border p-5">
+
+      {/* ===== MONTH VIEW ===== */}
+      {viewMode === 'month' && (
+        <div className="bg-white rounded-xl border p-5">
           <div className="flex items-center justify-between mb-4">
-            <button onClick={() => onSelectDate(new Date(year, month - 1, 1))} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
-            <h3 className="font-bold text-gray-900">{selectedDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</h3>
-            <button onClick={() => onSelectDate(new Date(year, month + 1, 1))} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg></button>
+            <button onClick={() => onSelectDate(new Date(year, month - 1, 1))} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+            </button>
+            <h3 className="font-bold text-gray-900 text-lg">{selectedDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</h3>
+            <button onClick={() => onSelectDate(new Date(year, month + 1, 1))} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+            </button>
           </div>
           <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-gray-500 mb-2">
-            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => <div key={d} className="py-1">{d}</div>)}
+            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
+              <div key={d} className="py-2">{d}</div>
+            ))}
           </div>
           <div className="grid grid-cols-7 gap-1">
             {days.map((day, idx) => {
               if (day === null) return <div key={idx} />;
               const dayEvents = getEventsForDay(day);
-              const isToday = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
+              const isTodayCell = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
               const isSelected = day === selectedDate.getDate() && month === selectedDate.getMonth();
               return (
-                <button key={idx} onClick={() => onSelectDate(new Date(year, month, day))} className={`p-2 rounded-lg text-sm transition-all min-h-[48px] flex flex-col items-center ${isSelected ? 'bg-blue-600 text-white' : isToday ? 'bg-blue-50 text-blue-700 font-bold' : 'hover:bg-gray-100 text-gray-700'}`}>
-                  <span>{day}</span>
-                  {dayEvents.length > 0 && <div className="flex gap-0.5 mt-1">{dayEvents.slice(0, 3).map((_, i) => <div key={i} className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-blue-500'}`} />)}</div>}
+                <button
+                  key={idx}
+                  onClick={() => handleDayClick(day)}
+                  className={`p-1.5 rounded-lg text-sm transition-all min-h-[72px] flex flex-col items-start ${
+                    isSelected ? 'bg-blue-600 text-white ring-2 ring-blue-300' : isTodayCell ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-700'
+                  }`}
+                >
+                  <span className={`text-xs font-semibold mb-1 ${isTodayCell && !isSelected ? 'bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center' : ''}`}>{day}</span>
+                  {dayEvents.slice(0, 2).map((evt, i) => {
+                    const colors = eventTypeColors[evt.event_type] || eventTypeColors.other;
+                    return (
+                      <div key={i} className={`w-full text-left truncate text-[10px] px-1 py-0.5 rounded mb-0.5 ${isSelected ? 'bg-white/20 text-white' : `${colors.bg} ${colors.text}`}`}>
+                        {new Date(evt.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} {evt.title}
+                      </div>
+                    );
+                  })}
+                  {dayEvents.length > 2 && (
+                    <span className={`text-[10px] ${isSelected ? 'text-white/80' : 'text-gray-400'}`}>+{dayEvents.length - 2} more</span>
+                  )}
                 </button>
               );
             })}
           </div>
         </div>
-        <div className="bg-white rounded-xl border p-5">
-          <h3 className="font-bold text-gray-900 mb-3">{selectedDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</h3>
-          {todaysEvents.length === 0 ? <p className="text-sm text-gray-400 py-4">No events scheduled</p> : (
-            <div className="space-y-3">
-              {todaysEvents.map((event) => (
-                <div key={event.id} className={`p-3 rounded-lg border ${event.completed ? 'opacity-50' : ''}`}>
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <input type="checkbox" checked={event.completed} onChange={(e) => onToggleComplete(event.id, e.target.checked)} className="rounded" />
-                        <span className={`font-medium text-sm ${event.completed ? 'line-through text-gray-400' : 'text-gray-900'}`}>{event.title}</span>
-                      </div>
-                      <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${eventTypeColors[event.event_type] || eventTypeColors.other}`}>{event.event_type}</span>
-                      {event.customer_name && <p className="text-xs text-gray-500 mt-1">{event.customer_name}</p>}
-                      {event.location && <p className="text-xs text-gray-400">{event.location}</p>}
-                      <p className="text-xs text-gray-400 mt-1">{new Date(event.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}{event.end_time && ` - ${new Date(event.end_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}</p>
-                    </div>
-                    <div className="flex gap-1 ml-2">
-                      <button onClick={() => onEditEvent(event)} className="p-1 text-blue-500 hover:text-blue-700"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>
-                      <button onClick={() => onDeleteEvent(event.id)} className="p-1 text-red-500 hover:text-red-700"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+      )}
+
+      {/* ===== DAY VIEW ===== */}
+      {viewMode === 'day' && (
+        <div className="bg-white rounded-xl border overflow-hidden">
+          {/* Day header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b bg-gray-50">
+            <button onClick={goToPrevDay} className="p-2 hover:bg-gray-200 rounded-lg text-gray-600 transition">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+            </button>
+            <div className="text-center">
+              <h3 className="font-bold text-gray-900 text-lg">
+                {selectedDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">{selectedDayEvents.length} event{selectedDayEvents.length !== 1 ? 's' : ''}</p>
+            </div>
+            <button onClick={goToNextDay} className="p-2 hover:bg-gray-200 rounded-lg text-gray-600 transition">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+            </button>
+          </div>
+
+          {/* All-day / early events (before 6am) */}
+          {selectedDayEvents.filter(e => !isEventVisible(e)).length > 0 && (
+            <div className="px-5 py-2 border-b bg-amber-50">
+              <p className="text-xs font-semibold text-amber-700 mb-1">Other times</p>
+              {selectedDayEvents.filter(e => !isEventVisible(e)).map((event) => {
+                const colors = eventTypeColors[event.event_type] || eventTypeColors.other;
+                return (
+                  <div key={event.id} onClick={() => onEditEvent(event)} className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium cursor-pointer mr-2 mb-1 ${colors.bg} ${colors.text}`}>
+                    {new Date(event.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} {event.title}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Time grid */}
+          <div className="overflow-y-auto" style={{ maxHeight: '65vh' }}>
+            <div className="relative" style={{ height: `${hours.length * 64}px` }}>
+              {/* Hour rows */}
+              {hours.map((hour) => (
+                <div key={hour} className="absolute w-full flex" style={{ top: `${(hour - 6) * 64}px`, height: '64px' }}>
+                  {/* Time label */}
+                  <div className="w-16 sm:w-20 flex-shrink-0 pr-2 text-right">
+                    <span className="text-xs text-gray-400 font-medium -mt-2 block">
+                      {hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}
+                    </span>
+                  </div>
+                  {/* Grid line + clickable slot */}
+                  <div className="flex-1 border-t border-gray-100 relative group cursor-pointer hover:bg-blue-50/30 transition"
+                    onClick={() => {
+                      const clickDate = new Date(selectedDate);
+                      clickDate.setHours(hour, 0, 0, 0);
+                      // Pre-fill the event modal with this time — trigger add event
+                      onAddEvent();
+                    }}
+                  >
+                    {/* Half-hour line */}
+                    <div className="absolute w-full border-t border-gray-50" style={{ top: '32px' }} />
+                    {/* Add hint on hover */}
+                    <div className="absolute right-2 top-1 opacity-0 group-hover:opacity-100 transition">
+                      <span className="text-[10px] text-blue-400 font-medium">+ Add</span>
                     </div>
                   </div>
                 </div>
               ))}
+
+              {/* Current time indicator */}
+              {isToday && nowHour >= 6 && nowHour <= 23 && (
+                <div className="absolute left-16 sm:left-20 right-0 z-20 flex items-center" style={{ top: `${currentTimeTop}px` }}>
+                  <div className="w-3 h-3 bg-red-500 rounded-full -ml-1.5" />
+                  <div className="flex-1 h-0.5 bg-red-500" />
+                </div>
+              )}
+
+              {/* Events overlaid on the grid */}
+              {selectedDayEvents.filter(isEventVisible).map((event) => {
+                const style = getEventStyle(event);
+                const colors = eventTypeColors[event.event_type] || eventTypeColors.other;
+                const startTime = new Date(event.start_time);
+                const endTime = event.end_time ? new Date(event.end_time) : null;
+                return (
+                  <div
+                    key={event.id}
+                    className={`absolute left-16 sm:left-20 right-2 z-10 rounded-lg border-l-4 px-3 py-1.5 cursor-pointer hover:shadow-md transition-all overflow-hidden ${colors.bg} ${colors.border} ${event.completed ? 'opacity-50' : ''}`}
+                    style={{ top: style.top, height: style.height, minHeight: '28px' }}
+                    onClick={() => onEditEvent(event)}
+                  >
+                    <div className="flex items-start justify-between gap-1">
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm font-semibold truncate ${colors.text}`}>{event.title}</p>
+                        <p className="text-[11px] text-gray-500">
+                          {startTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                          {endTime && ` – ${endTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}
+                        </p>
+                        {event.customer_name && <p className="text-[11px] text-gray-500 truncate">{event.customer_name}</p>}
+                        {event.location && <p className="text-[10px] text-gray-400 truncate">📍 {event.location}</p>}
+                      </div>
+                      <div className="flex gap-0.5 flex-shrink-0 mt-0.5">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onToggleComplete(event.id, !event.completed); }}
+                          className={`w-5 h-5 rounded flex items-center justify-center transition ${event.completed ? 'bg-green-500 text-white' : 'border border-gray-300 hover:border-green-400'}`}
+                        >
+                          {event.completed && <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onDeleteEvent(event.id); }}
+                          className="w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition"
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
