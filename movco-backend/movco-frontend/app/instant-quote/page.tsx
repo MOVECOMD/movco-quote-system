@@ -186,7 +186,7 @@ export default function InstantQuotePage() {
       window.movcoTrackQuoteCompleted?.();
 
       setSuccessText('Quote submitted successfully! Redirecting...');
-      setTimeout(() => router.push('/dashboard'), 1500);
+      setTimeout(() => router.push(`/dashboard/${insertData.id}`), 1500);
     } catch (err: any) {
       setErrorText(err?.message || 'Something went wrong.');
     } finally {
