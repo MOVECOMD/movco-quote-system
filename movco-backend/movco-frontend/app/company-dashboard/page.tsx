@@ -784,14 +784,16 @@ function QuoteBuilder({ company, onSave, onCancel }: {
   // Photo handlers
   const handleCameraChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
-    setFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
-    e.target.value = '';
+    const newFiles = Array.from(e.target.files);
+    setFiles((prev) => [...prev, ...newFiles]);
+    if (e.target) e.target.value = '';
   };
 
   const handleGalleryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
-    setFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
-    e.target.value = '';
+    const newFiles = Array.from(e.target.files);
+    setFiles((prev) => [...prev, ...newFiles]);
+    if (e.target) e.target.value = '';
   };
 
   const removeFile = (idx: number) => {
