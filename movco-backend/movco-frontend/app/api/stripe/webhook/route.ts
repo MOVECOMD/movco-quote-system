@@ -167,7 +167,7 @@ export async function POST(req: Request) {
 
       if (subscriptionId) {
         try {
-          const sub = await stripe.subscriptions.retrieve(subscriptionId);
+          const sub: any = await stripe.subscriptions.retrieve(subscriptionId);
           periodStart = new Date(sub.current_period_start * 1000).toISOString();
           periodEnd = new Date(sub.current_period_end * 1000).toISOString();
         } catch (err) {
@@ -255,7 +255,7 @@ export async function POST(req: Request) {
   // SUBSCRIPTION UPDATED (renewal, payment changes)
   // ============================================
   if (event.type === 'customer.subscription.updated') {
-    const subscription = event.data.object as Stripe.Subscription;
+    const subscription: any = event.data.object;
     const status = subscription.status;
 
     // Find the CRM subscription by stripe_subscription_id
@@ -293,7 +293,7 @@ export async function POST(req: Request) {
   // SUBSCRIPTION DELETED (canceled or expired)
   // ============================================
   if (event.type === 'customer.subscription.deleted') {
-    const subscription = event.data.object as Stripe.Subscription;
+    const subscription: any = event.data.object;
 
     const { error } = await supabase
       .from('crm_subscriptions')
