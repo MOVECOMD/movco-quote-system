@@ -10,7 +10,8 @@ const FREE_QUOTE_LIMIT = 3;
 
 export default function InstantQuotePage() {
   const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   const [startingAddress, setStartingAddress] = useState('');
   const [endingAddress, setEndingAddress] = useState('');
@@ -77,9 +78,22 @@ export default function InstantQuotePage() {
   const totalAllowed = FREE_QUOTE_LIMIT + extraCredits;
   const remainingQuotes = totalAllowed - quoteCount;
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files) return;
-    setFiles(Array.from(e.target.files));
+  // ACCUMULATE files from gallery (multiple selection)
+  const handleGalleryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const newFiles = Array.from(e.target.files);
+    setFiles((prev) => [...prev, ...newFiles]);
+    // Reset input so the same files can be selected again
+    e.target.value = '';
+  };
+
+  // ACCUMULATE files from camera (one at a time)
+  const handleCameraChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const newFiles = Array.from(e.target.files);
+    setFiles((prev) => [...prev, ...newFiles]);
+    // Reset input so camera can be opened again immediately
+    e.target.value = '';
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -98,12 +112,13 @@ export default function InstantQuotePage() {
     setDragActive(false);
 
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      setFiles(Array.from(e.dataTransfer.files));
+      const newFiles = Array.from(e.dataTransfer.files);
+      setFiles((prev) => [...prev, ...newFiles]);
     }
   };
 
   const removeFile = (index: number) => {
-    setFiles(files.filter((_, i) => i !== index));
+    setFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -428,41 +443,71 @@ export default function InstantQuotePage() {
             </h2>
             <p className="text-xs text-gray-500 mb-4">Add 3-4 photos per room for the most accurate estimate</p>
 
-            <div
-              className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 cursor-pointer ${
-                dragActive
-                  ? 'border-movco-blue bg-blue-50'
-                  : 'border-gray-200 hover:border-movco-blue hover:bg-blue-50/30'
-              }`}
-              onDragEnter={handleDrag}
-              onDragLeave={handleDrag}
-              onDragOver={handleDrag}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept="image/*"
-                onChange={handleFileChange}
-                className="hidden"
-              />
-              <div className="space-y-2">
+            {/* Two buttons: Take Photo + Upload from Gallery */}
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              {/* TAKE PHOTO — opens camera, one photo at a time, accumulates */}
+              <div
+                className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:border-movco-blue hover:bg-blue-50/30 transition-all duration-200 cursor-pointer"
+                onClick={() => cameraInputRef.current?.click()}
+              >
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handleCameraChange}
+                  className="hidden"
+                />
                 <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-50 rounded-full mb-2">
                   <svg className="w-6 h-6 text-movco-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                 </div>
-                <p className="text-sm font-medium text-movco-navy">
-                  {files.length > 0 ? `${files.length} file(s) selected` : 'Click or drag photos here'}
-                </p>
-                <p className="text-xs text-gray-500">Living Room • Bedroom • Kitchen • Etc.</p>
+                <p className="text-sm font-medium text-movco-navy">Take Photo</p>
+                <p className="text-xs text-gray-500 mt-0.5">Use your camera</p>
+              </div>
+
+              {/* UPLOAD FROM GALLERY — allows multiple selection, accumulates */}
+              <div
+                className={`border-2 border-dashed rounded-xl p-6 text-center transition-all duration-200 cursor-pointer ${
+                  dragActive
+                    ? 'border-movco-blue bg-blue-50'
+                    : 'border-gray-200 hover:border-green-500 hover:bg-green-50/30'
+                }`}
+                onClick={() => galleryInputRef.current?.click()}
+                onDragEnter={handleDrag}
+                onDragLeave={handleDrag}
+                onDragOver={handleDrag}
+                onDrop={handleDrop}
+              >
+                <input
+                  ref={galleryInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*"
+                  onChange={handleGalleryChange}
+                  className="hidden"
+                />
+                <div className="inline-flex items-center justify-center w-12 h-12 bg-green-50 rounded-full mb-2">
+                  <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <p className="text-sm font-medium text-movco-navy">Upload Photos</p>
+                <p className="text-xs text-gray-500 mt-0.5">Choose from gallery</p>
               </div>
             </div>
 
+            {/* Photo count badge */}
             {files.length > 0 && (
-              <div className="grid grid-cols-2 gap-3 mt-4">
+              <p className="text-xs text-gray-500 font-medium mb-3">
+                {files.length} photo{files.length !== 1 ? 's' : ''} ready to upload
+              </p>
+            )}
+
+            {files.length > 0 && (
+              <div className="grid grid-cols-2 gap-3">
                 {files.map((file, idx) => (
                   <div key={idx} className="relative group bg-movco-light rounded-lg border border-gray-200 p-3 flex items-center space-x-3">
                     <div className="flex-shrink-0 w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
