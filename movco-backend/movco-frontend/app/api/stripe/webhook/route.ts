@@ -32,6 +32,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Webhook signature failed' }, { status: 400 });
   }
 
+  // ============================================
+  // CHECKOUT SESSION COMPLETED
+  // ============================================
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session;
     const paymentType = session.metadata?.type;
@@ -142,6 +145,168 @@ export async function POST(req: Request) {
       }
 
       console.log(`[MOVCO] ✅ Balance updated for ${company.company_name}: £${(newBalance / 100).toFixed(2)}`);
+    }
+
+    // ============================================
+    // HANDLE: CRM Subscription
+    // ============================================
+    if (paymentType === 'crm_subscription') {
+      const companyId = session.metadata?.company_id;
+      const subscriptionId = session.subscription as string;
+
+      if (!companyId) {
+        console.error('Missing company_id in CRM subscription metadata');
+        return NextResponse.json({ error: 'Missing company_id' }, { status: 400 });
+      }
+
+      console.log(`[MOVCO] Processing CRM subscription for company ${companyId}`);
+
+      // Get subscription details from Stripe for period dates
+      let periodStart: string | null = null;
+      let periodEnd: string | null = null;
+
+      if (subscriptionId) {
+        try {
+          const sub = await stripe.subscriptions.retrieve(subscriptionId);
+          periodStart = new Date(sub.current_period_start * 1000).toISOString();
+          periodEnd = new Date(sub.current_period_end * 1000).toISOString();
+        } catch (err) {
+          console.error('Failed to retrieve subscription details:', err);
+        }
+      }
+
+      // Upsert CRM subscription record
+      const { data: existing } = await supabase
+        .from('crm_subscriptions')
+        .select('id')
+        .eq('company_id', companyId)
+        .maybeSingle();
+
+      if (existing) {
+        const { error: updateError } = await supabase
+          .from('crm_subscriptions')
+          .update({
+            status: 'active',
+            stripe_subscription_id: subscriptionId,
+            current_period_start: periodStart,
+            current_period_end: periodEnd,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('company_id', companyId);
+
+        if (updateError) {
+          console.error('Failed to update CRM subscription:', updateError);
+          return NextResponse.json({ error: 'Subscription update failed' }, { status: 500 });
+        }
+
+        console.log(`[MOVCO] ✅ CRM subscription reactivated for company ${companyId}`);
+      } else {
+        const { error: insertError } = await supabase
+          .from('crm_subscriptions')
+          .insert({
+            company_id: companyId,
+            status: 'active',
+            stripe_subscription_id: subscriptionId,
+            current_period_start: periodStart,
+            current_period_end: periodEnd,
+          });
+
+        if (insertError) {
+          console.error('Failed to insert CRM subscription:', insertError);
+          return NextResponse.json({ error: 'Subscription insert failed' }, { status: 500 });
+        }
+
+        console.log(`[MOVCO] ✅ CRM subscription created for company ${companyId}`);
+      }
+
+      // Seed default pipeline stages (only if none exist yet)
+      const { data: existingStages } = await supabase
+        .from('crm_pipeline_stages')
+        .select('id')
+        .eq('company_id', companyId)
+        .limit(1);
+
+      if (!existingStages || existingStages.length === 0) {
+        const defaultStages = [
+          { company_id: companyId, name: 'New Lead', color: '#6366F1', position: 0 },
+          { company_id: companyId, name: 'Contacted', color: '#F59E0B', position: 1 },
+          { company_id: companyId, name: 'Quote Sent', color: '#3B82F6', position: 2 },
+          { company_id: companyId, name: 'Booked', color: '#10B981', position: 3 },
+          { company_id: companyId, name: 'Completed', color: '#059669', position: 4 },
+          { company_id: companyId, name: 'Lost', color: '#EF4444', position: 5 },
+        ];
+
+        const { error: stagesError } = await supabase
+          .from('crm_pipeline_stages')
+          .insert(defaultStages);
+
+        if (stagesError) {
+          console.error('Failed to seed pipeline stages:', stagesError);
+        } else {
+          console.log(`[MOVCO] ✅ Default pipeline stages created for company ${companyId}`);
+        }
+      }
+
+      return NextResponse.json({ received: true });
+    }
+  }
+
+  // ============================================
+  // SUBSCRIPTION UPDATED (renewal, payment changes)
+  // ============================================
+  if (event.type === 'customer.subscription.updated') {
+    const subscription = event.data.object as Stripe.Subscription;
+    const status = subscription.status;
+
+    // Find the CRM subscription by stripe_subscription_id
+    const { data: crmSub } = await supabase
+      .from('crm_subscriptions')
+      .select('id, company_id')
+      .eq('stripe_subscription_id', subscription.id)
+      .maybeSingle();
+
+    if (crmSub) {
+      const mappedStatus = status === 'active' ? 'active'
+        : status === 'past_due' ? 'past_due'
+        : status === 'canceled' ? 'canceled'
+        : 'inactive';
+
+      const { error } = await supabase
+        .from('crm_subscriptions')
+        .update({
+          status: mappedStatus,
+          current_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
+          current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', crmSub.id);
+
+      if (error) {
+        console.error('Failed to update subscription status:', error);
+      } else {
+        console.log(`[MOVCO] ✅ CRM subscription ${subscription.id} updated to ${mappedStatus}`);
+      }
+    }
+  }
+
+  // ============================================
+  // SUBSCRIPTION DELETED (canceled or expired)
+  // ============================================
+  if (event.type === 'customer.subscription.deleted') {
+    const subscription = event.data.object as Stripe.Subscription;
+
+    const { error } = await supabase
+      .from('crm_subscriptions')
+      .update({
+        status: 'canceled',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('stripe_subscription_id', subscription.id);
+
+    if (error) {
+      console.error('Failed to cancel subscription:', error);
+    } else {
+      console.log(`[MOVCO] ✅ CRM subscription ${subscription.id} canceled`);
     }
   }
 
