@@ -1385,9 +1385,9 @@ function QuoteBuilder({ company, onSave, onCancel, prefill }: {
             <button
               onClick={async () => {
                 await downloadQuotePdf({
-                  companyName: company.name,
-                  companyEmail: company.email,
-                  companyPhone: company.phone,
+                  companyName: company?.name || 'Moving Company',
+                  companyEmail: company?.email || undefined,
+                  companyPhone: company?.phone || undefined,
                   quoteDate: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
                   status: 'draft',
                   customerName,
@@ -1485,9 +1485,9 @@ function QuotesTab({ quotes, company, onAddQuote, onDeleteQuote, onUpdateStatus,
 
   const handleDownloadPdf = async (quote: CrmQuote) => {
     await downloadQuotePdf({
-      companyName: company.name,
-      companyEmail: company.email,
-      companyPhone: company.phone,
+      companyName: company?.name || 'Moving Company',
+      companyEmail: company?.email || undefined,
+      companyPhone: company?.phone || undefined,
       quoteRef: quote.id.slice(0, 8).toUpperCase(),
       quoteDate: new Date(quote.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
       validUntil: quote.valid_until ? new Date(quote.valid_until).toLocaleDateString('en-GB') : undefined,
