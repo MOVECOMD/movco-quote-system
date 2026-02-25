@@ -55,6 +55,7 @@ type Deal = {
   moving_date: string | null;
   estimated_value: number | null;
   notes: string | null;
+  customer_id: string | null;
   created_at: string;
 };
 
@@ -65,6 +66,10 @@ type Customer = {
   phone: string | null;
   address: string | null;
   notes: string | null;
+  source: string | null;
+  moving_from: string | null;
+  moving_to: string | null;
+  moving_date: string | null;
   total_jobs: number;
   total_revenue: number;
   created_at: string;
@@ -81,6 +86,7 @@ type DiaryEvent = {
   location: string | null;
   color: string;
   completed: boolean;
+  deal_id: string | null;
 };
 
 type CrmQuote = {
@@ -100,7 +106,19 @@ type CrmQuote = {
   status: string;
   notes: string | null;
   valid_until: string | null;
+  deal_id: string | null;
   created_at: string;
+};
+
+type QuotePrefill = {
+  customer_name: string;
+  customer_email: string;
+  customer_phone: string;
+  moving_from: string;
+  moving_to: string;
+  moving_date: string;
+  notes: string;
+  deal_id: string | null;
 };
 
 // ============================================
@@ -127,6 +145,7 @@ export default function CompanyDashboardPage() {
   const [crmQuotes, setCrmQuotes] = useState<CrmQuote[]>([]);
   const [showQuoteBuilder, setShowQuoteBuilder] = useState(false);
   const [editingQuote, setEditingQuote] = useState<CrmQuote | null>(null);
+  const [quotePrefill, setQuotePrefill] = useState<QuotePrefill | null>(null);
 
   // Pipeline state
   const [stages, setStages] = useState<PipelineStage[]>([]);
@@ -147,6 +166,13 @@ export default function CompanyDashboardPage() {
   const [editingDeal, setEditingDeal] = useState<Deal | null>(null);
   const [editingEvent, setEditingEvent] = useState<DiaryEvent | null>(null);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+
+  // NEW: Detail popup states
+  const [showDealDetail, setShowDealDetail] = useState(false);
+  const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
+  const [showEventDetail, setShowEventDetail] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<DiaryEvent | null>(null);
+  const [showQuickBookModal, setShowQuickBookModal] = useState(false);
 
   // Redirect if not logged in
   useEffect(() => {
@@ -313,6 +339,8 @@ export default function CompanyDashboardPage() {
     if (!confirm('Delete this deal?')) return;
     const { error } = await supabase.from('crm_deals').delete().eq('id', dealId);
     if (!error) setDeals((prev) => prev.filter((d) => d.id !== dealId));
+    setShowDealDetail(false);
+    setSelectedDeal(null);
   };
 
   const moveDeal = async (dealId: string, newStageId: string) => {
@@ -354,6 +382,8 @@ export default function CompanyDashboardPage() {
     if (!confirm('Delete this event?')) return;
     const { error } = await supabase.from('crm_diary_events').delete().eq('id', eventId);
     if (!error) setEvents((prev) => prev.filter((e) => e.id !== eventId));
+    setShowEventDetail(false);
+    setSelectedEvent(null);
   };
 
   const toggleEventComplete = async (eventId: string, completed: boolean) => {
@@ -366,8 +396,8 @@ export default function CompanyDashboardPage() {
     }
   };
 
-  // Customer CRUD
-  const saveCustomer = async (customer: Partial<Customer>) => {
+  // Customer CRUD — UPDATED: also creates deal if stage selected
+  const saveCustomer = async (customer: Partial<Customer>, stageId?: string) => {
     if (!company) return;
     if (editingCustomer) {
       const { error } = await supabase
@@ -385,6 +415,29 @@ export default function CompanyDashboardPage() {
         .single();
       if (!error && data) {
         setCustomers((prev) => [data as Customer, ...prev]);
+
+        // Auto-create deal if pipeline stage was selected
+        if (stageId && stages.length > 0) {
+          const { data: dealData, error: dealError } = await supabase
+            .from('crm_deals')
+            .insert({
+              company_id: company.id,
+              stage_id: stageId,
+              customer_id: data.id,
+              customer_name: customer.name || '',
+              customer_email: customer.email || null,
+              customer_phone: customer.phone || null,
+              moving_from: customer.moving_from || null,
+              moving_to: customer.moving_to || null,
+              moving_date: customer.moving_date || null,
+              notes: customer.notes || null,
+            })
+            .select()
+            .single();
+          if (!dealError && dealData) {
+            setDeals((prev) => [dealData as Deal, ...prev]);
+          }
+        }
       }
     }
     setShowCustomerModal(false);
@@ -409,6 +462,7 @@ export default function CompanyDashboardPage() {
       setCrmQuotes((prev) => [data as CrmQuote, ...prev]);
     }
     setShowQuoteBuilder(false);
+    setQuotePrefill(null);
   };
 
   // Quote simple edit (for status/notes changes on existing quotes)
@@ -459,6 +513,57 @@ export default function CompanyDashboardPage() {
     }
   };
 
+  // NEW: Quick book event from deal detail popup
+  const quickBookEvent = async (event: Partial<DiaryEvent>) => {
+    if (!company) return;
+    const { data, error } = await supabase
+      .from('crm_diary_events')
+      .insert({ ...event, company_id: company.id })
+      .select()
+      .single();
+    if (!error && data) {
+      setEvents((prev) => [...prev, data as DiaryEvent]);
+    }
+    setShowQuickBookModal(false);
+  };
+
+  // NEW: Open quote builder pre-filled from event/deal
+  const openQuoteFromEvent = (event: DiaryEvent) => {
+    // Find linked deal if any
+    const linkedDeal = event.deal_id ? deals.find((d) => d.id === event.deal_id) : null;
+    setQuotePrefill({
+      customer_name: event.customer_name || linkedDeal?.customer_name || '',
+      customer_email: linkedDeal?.customer_email || '',
+      customer_phone: linkedDeal?.customer_phone || '',
+      moving_from: event.location || linkedDeal?.moving_from || '',
+      moving_to: linkedDeal?.moving_to || '',
+      moving_date: linkedDeal?.moving_date || '',
+      notes: event.description || linkedDeal?.notes || '',
+      deal_id: event.deal_id || null,
+    });
+    setShowEventDetail(false);
+    setSelectedEvent(null);
+    setActiveTab('quotes');
+    setShowQuoteBuilder(true);
+  };
+
+  const openQuoteFromDeal = (deal: Deal) => {
+    setQuotePrefill({
+      customer_name: deal.customer_name || '',
+      customer_email: deal.customer_email || '',
+      customer_phone: deal.customer_phone || '',
+      moving_from: deal.moving_from || '',
+      moving_to: deal.moving_to || '',
+      moving_date: deal.moving_date || '',
+      notes: deal.notes || '',
+      deal_id: deal.id,
+    });
+    setShowDealDetail(false);
+    setSelectedDeal(null);
+    setActiveTab('quotes');
+    setShowQuoteBuilder(true);
+  };
+
   // ============================================
   // LOADING / AUTH GUARD
   // ============================================
@@ -492,6 +597,9 @@ export default function CompanyDashboardPage() {
     { tab: 'settings', label: 'Settings', icon: 'settings', crm: false },
   ];
 
+  // Check if a deal has a booked diary event
+  const dealHasBooking = (dealId: string) => events.some((e) => e.deal_id === dealId);
+
   // ============================================
   // RENDER
   // ============================================
@@ -519,7 +627,7 @@ export default function CompanyDashboardPage() {
           {navItems.map((item) => (
             <button
               key={item.tab}
-              onClick={() => { setActiveTab(item.tab); setSidebarOpen(false); setShowQuoteBuilder(false); }}
+              onClick={() => { setActiveTab(item.tab); setSidebarOpen(false); setShowQuoteBuilder(false); setQuotePrefill(null); }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-150 ${
                 activeTab === item.tab
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
@@ -591,7 +699,7 @@ export default function CompanyDashboardPage() {
             {activeTab === 'quotes' && !showQuoteBuilder && (
               <QuotesTab
                 quotes={crmQuotes}
-                onAddQuote={() => { setEditingQuote(null); setShowQuoteBuilder(true); }}
+                onAddQuote={() => { setEditingQuote(null); setQuotePrefill(null); setShowQuoteBuilder(true); }}
                 onDeleteQuote={deleteQuote}
                 onUpdateStatus={updateQuoteStatus}
                 onConvertToDeal={convertQuoteToDeal}
@@ -601,17 +709,21 @@ export default function CompanyDashboardPage() {
               <QuoteBuilder
                 company={company}
                 onSave={saveQuoteFromBuilder}
-                onCancel={() => setShowQuoteBuilder(false)}
+                onCancel={() => { setShowQuoteBuilder(false); setQuotePrefill(null); }}
+                prefill={quotePrefill}
               />
             )}
             {activeTab === 'pipeline' && (
               <PipelineTab
                 stages={stages}
                 deals={deals}
+                events={events}
                 onMoveDeal={moveDeal}
                 onAddDeal={() => { setEditingDeal(null); setShowDealModal(true); }}
                 onEditDeal={(deal) => { setEditingDeal(deal); setShowDealModal(true); }}
                 onDeleteDeal={deleteDeal}
+                onClickDeal={(deal) => { setSelectedDeal(deal); setShowDealDetail(true); }}
+                dealHasBooking={dealHasBooking}
               />
             )}
             {activeTab === 'diary' && (
@@ -624,6 +736,7 @@ export default function CompanyDashboardPage() {
                 onEditEvent={(event) => { setEditingEvent(event); setShowEventModal(true); }}
                 onDeleteEvent={deleteEvent}
                 onToggleComplete={toggleEventComplete}
+                onClickEvent={(event) => { setSelectedEvent(event); setShowEventDetail(true); }}
               />
             )}
             {activeTab === 'customers' && (
@@ -665,8 +778,45 @@ export default function CompanyDashboardPage() {
       {showCustomerModal && (
         <CustomerModal
           customer={editingCustomer}
+          stages={stages}
           onSave={saveCustomer}
           onClose={() => { setShowCustomerModal(false); setEditingCustomer(null); }}
+        />
+      )}
+
+      {/* NEW: Deal Detail Popup */}
+      {showDealDetail && selectedDeal && (
+        <DealDetailPopup
+          deal={selectedDeal}
+          stages={stages}
+          events={events}
+          onClose={() => { setShowDealDetail(false); setSelectedDeal(null); }}
+          onBookAppointment={() => { setShowQuickBookModal(true); }}
+          onEditDeal={() => { setShowDealDetail(false); setEditingDeal(selectedDeal); setShowDealModal(true); }}
+          onDeleteDeal={() => deleteDeal(selectedDeal.id)}
+          onCreateQuote={() => openQuoteFromDeal(selectedDeal)}
+        />
+      )}
+
+      {/* NEW: Quick Book Modal (from deal detail) */}
+      {showQuickBookModal && selectedDeal && (
+        <QuickBookEventModal
+          deal={selectedDeal}
+          onSave={(event) => { quickBookEvent(event); setShowDealDetail(false); setSelectedDeal(null); }}
+          onClose={() => setShowQuickBookModal(false)}
+        />
+      )}
+
+      {/* NEW: Event Detail Popup */}
+      {showEventDetail && selectedEvent && (
+        <EventDetailPopup
+          event={selectedEvent}
+          deals={deals}
+          onClose={() => { setShowEventDetail(false); setSelectedEvent(null); }}
+          onCreateQuote={() => openQuoteFromEvent(selectedEvent)}
+          onComplete={() => { toggleEventComplete(selectedEvent.id, !selectedEvent.completed); setSelectedEvent({ ...selectedEvent, completed: !selectedEvent.completed }); }}
+          onEditEvent={() => { setShowEventDetail(false); setEditingEvent(selectedEvent); setShowEventModal(true); }}
+          onDeleteEvent={() => deleteEvent(selectedEvent.id)}
         />
       )}
     </div>
@@ -743,28 +893,29 @@ function CRMLockOverlay({ tab, onSubscribe }: { tab: Tab; onSubscribe: () => voi
 }
 
 // ============================================
-// AI QUOTE BUILDER (replaces simple form)
+// AI QUOTE BUILDER — UPDATED with prefill support
 // ============================================
 
-function QuoteBuilder({ company, onSave, onCancel }: {
+function QuoteBuilder({ company, onSave, onCancel, prefill }: {
   company: Company;
   onSave: (q: Partial<CrmQuote>) => void;
   onCancel: () => void;
+  prefill?: QuotePrefill | null;
 }) {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
-  // Step: 'details' | 'photos' | 'analyzing' | 'results'
-  const [step, setStep] = useState<'details' | 'photos' | 'analyzing' | 'results'>('details');
+  // If prefilled, start on photos step
+  const [step, setStep] = useState<'details' | 'photos' | 'analyzing' | 'results'>(prefill ? 'photos' : 'details');
 
-  // Customer form
-  const [customerName, setCustomerName] = useState('');
-  const [customerEmail, setCustomerEmail] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
-  const [movingFrom, setMovingFrom] = useState('');
-  const [movingTo, setMovingTo] = useState('');
-  const [movingDate, setMovingDate] = useState('');
-  const [notes, setNotes] = useState('');
+  // Customer form — pre-fill if data provided
+  const [customerName, setCustomerName] = useState(prefill?.customer_name || '');
+  const [customerEmail, setCustomerEmail] = useState(prefill?.customer_email || '');
+  const [customerPhone, setCustomerPhone] = useState(prefill?.customer_phone || '');
+  const [movingFrom, setMovingFrom] = useState(prefill?.moving_from || '');
+  const [movingTo, setMovingTo] = useState(prefill?.moving_to || '');
+  const [movingDate, setMovingDate] = useState(prefill?.moving_date || '');
+  const [notes, setNotes] = useState(prefill?.notes || '');
 
   // Photo state
   const [files, setFiles] = useState<File[]>([]);
@@ -816,7 +967,6 @@ function QuoteBuilder({ company, onSave, onCancel }: {
     setAnalyzeError(null);
 
     try {
-      // 1. Upload all photos to Supabase storage
       const urls: string[] = [];
       for (const file of files) {
         const filePath = `crm-quotes/${company.id}/${Date.now()}-${file.name}`;
@@ -825,7 +975,6 @@ function QuoteBuilder({ company, onSave, onCancel }: {
           .upload(filePath, file);
 
         if (uploadError) {
-          // Fallback to 'photos' bucket
           const { data: uploadData2, error: uploadError2 } = await supabase.storage
             .from('photos')
             .upload(filePath, file);
@@ -847,7 +996,6 @@ function QuoteBuilder({ company, onSave, onCancel }: {
         throw new Error('Failed to upload photos. Please try again.');
       }
 
-      // 2. Call the AI analyze API
       const response = await fetch('https://movco-api.onrender.com/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -865,12 +1013,10 @@ function QuoteBuilder({ company, onSave, onCancel }: {
       const data = await response.json();
       setAiResult(data);
 
-      // Set editable fields from AI result
       setEditItems(data.items || []);
       setEditPrice(data.estimate?.toFixed(2) || '');
       setEditVolume(data.totalVolumeM3?.toString() || '');
 
-      // Estimate vans based on volume
       const vol = data.totalVolumeM3 || 0;
       setEditVans(vol <= 15 ? '1' : vol <= 30 ? '2' : '3');
       setEditMovers(vol <= 15 ? '2' : vol <= 30 ? '3' : '4');
@@ -904,6 +1050,7 @@ function QuoteBuilder({ company, onSave, onCancel }: {
       estimated_price: editPrice ? parseFloat(editPrice) : null,
       notes: notes || null,
       status: 'draft',
+      deal_id: prefill?.deal_id || null,
     } as any);
   };
 
@@ -924,7 +1071,9 @@ function QuoteBuilder({ company, onSave, onCancel }: {
           </button>
           <div>
             <h2 className="text-2xl font-bold text-gray-900">New AI Quote</h2>
-            <p className="text-sm text-gray-500">Upload photos for AI-powered item detection & pricing</p>
+            <p className="text-sm text-gray-500">
+              {prefill ? `Pre-filled for ${prefill.customer_name}` : 'Upload photos for AI-powered item detection & pricing'}
+            </p>
           </div>
         </div>
       </div>
@@ -999,6 +1148,19 @@ function QuoteBuilder({ company, onSave, onCancel }: {
       {/* ===== STEP 2: Photo Upload ===== */}
       {step === 'photos' && (
         <div className="space-y-6">
+          {/* Show pre-filled customer summary if prefilled */}
+          {prefill && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-blue-900">{customerName}</p>
+                <p className="text-sm text-blue-700">{movingFrom} → {movingTo}</p>
+              </div>
+              <button onClick={() => setStep('details')} className="text-xs text-blue-600 hover:text-blue-800 font-medium px-3 py-1.5 bg-white rounded-lg border border-blue-200">
+                Edit Details
+              </button>
+            </div>
+          )}
+
           <div className="bg-white rounded-xl border p-6">
             <h3 className="font-bold text-gray-900 mb-2 flex items-center gap-2">
               <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
@@ -1013,7 +1175,6 @@ function QuoteBuilder({ company, onSave, onCancel }: {
               </div>
             )}
 
-            {/* Upload buttons — use <label> for reliable mobile file input */}
             <div className="grid grid-cols-2 gap-4 mb-5">
               <label className="block cursor-pointer">
                 <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:border-blue-400 hover:bg-blue-50/50 transition-all">
@@ -1043,7 +1204,6 @@ function QuoteBuilder({ company, onSave, onCancel }: {
               </label>
             </div>
 
-            {/* Photo thumbnails */}
             {files.length > 0 && (
               <div>
                 <p className="text-sm font-medium text-gray-700 mb-3">{files.length} photo{files.length !== 1 ? 's' : ''} ready</p>
@@ -1107,7 +1267,6 @@ function QuoteBuilder({ company, onSave, onCancel }: {
       {/* ===== STEP 3: Results ===== */}
       {step === 'results' && aiResult && (
         <div className="space-y-6">
-          {/* Summary card */}
           <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-6 text-white">
             <div className="flex items-center justify-between mb-3">
               <div>
@@ -1122,7 +1281,6 @@ function QuoteBuilder({ company, onSave, onCancel }: {
             <p className="text-sm text-blue-200">{movingFrom} → {movingTo}</p>
           </div>
 
-          {/* Editable pricing */}
           <div className="bg-white rounded-xl border p-6">
             <h3 className="font-bold text-gray-900 mb-4">Adjust Pricing & Logistics</h3>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -1145,7 +1303,6 @@ function QuoteBuilder({ company, onSave, onCancel }: {
             </div>
           </div>
 
-          {/* Items detected */}
           <div className="bg-white rounded-xl border p-6">
             <h3 className="font-bold text-gray-900 mb-4">Items Detected ({editItems.length})</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1168,7 +1325,6 @@ function QuoteBuilder({ company, onSave, onCancel }: {
             </div>
           </div>
 
-          {/* Photo thumbnails */}
           {uploadedUrls.length > 0 && (
             <div className="bg-white rounded-xl border p-6">
               <h3 className="font-bold text-gray-900 mb-4">Photos ({uploadedUrls.length})</h3>
@@ -1182,7 +1338,6 @@ function QuoteBuilder({ company, onSave, onCancel }: {
             </div>
           )}
 
-          {/* Save / Back buttons */}
           <div className="flex gap-3">
             <button onClick={() => setStep('photos')} className="px-6 py-3.5 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200 transition">
               ← Back
@@ -1363,13 +1518,15 @@ function QuotesTab({ quotes, onAddQuote, onDeleteQuote, onUpdateStatus, onConver
 }
 
 // ============================================
-// PIPELINE TAB
+// PIPELINE TAB — UPDATED: clickable deal cards
 // ============================================
 
-function PipelineTab({ stages, deals, onMoveDeal, onAddDeal, onEditDeal, onDeleteDeal }: {
-  stages: PipelineStage[]; deals: Deal[];
+function PipelineTab({ stages, deals, events, onMoveDeal, onAddDeal, onEditDeal, onDeleteDeal, onClickDeal, dealHasBooking }: {
+  stages: PipelineStage[]; deals: Deal[]; events: DiaryEvent[];
   onMoveDeal: (dealId: string, stageId: string) => void;
   onAddDeal: () => void; onEditDeal: (deal: Deal) => void; onDeleteDeal: (dealId: string) => void;
+  onClickDeal: (deal: Deal) => void;
+  dealHasBooking: (dealId: string) => boolean;
 }) {
   const [draggedDealId, setDraggedDealId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
@@ -1399,20 +1556,24 @@ function PipelineTab({ stages, deals, onMoveDeal, onAddDeal, onEditDeal, onDelet
                   <span className="ml-auto bg-white text-gray-600 text-xs font-bold px-2 py-0.5 rounded-full">{stageDeals.length}</span>
                 </div>
                 <div className="space-y-2 min-h-[60px]">
-                  {stageDeals.map((deal) => (
-                    <div key={deal.id} draggable onDragStart={() => setDraggedDealId(deal.id)} onDragEnd={() => setDraggedDealId(null)}
-                      className={`bg-white rounded-lg p-3 shadow-sm border cursor-grab active:cursor-grabbing hover:shadow-md transition-all ${draggedDealId === deal.id ? 'opacity-50' : ''}`}>
-                      <p className="font-medium text-gray-900 text-sm truncate">{deal.customer_name}</p>
-                      {deal.moving_from && <p className="text-xs text-gray-500 mt-1 truncate">{deal.moving_from} → {deal.moving_to}</p>}
-                      {deal.estimated_value && <p className="text-sm font-bold text-green-600 mt-1">£{deal.estimated_value.toLocaleString()}</p>}
-                      {deal.moving_date && <p className="text-xs text-gray-400 mt-1">{new Date(deal.moving_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>}
-                      <div className="flex gap-1 mt-2">
-                        <button onClick={(e) => { e.stopPropagation(); onEditDeal(deal); }} className="text-xs text-blue-600 hover:text-blue-800">Edit</button>
-                        <span className="text-gray-300">·</span>
-                        <button onClick={(e) => { e.stopPropagation(); onDeleteDeal(deal.id); }} className="text-xs text-red-500 hover:text-red-700">Delete</button>
+                  {stageDeals.map((deal) => {
+                    const hasBooking = dealHasBooking(deal.id);
+                    return (
+                      <div key={deal.id} draggable onDragStart={() => setDraggedDealId(deal.id)} onDragEnd={() => setDraggedDealId(null)}
+                        onClick={() => onClickDeal(deal)}
+                        className={`bg-white rounded-lg p-3 shadow-sm border cursor-pointer hover:shadow-md transition-all ${draggedDealId === deal.id ? 'opacity-50' : ''}`}>
+                        <div className="flex items-start justify-between">
+                          <p className="font-medium text-gray-900 text-sm truncate flex-1">{deal.customer_name}</p>
+                          {hasBooking && (
+                            <span className="ml-1 text-blue-500 flex-shrink-0" title="Appointment booked">📅</span>
+                          )}
+                        </div>
+                        {deal.moving_from && <p className="text-xs text-gray-500 mt-1 truncate">{deal.moving_from} → {deal.moving_to}</p>}
+                        {deal.estimated_value && <p className="text-sm font-bold text-green-600 mt-1">£{deal.estimated_value.toLocaleString()}</p>}
+                        {deal.moving_date && <p className="text-xs text-gray-400 mt-1">{new Date(deal.moving_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -1424,12 +1585,13 @@ function PipelineTab({ stages, deals, onMoveDeal, onAddDeal, onEditDeal, onDelet
 }
 
 // ============================================
-// DIARY TAB
+// DIARY TAB — UPDATED: clickable events open popup
 // ============================================
 
-function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEditEvent, onDeleteEvent, onToggleComplete }: {
+function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEditEvent, onDeleteEvent, onToggleComplete, onClickEvent }: {
   events: DiaryEvent[]; deals: Deal[]; selectedDate: Date; onSelectDate: (d: Date) => void;
   onAddEvent: () => void; onEditEvent: (e: DiaryEvent) => void; onDeleteEvent: (id: string) => void; onToggleComplete: (id: string, c: boolean) => void;
+  onClickEvent: (e: DiaryEvent) => void;
 }) {
   const [viewMode, setViewMode] = useState<'month' | 'day'>('month');
 
@@ -1478,44 +1640,31 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
     other: { bg: 'bg-gray-100', border: 'border-gray-400', text: 'text-gray-800' },
   };
 
-  const eventTypeBadges: Record<string, string> = {
-    job: 'bg-blue-100 text-blue-700',
-    survey: 'bg-purple-100 text-purple-700',
-    callback: 'bg-yellow-100 text-yellow-700',
-    delivery: 'bg-green-100 text-green-700',
-    other: 'bg-gray-100 text-gray-700',
-  };
+  const hours = Array.from({ length: 17 }, (_, i) => i + 6);
 
-  // Hours for day view (6am to 10pm)
-  const hours = Array.from({ length: 17 }, (_, i) => i + 6); // 6, 7, 8 ... 22
-
-  // Get event position and height for day view
   const getEventStyle = (event: DiaryEvent) => {
     const start = new Date(event.start_time);
     const startHour = start.getHours() + start.getMinutes() / 60;
-    const end = event.end_time ? new Date(event.end_time) : new Date(start.getTime() + 60 * 60 * 1000); // default 1 hour
+    const end = event.end_time ? new Date(event.end_time) : new Date(start.getTime() + 60 * 60 * 1000);
     const endHour = end.getHours() + end.getMinutes() / 60;
-    const duration = Math.max(endHour - startHour, 0.5); // minimum half hour
+    const duration = Math.max(endHour - startHour, 0.5);
 
-    const top = (startHour - 6) * 64; // 64px per hour
-    const height = Math.max(duration * 64, 28); // minimum 28px
+    const top = (startHour - 6) * 64;
+    const height = Math.max(duration * 64, 28);
 
     return { top: `${top}px`, height: `${height}px` };
   };
 
-  // Check if event falls within visible hours
   const isEventVisible = (event: DiaryEvent) => {
     const start = new Date(event.start_time);
     const hour = start.getHours();
     return hour >= 6 && hour <= 22;
   };
 
-  // Current time indicator
   const nowHour = today.getHours() + today.getMinutes() / 60;
   const isToday = selectedDate.getDate() === today.getDate() && selectedDate.getMonth() === today.getMonth() && selectedDate.getFullYear() === today.getFullYear();
   const currentTimeTop = (nowHour - 6) * 64;
 
-  // Revenue calculations — deals with moving_date in selected month
   const monthDeals = deals.filter((d) => {
     if (!d.moving_date) return false;
     const dd = new Date(d.moving_date);
@@ -1524,25 +1673,11 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
 
   const monthlyRevenue = monthDeals.reduce((s, d) => s + (d.estimated_value || 0), 0);
 
-  // Get week number within the month (1-indexed)
-  const getWeekOfMonth = (date: Date) => {
-    const firstOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
-    const firstMonday = new Date(firstOfMonth);
-    const dayOfWeek = firstOfMonth.getDay();
-    const daysUntilMonday = dayOfWeek === 0 ? 1 : dayOfWeek === 1 ? 0 : 8 - dayOfWeek;
-    firstMonday.setDate(1 + daysUntilMonday);
-    if (date < firstMonday) return 1;
-    return Math.ceil(((date.getTime() - firstMonday.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1) + (daysUntilMonday > 0 ? 1 : 0);
-  };
-
-  // Group deals by week
   const weeklyRevenue: Record<number, { revenue: number; deals: number; startDate: Date; endDate: Date }> = {};
   
-  // Build week ranges for the month
   const firstOfMonth = new Date(year, month, 1);
   const lastOfMonth = new Date(year, month + 1, 0);
   let weekStart = new Date(firstOfMonth);
-  // Adjust to Monday
   const dow = weekStart.getDay();
   if (dow !== 1) weekStart.setDate(weekStart.getDate() - (dow === 0 ? 6 : dow - 1));
   
@@ -1564,7 +1699,6 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
     weekNum++;
   }
 
-  // Also count completed job events for revenue context
   const completedJobsThisMonth = events.filter((e) => {
     if (!e.completed || e.event_type !== 'job') return false;
     const d = new Date(e.start_time);
@@ -1579,7 +1713,6 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
           <p className="text-sm text-gray-500 mt-1">{events.length} scheduled events</p>
         </div>
         <div className="flex items-center gap-3">
-          {/* View toggle */}
           <div className="flex bg-gray-100 rounded-lg p-0.5">
             <button
               onClick={() => setViewMode('month')}
@@ -1703,7 +1836,6 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
             })}
           </div>
 
-          {/* Monthly total bar */}
           <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 bg-green-500 rounded-full" />
@@ -1714,9 +1846,10 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
         </div>
         </>
       )}
+
+      {/* ===== DAY VIEW ===== */}
       {viewMode === 'day' && (
         <div className="bg-white rounded-xl border overflow-hidden">
-          {/* Day header */}
           <div className="flex items-center justify-between px-5 py-4 border-b bg-gray-50">
             <button onClick={goToPrevDay} className="p-2 hover:bg-gray-200 rounded-lg text-gray-600 transition">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
@@ -1745,14 +1878,13 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
             </button>
           </div>
 
-          {/* All-day / early events (before 6am) */}
           {selectedDayEvents.filter(e => !isEventVisible(e)).length > 0 && (
             <div className="px-5 py-2 border-b bg-amber-50">
               <p className="text-xs font-semibold text-amber-700 mb-1">Other times</p>
               {selectedDayEvents.filter(e => !isEventVisible(e)).map((event) => {
                 const colors = eventTypeColors[event.event_type] || eventTypeColors.other;
                 return (
-                  <div key={event.id} onClick={() => onEditEvent(event)} className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium cursor-pointer mr-2 mb-1 ${colors.bg} ${colors.text}`}>
+                  <div key={event.id} onClick={() => onClickEvent(event)} className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium cursor-pointer mr-2 mb-1 ${colors.bg} ${colors.text}`}>
                     {new Date(event.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} {event.title}
                   </div>
                 );
@@ -1760,30 +1892,19 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
             </div>
           )}
 
-          {/* Time grid */}
           <div className="overflow-y-auto" style={{ maxHeight: '65vh' }}>
             <div className="relative" style={{ height: `${hours.length * 64}px` }}>
-              {/* Hour rows */}
               {hours.map((hour) => (
                 <div key={hour} className="absolute w-full flex" style={{ top: `${(hour - 6) * 64}px`, height: '64px' }}>
-                  {/* Time label */}
                   <div className="w-16 sm:w-20 flex-shrink-0 pr-2 text-right">
                     <span className="text-xs text-gray-400 font-medium -mt-2 block">
                       {hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}
                     </span>
                   </div>
-                  {/* Grid line + clickable slot */}
                   <div className="flex-1 border-t border-gray-100 relative group cursor-pointer hover:bg-blue-50/30 transition"
-                    onClick={() => {
-                      const clickDate = new Date(selectedDate);
-                      clickDate.setHours(hour, 0, 0, 0);
-                      // Pre-fill the event modal with this time — trigger add event
-                      onAddEvent();
-                    }}
+                    onClick={() => onAddEvent()}
                   >
-                    {/* Half-hour line */}
                     <div className="absolute w-full border-t border-gray-50" style={{ top: '32px' }} />
-                    {/* Add hint on hover */}
                     <div className="absolute right-2 top-1 opacity-0 group-hover:opacity-100 transition">
                       <span className="text-[10px] text-blue-400 font-medium">+ Add</span>
                     </div>
@@ -1791,7 +1912,6 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
                 </div>
               ))}
 
-              {/* Current time indicator */}
               {isToday && nowHour >= 6 && nowHour <= 23 && (
                 <div className="absolute left-16 sm:left-20 right-0 z-20 flex items-center" style={{ top: `${currentTimeTop}px` }}>
                   <div className="w-3 h-3 bg-red-500 rounded-full -ml-1.5" />
@@ -1799,7 +1919,6 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
                 </div>
               )}
 
-              {/* Events overlaid on the grid */}
               {selectedDayEvents.filter(isEventVisible).map((event) => {
                 const style = getEventStyle(event);
                 const colors = eventTypeColors[event.event_type] || eventTypeColors.other;
@@ -1810,7 +1929,7 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
                     key={event.id}
                     className={`absolute left-16 sm:left-20 right-2 z-10 rounded-lg border-l-4 px-3 py-1.5 cursor-pointer hover:shadow-md transition-all overflow-hidden ${colors.bg} ${colors.border} ${event.completed ? 'opacity-50' : ''}`}
                     style={{ top: style.top, height: style.height, minHeight: '28px' }}
-                    onClick={() => onEditEvent(event)}
+                    onClick={() => onClickEvent(event)}
                   >
                     <div className="flex items-start justify-between gap-1">
                       <div className="flex-1 min-w-0">
@@ -1870,14 +1989,14 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
       ) : (
         <div className="bg-white rounded-xl border overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50"><tr><th className="text-left px-5 py-3 font-semibold text-gray-700">Name</th><th className="text-left px-5 py-3 font-semibold text-gray-700 hidden md:table-cell">Email</th><th className="text-left px-5 py-3 font-semibold text-gray-700 hidden md:table-cell">Phone</th><th className="text-left px-5 py-3 font-semibold text-gray-700 hidden lg:table-cell">Jobs</th><th className="text-left px-5 py-3 font-semibold text-gray-700 hidden lg:table-cell">Revenue</th><th className="text-right px-5 py-3 font-semibold text-gray-700">Actions</th></tr></thead>
+            <thead className="bg-gray-50"><tr><th className="text-left px-5 py-3 font-semibold text-gray-700">Name</th><th className="text-left px-5 py-3 font-semibold text-gray-700 hidden md:table-cell">Email</th><th className="text-left px-5 py-3 font-semibold text-gray-700 hidden md:table-cell">Phone</th><th className="text-left px-5 py-3 font-semibold text-gray-700 hidden lg:table-cell">Source</th><th className="text-left px-5 py-3 font-semibold text-gray-700 hidden lg:table-cell">Revenue</th><th className="text-right px-5 py-3 font-semibold text-gray-700">Actions</th></tr></thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.map((customer) => (
                 <tr key={customer.id} className="hover:bg-gray-50 transition">
-                  <td className="px-5 py-3"><p className="font-medium text-gray-900">{customer.name}</p>{customer.address && <p className="text-xs text-gray-400 truncate max-w-[200px]">{customer.address}</p>}</td>
+                  <td className="px-5 py-3"><p className="font-medium text-gray-900">{customer.name}</p>{customer.moving_from && <p className="text-xs text-gray-400 truncate max-w-[200px]">{customer.moving_from} → {customer.moving_to || '—'}</p>}</td>
                   <td className="px-5 py-3 text-gray-600 hidden md:table-cell">{customer.email || '—'}</td>
                   <td className="px-5 py-3 text-gray-600 hidden md:table-cell">{customer.phone || '—'}</td>
-                  <td className="px-5 py-3 text-gray-600 hidden lg:table-cell">{customer.total_jobs}</td>
+                  <td className="px-5 py-3 text-gray-600 hidden lg:table-cell">{customer.source || '—'}</td>
                   <td className="px-5 py-3 font-medium text-green-600 hidden lg:table-cell">£{customer.total_revenue?.toFixed(2) || '0.00'}</td>
                   <td className="px-5 py-3 text-right">
                     <button onClick={() => onEditCustomer(customer)} className="text-blue-600 hover:text-blue-800 text-xs font-medium mr-3">Edit</button>
@@ -2062,28 +2181,405 @@ function EventModal({ event, onSave, onClose }: { event: DiaryEvent | null; onSa
 }
 
 // ============================================
-// CUSTOMER MODAL
+// CUSTOMER MODAL — ENHANCED with source, move details, pipeline stage
 // ============================================
 
-function CustomerModal({ customer, onSave, onClose }: { customer: Customer | null; onSave: (c: Partial<Customer>) => void; onClose: () => void; }) {
-  const [form, setForm] = useState({ name: customer?.name || '', email: customer?.email || '', phone: customer?.phone || '', address: customer?.address || '', notes: customer?.notes || '' });
+function CustomerModal({ customer, stages, onSave, onClose }: {
+  customer: Customer | null;
+  stages: PipelineStage[];
+  onSave: (c: Partial<Customer>, stageId?: string) => void;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState({
+    name: customer?.name || '',
+    email: customer?.email || '',
+    phone: customer?.phone || '',
+    address: customer?.address || '',
+    notes: customer?.notes || '',
+    source: customer?.source || '',
+    moving_from: customer?.moving_from || '',
+    moving_to: customer?.moving_to || '',
+    moving_date: customer?.moving_date || '',
+  });
+  const [selectedStage, setSelectedStage] = useState('');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
         <h2 className="text-xl font-bold text-gray-900 mb-4">{customer ? 'Edit Customer' : 'New Customer'}</h2>
-        <div className="space-y-3">
-          <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Customer name *" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-          <div className="grid grid-cols-2 gap-3">
-            <input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Email" className="px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-            <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone" className="px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+        <div className="space-y-4">
+          {/* Customer Details Section */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Customer Details</p>
+            <div className="space-y-3">
+              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Full name *" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              <div className="grid grid-cols-2 gap-3">
+                <input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Email" type="email" className="px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone number" type="tel" className="px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              </div>
+              <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none text-gray-700">
+                <option value="">Source (how did they find you?)</option>
+                <option value="Website">Website</option>
+                <option value="Phone Call">Phone Call</option>
+                <option value="Referral">Referral</option>
+                <option value="Social Media">Social Media</option>
+                <option value="Walk-in">Walk-in</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
           </div>
-          <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Address" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-          <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes" rows={3} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+
+          {/* Move Details Section */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Move Details</p>
+            <div className="space-y-3">
+              <input value={form.moving_from} onChange={(e) => setForm({ ...form, moving_from: e.target.value })} placeholder="Moving from address" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              <input value={form.moving_to} onChange={(e) => setForm({ ...form, moving_to: e.target.value })} placeholder="Moving to address" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Preferred moving date</label>
+                <input type="date" value={form.moving_date} onChange={(e) => setForm({ ...form, moving_date: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              </div>
+            </div>
+          </div>
+
+          {/* Pipeline Stage — only show when creating new */}
+          {!customer && stages.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Pipeline</p>
+              <select value={selectedStage} onChange={(e) => setSelectedStage(e.target.value)} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none text-gray-700">
+                <option value="">No pipeline stage (customer only)</option>
+                {stages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              {selectedStage && (
+                <p className="text-xs text-blue-600 mt-1.5">A deal will be automatically created in the selected pipeline stage.</p>
+              )}
+            </div>
+          )}
+
+          {/* Notes */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Notes</p>
+            <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Any additional notes..." rows={3} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+          </div>
         </div>
+
         <div className="flex gap-3 mt-5">
-          <button onClick={() => { if (!form.name.trim()) return alert('Name is required'); onSave({ ...form, email: form.email || null, phone: form.phone || null, address: form.address || null, notes: form.notes || null }); }} className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition">{customer ? 'Update' : 'Create'} Customer</button>
+          <button
+            onClick={() => {
+              if (!form.name.trim()) return alert('Name is required');
+              onSave(
+                {
+                  name: form.name,
+                  email: form.email || null,
+                  phone: form.phone || null,
+                  address: form.address || form.moving_from || null,
+                  notes: form.notes || null,
+                  source: form.source || null,
+                  moving_from: form.moving_from || null,
+                  moving_to: form.moving_to || null,
+                  moving_date: form.moving_date || null,
+                } as any,
+                selectedStage || undefined
+              );
+            }}
+            className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition"
+          >
+            {customer ? 'Update' : 'Create'} Customer{selectedStage ? ' + Deal' : ''}
+          </button>
           <button onClick={onClose} className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// NEW: DEAL DETAIL POPUP
+// ============================================
+
+function DealDetailPopup({ deal, stages, events, onClose, onBookAppointment, onEditDeal, onDeleteDeal, onCreateQuote }: {
+  deal: Deal;
+  stages: PipelineStage[];
+  events: DiaryEvent[];
+  onClose: () => void;
+  onBookAppointment: () => void;
+  onEditDeal: () => void;
+  onDeleteDeal: () => void;
+  onCreateQuote: () => void;
+}) {
+  const stage = stages.find((s) => s.id === deal.stage_id);
+  const linkedEvents = events.filter((e) => e.deal_id === deal.id);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b">
+          <h2 className="text-lg font-bold text-gray-900">{deal.customer_name}</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        {/* Customer Info */}
+        <div className="p-5 space-y-3">
+          <div className="flex flex-wrap gap-3 text-sm">
+            {deal.customer_email && (
+              <span className="flex items-center gap-1.5 text-gray-600">📧 {deal.customer_email}</span>
+            )}
+            {deal.customer_phone && (
+              <span className="flex items-center gap-1.5 text-gray-600">📱 {deal.customer_phone}</span>
+            )}
+          </div>
+          {(deal.moving_from || deal.moving_to) && (
+            <p className="text-sm text-gray-700">📍 {deal.moving_from || '—'} → {deal.moving_to || '—'}</p>
+          )}
+          <div className="flex flex-wrap items-center gap-3">
+            {deal.moving_date && (
+              <span className="text-sm text-gray-600">📅 {new Date(deal.moving_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+            )}
+            {deal.estimated_value && (
+              <span className="text-sm font-bold text-green-600">💰 £{deal.estimated_value.toLocaleString()}</span>
+            )}
+          </div>
+          {stage && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">Stage:</span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: stage.color }} />
+                {stage.name}
+              </span>
+            </div>
+          )}
+          {deal.notes && (
+            <p className="text-sm text-gray-500 bg-gray-50 rounded-lg p-3">{deal.notes}</p>
+          )}
+
+          {/* Linked diary events */}
+          {linkedEvents.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Booked Appointments</p>
+              {linkedEvents.map((evt) => (
+                <div key={evt.id} className="flex items-center gap-2 text-sm text-gray-600 mb-1">
+                  <span>📅</span>
+                  <span>{new Date(evt.start_time).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} at {new Date(evt.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{evt.event_type}</span>
+                  {evt.completed && <span className="text-green-500">✓</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="p-5 pt-0 flex flex-wrap gap-2">
+          <button onClick={onBookAppointment} className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">
+            📅 Book Appointment
+          </button>
+          <button onClick={onCreateQuote} className="flex items-center gap-1.5 px-4 py-2.5 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition">
+            📸 Create Quote
+          </button>
+          <button onClick={onEditDeal} className="flex items-center gap-1.5 px-4 py-2.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition">
+            ✏️ Edit
+          </button>
+          <button onClick={onDeleteDeal} className="flex items-center gap-1.5 px-4 py-2.5 bg-red-50 text-red-600 text-sm font-medium rounded-lg hover:bg-red-100 transition">
+            🗑️ Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// NEW: QUICK BOOK EVENT MODAL (from pipeline deal)
+// ============================================
+
+function QuickBookEventModal({ deal, onSave, onClose }: {
+  deal: Deal;
+  onSave: (event: Partial<DiaryEvent>) => void;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState({
+    event_type: 'survey',
+    start_time: '',
+    end_time: '',
+  });
+
+  const title = `${form.event_type.charAt(0).toUpperCase() + form.event_type.slice(1)} — ${deal.customer_name}`;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-xl font-bold text-gray-900 mb-1">Book Appointment</h2>
+        <p className="text-sm text-gray-500 mb-5">For {deal.customer_name}</p>
+
+        <div className="space-y-3">
+          {/* Event type */}
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Type</label>
+            <select value={form.event_type} onChange={(e) => setForm({ ...form, event_type: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+              <option value="survey">Survey</option>
+              <option value="job">Job</option>
+              <option value="callback">Callback</option>
+              <option value="delivery">Delivery</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+
+          {/* Auto-generated title preview */}
+          <div className="bg-gray-50 rounded-lg px-4 py-2.5">
+            <p className="text-xs text-gray-500 mb-0.5">Event title</p>
+            <p className="text-sm font-medium text-gray-800">{title}</p>
+          </div>
+
+          {/* Auto-filled location */}
+          {deal.moving_from && (
+            <div className="bg-gray-50 rounded-lg px-4 py-2.5">
+              <p className="text-xs text-gray-500 mb-0.5">Location</p>
+              <p className="text-sm font-medium text-gray-800">📍 {deal.moving_from}</p>
+            </div>
+          )}
+
+          {/* Date/time */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Start time *</label>
+              <input type="datetime-local" value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">End time</label>
+              <input type="datetime-local" value={form.end_time} onChange={(e) => setForm({ ...form, end_time: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-5">
+          <button
+            onClick={() => {
+              if (!form.start_time) return alert('Start time is required');
+              onSave({
+                title,
+                event_type: form.event_type,
+                start_time: new Date(form.start_time).toISOString(),
+                end_time: form.end_time ? new Date(form.end_time).toISOString() : null,
+                customer_name: deal.customer_name,
+                location: deal.moving_from || null,
+                deal_id: deal.id,
+                description: deal.notes || null,
+              });
+            }}
+            className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition"
+          >
+            Book Appointment
+          </button>
+          <button onClick={onClose} className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// NEW: EVENT DETAIL POPUP
+// ============================================
+
+function EventDetailPopup({ event, deals, onClose, onCreateQuote, onComplete, onEditEvent, onDeleteEvent }: {
+  event: DiaryEvent;
+  deals: Deal[];
+  onClose: () => void;
+  onCreateQuote: () => void;
+  onComplete: () => void;
+  onEditEvent: () => void;
+  onDeleteEvent: () => void;
+}) {
+  const linkedDeal = event.deal_id ? deals.find((d) => d.id === event.deal_id) : null;
+  const startTime = new Date(event.start_time);
+  const endTime = event.end_time ? new Date(event.end_time) : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b">
+          <h2 className="text-lg font-bold text-gray-900">{event.title}</h2>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        {/* Event Info */}
+        <div className="p-5 space-y-3">
+          {/* Contact info from linked deal */}
+          {linkedDeal && (
+            <div className="flex flex-wrap gap-3 text-sm">
+              {linkedDeal.customer_email && (
+                <span className="flex items-center gap-1.5 text-gray-600">📧 {linkedDeal.customer_email}</span>
+              )}
+              {linkedDeal.customer_phone && (
+                <span className="flex items-center gap-1.5 text-gray-600">📱 {linkedDeal.customer_phone}</span>
+              )}
+            </div>
+          )}
+
+          {/* Addresses */}
+          {(event.location || linkedDeal?.moving_from) && (
+            <p className="text-sm text-gray-700">
+              📍 {event.location || linkedDeal?.moving_from || '—'}
+              {linkedDeal?.moving_to && ` → ${linkedDeal.moving_to}`}
+            </p>
+          )}
+
+          {/* Time */}
+          <p className="text-sm text-gray-600">
+            🕐 {startTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+            {endTime && ` – ${endTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}
+          </p>
+
+          {/* Date */}
+          <p className="text-sm text-gray-600">
+            📅 {startTime.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          </p>
+
+          {/* Status */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">Status:</span>
+            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${event.completed ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+              {event.completed ? '✅ Completed' : '○ Not completed'}
+            </span>
+          </div>
+
+          {/* Event type badge */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">Type:</span>
+            <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 capitalize">{event.event_type}</span>
+          </div>
+
+          {/* Notes */}
+          {(event.description || linkedDeal?.notes) && (
+            <p className="text-sm text-gray-500 bg-gray-50 rounded-lg p-3">{event.description || linkedDeal?.notes}</p>
+          )}
+
+          {/* Linked deal value */}
+          {linkedDeal?.estimated_value && (
+            <p className="text-sm font-bold text-green-600">💰 Deal value: £{linkedDeal.estimated_value.toLocaleString()}</p>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="p-5 pt-0 flex flex-wrap gap-2">
+          <button onClick={onCreateQuote} className="flex items-center gap-1.5 px-4 py-2.5 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition">
+            📸 Create Quote
+          </button>
+          <button onClick={onComplete} className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold rounded-lg transition ${event.completed ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
+            {event.completed ? '↩️ Undo Complete' : '✅ Complete'}
+          </button>
+          <button onClick={onEditEvent} className="flex items-center gap-1.5 px-4 py-2.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition">
+            ✏️ Edit
+          </button>
+          <button onClick={onDeleteEvent} className="flex items-center gap-1.5 px-4 py-2.5 bg-red-50 text-red-600 text-sm font-medium rounded-lg hover:bg-red-100 transition">
+            🗑️ Delete
+          </button>
         </div>
       </div>
     </div>
