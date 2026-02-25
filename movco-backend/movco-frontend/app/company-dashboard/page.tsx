@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
+import { downloadQuotePdf } from '@/lib/generateQuotePdf';
 
 // ============================================
 // TYPES
@@ -699,6 +700,7 @@ export default function CompanyDashboardPage() {
             {activeTab === 'quotes' && !showQuoteBuilder && (
               <QuotesTab
                 quotes={crmQuotes}
+                company={company}
                 onAddQuote={() => { setEditingQuote(null); setQuotePrefill(null); setShowQuoteBuilder(true); }}
                 onDeleteQuote={deleteQuote}
                 onUpdateStatus={updateQuoteStatus}
@@ -1343,6 +1345,33 @@ function QuoteBuilder({ company, onSave, onCancel, prefill }: {
               ← Back
             </button>
             <button
+              onClick={() => {
+                downloadQuotePdf({
+                  companyName: company.name,
+                  companyEmail: company.email,
+                  companyPhone: company.phone,
+                  quoteDate: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+                  status: 'draft',
+                  customerName,
+                  customerEmail: customerEmail || undefined,
+                  customerPhone: customerPhone || undefined,
+                  movingFrom: movingFrom || undefined,
+                  movingTo: movingTo || undefined,
+                  movingDate: movingDate || undefined,
+                  items: editItems || [],
+                  totalVolume: editVolume ? parseFloat(editVolume) : undefined,
+                  vanCount: editVans ? parseInt(editVans) : undefined,
+                  movers: editMovers ? parseInt(editMovers) : undefined,
+                  estimatedPrice: editPrice ? parseFloat(editPrice) : undefined,
+                  notes: notes || undefined,
+                });
+              }}
+              className="px-6 py-3.5 bg-blue-50 text-blue-600 font-semibold rounded-xl hover:bg-blue-100 transition flex items-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              PDF
+            </button>
+            <button
               onClick={handleSaveQuote}
               className="flex-1 bg-green-600 text-white font-semibold py-3.5 rounded-xl hover:bg-green-700 transition text-lg shadow-lg"
             >
@@ -1406,14 +1435,39 @@ function LeadsTab({ leads, company }: { leads: Lead[]; company: Company }) {
 // QUOTES TAB (list view)
 // ============================================
 
-function QuotesTab({ quotes, onAddQuote, onDeleteQuote, onUpdateStatus, onConvertToDeal }: {
+function QuotesTab({ quotes, company, onAddQuote, onDeleteQuote, onUpdateStatus, onConvertToDeal }: {
   quotes: CrmQuote[];
+  company: Company;
   onAddQuote: () => void;
   onDeleteQuote: (id: string) => void;
   onUpdateStatus: (id: string, status: string) => void;
   onConvertToDeal: (q: CrmQuote) => void;
 }) {
   const [filterStatus, setFilterStatus] = useState<string>('all');
+
+  const handleDownloadPdf = (quote: CrmQuote) => {
+    downloadQuotePdf({
+      companyName: company.name,
+      companyEmail: company.email,
+      companyPhone: company.phone,
+      quoteRef: quote.id.slice(0, 8).toUpperCase(),
+      quoteDate: new Date(quote.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+      validUntil: quote.valid_until ? new Date(quote.valid_until).toLocaleDateString('en-GB') : undefined,
+      status: quote.status,
+      customerName: quote.customer_name,
+      customerEmail: quote.customer_email || undefined,
+      customerPhone: quote.customer_phone || undefined,
+      movingFrom: quote.moving_from || undefined,
+      movingTo: quote.moving_to || undefined,
+      movingDate: quote.moving_date || undefined,
+      items: quote.items || [],
+      totalVolume: quote.total_volume_m3 || undefined,
+      vanCount: quote.van_count || undefined,
+      movers: quote.movers || undefined,
+      estimatedPrice: quote.estimated_price || undefined,
+      notes: quote.notes || undefined,
+    });
+  };
 
   const filtered = filterStatus === 'all' ? quotes : quotes.filter((q) => q.status === filterStatus);
 
@@ -1507,6 +1561,10 @@ function QuotesTab({ quotes, onAddQuote, onDeleteQuote, onUpdateStatus, onConver
                     <button onClick={() => onUpdateStatus(quote.id, 'declined')} className="text-xs font-medium text-orange-600 hover:text-orange-800 px-3 py-1.5 bg-orange-50 rounded-lg hover:bg-orange-100 transition">Declined</button>
                   </>
                 )}
+                <button onClick={() => handleDownloadPdf(quote)} className="text-xs font-medium text-blue-600 hover:text-blue-800 px-3 py-1.5 bg-blue-50 rounded-lg hover:bg-blue-100 transition flex items-center gap-1">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                  PDF
+                </button>
                 <button onClick={() => onDeleteQuote(quote.id)} className="text-xs font-medium text-red-500 hover:text-red-700 px-3 py-1.5 bg-red-50 rounded-lg hover:bg-red-100 transition ml-auto">Delete</button>
               </div>
             </div>
