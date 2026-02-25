@@ -451,6 +451,35 @@ export default function CompanyDashboardPage() {
     if (!error) setCustomers((prev) => prev.filter((c) => c.id !== customerId));
   };
 
+  // Generate shareable quote link for a customer
+  const sendQuoteLink = async (customer: Customer) => {
+    if (!company) { alert('Company not loaded yet.'); return; }
+    const token = crypto.randomUUID().replace(/-/g, '').slice(0, 24);
+    const { error } = await supabase.from('quote_requests').insert({
+      token,
+      company_id: company.id,
+      customer_id: customer.id,
+      customer_name: customer.name,
+      customer_email: customer.email,
+      customer_phone: customer.phone,
+      moving_from: customer.moving_from,
+      moving_to: customer.moving_to,
+      moving_date: customer.moving_date,
+    });
+    if (error) {
+      console.error('Failed to create quote link:', error);
+      alert('Failed to create quote link. Please try again.');
+      return;
+    }
+    const link = `${window.location.origin}/quote-request/${token}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      alert(`✅ Quote link copied to clipboard!\n\nSend this to ${customer.name}:\n${link}`);
+    } catch {
+      prompt('Copy this quote link:', link);
+    }
+  };
+
   // Quote save (from builder)
   const saveQuoteFromBuilder = async (quote: Partial<CrmQuote>) => {
     if (!company) return;
@@ -787,6 +816,7 @@ export default function CompanyDashboardPage() {
                 onAddCustomer={() => { setEditingCustomer(null); setShowCustomerModal(true); }}
                 onEditCustomer={(customer) => { setEditingCustomer(customer); setShowCustomerModal(true); }}
                 onDeleteCustomer={deleteCustomer}
+                onSendQuoteLink={sendQuoteLink}
               />
             )}
             {activeTab === 'reports' && (
@@ -2067,9 +2097,10 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
 // CUSTOMERS TAB
 // ============================================
 
-function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEditCustomer, onDeleteCustomer }: {
+function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEditCustomer, onDeleteCustomer, onSendQuoteLink }: {
   customers: Customer[]; search: string; onSearchChange: (s: string) => void;
   onAddCustomer: () => void; onEditCustomer: (c: Customer) => void; onDeleteCustomer: (id: string) => void;
+  onSendQuoteLink: (c: Customer) => void;
 }) {
   const filtered = customers.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()) || (c.email || '').toLowerCase().includes(search.toLowerCase()) || (c.phone || '').includes(search));
 
@@ -2094,7 +2125,8 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
                   <td className="px-5 py-3 text-gray-600 hidden md:table-cell">{customer.phone || '—'}</td>
                   <td className="px-5 py-3 text-gray-600 hidden lg:table-cell">{customer.source || '—'}</td>
                   <td className="px-5 py-3 font-medium text-green-600 hidden lg:table-cell">£{customer.total_revenue?.toFixed(2) || '0.00'}</td>
-                  <td className="px-5 py-3 text-right">
+                  <td className="px-5 py-3 text-right whitespace-nowrap">
+                    <button onClick={() => onSendQuoteLink(customer)} className="text-green-600 hover:text-green-800 text-xs font-medium mr-3" title="Generate shareable quote link">📎 Quote Link</button>
                     <button onClick={() => onEditCustomer(customer)} className="text-blue-600 hover:text-blue-800 text-xs font-medium mr-3">Edit</button>
                     <button onClick={() => onDeleteCustomer(customer.id)} className="text-red-500 hover:text-red-700 text-xs font-medium">Delete</button>
                   </td>
