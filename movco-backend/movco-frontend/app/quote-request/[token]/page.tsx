@@ -217,7 +217,7 @@ export default function QuoteRequestPage() {
       setAnalysis(analysisData);
 
       // 3. Save quote to CRM (crm_quotes table)
-      const { data: savedQuote, error: quoteError } = await supabase
+      const { error: quoteError } = await supabase
         .from('crm_quotes')
         .insert({
           company_id: request.company_id,
@@ -235,9 +235,7 @@ export default function QuoteRequestPage() {
           estimated_price: analysisData.estimate,
           notes: customerNotes || analysisData.description,
           status: 'draft',
-        })
-        .select()
-        .single();
+        });
 
       if (quoteError) {
         console.error('Failed to save quote:', quoteError);
@@ -251,7 +249,6 @@ export default function QuoteRequestPage() {
           moving_from: movingFrom,
           moving_to: movingTo,
           moving_date: movingDate || null,
-          completed_quote_id: savedQuote?.id || null,
         })
         .eq('id', request.id);
 
