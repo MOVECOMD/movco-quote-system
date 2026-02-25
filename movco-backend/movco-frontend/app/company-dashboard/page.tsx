@@ -485,6 +485,44 @@ export default function CompanyDashboardPage() {
 
   const updateQuoteStatus = async (quoteId: string, status: string) => {
     await updateQuoteFields(quoteId, { status } as any);
+
+    // If marking as sent, auto-move linked deal to "Quote Sent" stage
+    if (status === 'sent') {
+      const quote = crmQuotes.find((q) => q.id === quoteId);
+      if (quote?.deal_id) {
+        const quoteSentStage = stages.find((s) => s.name.toLowerCase().includes('quote sent'));
+        if (quoteSentStage) {
+          await moveDeal(quote.deal_id, quoteSentStage.id);
+        }
+      } else if (quote) {
+        // No linked deal — find or create one and move to Quote Sent
+        const quoteSentStage = stages.find((s) => s.name.toLowerCase().includes('quote sent'));
+        if (quoteSentStage && company && stages.length > 0) {
+          const { data: dealData, error } = await supabase
+            .from('crm_deals')
+            .insert({
+              company_id: company.id,
+              stage_id: quoteSentStage.id,
+              customer_name: quote.customer_name,
+              customer_email: quote.customer_email,
+              customer_phone: quote.customer_phone,
+              moving_from: quote.moving_from,
+              moving_to: quote.moving_to,
+              moving_date: quote.moving_date,
+              estimated_value: quote.estimated_price,
+              notes: quote.notes,
+            })
+            .select()
+            .single();
+          if (!error && dealData) {
+            setDeals((prev) => [dealData as Deal, ...prev]);
+            // Link the quote to the new deal
+            await supabase.from('crm_quotes').update({ deal_id: dealData.id }).eq('id', quoteId);
+            setCrmQuotes((prev) => prev.map((q) => (q.id === quoteId ? { ...q, deal_id: dealData.id } as CrmQuote : q)));
+          }
+        }
+      }
+    }
   };
 
   // Convert quote to deal
@@ -1345,8 +1383,8 @@ function QuoteBuilder({ company, onSave, onCancel, prefill }: {
               ← Back
             </button>
             <button
-              onClick={() => {
-                downloadQuotePdf({
+              onClick={async () => {
+                await downloadQuotePdf({
                   companyName: company.name,
                   companyEmail: company.email,
                   companyPhone: company.phone,
@@ -1445,8 +1483,8 @@ function QuotesTab({ quotes, company, onAddQuote, onDeleteQuote, onUpdateStatus,
 }) {
   const [filterStatus, setFilterStatus] = useState<string>('all');
 
-  const handleDownloadPdf = (quote: CrmQuote) => {
-    downloadQuotePdf({
+  const handleDownloadPdf = async (quote: CrmQuote) => {
+    await downloadQuotePdf({
       companyName: company.name,
       companyEmail: company.email,
       companyPhone: company.phone,

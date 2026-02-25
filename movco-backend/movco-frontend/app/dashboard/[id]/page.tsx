@@ -7,6 +7,7 @@ import { useAuth } from "@/context/AuthContext";
 import Link from "next/link";
 import Image from "next/image";
 import BookingModal from "@/components/BookingModal";
+import { downloadQuotePdf } from "@/lib/generateQuotePdf";
 
 type InstantQuote = {
   id: string | null;
@@ -156,23 +157,19 @@ export default function QuoteDetailPage() {
         } else {
           setQuote(data as InstantQuote);
 
-          // CHECK: If analysis already exists in DB, use it instead of re-calling the API
           if (data.ai_analysis) {
             console.log('Using cached AI analysis from database');
             setAnalysis(data.ai_analysis as AiAnalysis);
 
-            // Still show booking modal if user hasn't responded
             if (data.interested_in_booking === null || data.interested_in_booking === undefined) {
               setTimeout(() => setShowBookingModal(true), 10000);
             }
           } else {
-            // No cached analysis — run it for the first time
             setAnalyzing(true);
             try {
               const aiAnalysis = await generateAnalysis(data as InstantQuote);
               setAnalysis(aiAnalysis);
 
-              // SAVE analysis to Supabase so we don't re-run next time
               const { error: updateError } = await supabase
                 .from('instant_quotes')
                 .update({ ai_analysis: aiAnalysis })
@@ -184,7 +181,6 @@ export default function QuoteDetailPage() {
                 console.log('AI analysis cached to database');
               }
 
-              // Show booking modal after analysis completes
               if (data.interested_in_booking === null || data.interested_in_booking === undefined) {
                 setTimeout(() => setShowBookingModal(true), 10000);
               }
@@ -217,6 +213,30 @@ export default function QuoteDetailPage() {
       setLoading(false);
     }
   }, [id, user]);
+
+  const handleDownloadPdf = async () => {
+    if (!quote || !analysis) return;
+    await downloadQuotePdf({
+      companyName: 'MOVCO',
+      quoteRef: quote.id?.slice(0, 8).toUpperCase(),
+      quoteDate: new Date(quote.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+      status: quote.status || 'new',
+      customerName: user?.user_metadata?.full_name || user?.email || 'Customer',
+      customerEmail: user?.email || undefined,
+      movingFrom: quote.starting_address,
+      movingTo: quote.ending_address,
+      items: analysis.items.map((i) => ({
+        name: i.name,
+        quantity: i.quantity,
+        estimated_volume_ft3: i.note?.match(/~([\d.]+)\s*ft/)?.[1] ? parseFloat(i.note!.match(/~([\d.]+)\s*ft/)![1]) : undefined,
+      })),
+      totalVolume: analysis.totalVolumeM3,
+      vanCount: analysis.van_count,
+      movers: analysis.recommended_movers,
+      estimatedPrice: analysis.estimate,
+      notes: analysis.description,
+    });
+  };
 
   if (authLoading) return null;
   if (!user) return null;
@@ -316,16 +336,25 @@ export default function QuoteDetailPage() {
 
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
-        <header className="flex items-center justify-between">
+        <header className="flex items-center justify-between flex-wrap gap-3">
           <div className="space-y-1">
             <h1 className="text-3xl font-bold text-slate-900">Quote Details</h1>
             <p className="text-sm text-slate-700 font-medium">
               Created {new Date(quote.created_at).toLocaleString()}
             </p>
           </div>
-          <Link href="/dashboard" className="inline-flex items-center rounded-lg border-2 border-slate-300 px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-100 transition-colors">
-            ← Back to dashboard
-          </Link>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleDownloadPdf}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors shadow-lg shadow-blue-500/25"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              Download PDF
+            </button>
+            <Link href="/dashboard" className="inline-flex items-center rounded-lg border-2 border-slate-300 px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-100 transition-colors">
+              ← Back to dashboard
+            </Link>
+          </div>
         </header>
 
         {/* Addresses */}
