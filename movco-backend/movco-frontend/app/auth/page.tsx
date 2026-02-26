@@ -31,18 +31,29 @@ export default function AuthPage() {
         if (error) {
           setError(error.message);
         } else {
-          // Check if user is a company
           const { data: { user: signedInUser } } = await supabase.auth.getUser();
           if (signedInUser) {
-            const { data: company } = await supabase
-              .from('companies')
+            // Check if user is an admin
+            const { data: adminUser } = await supabase
+              .from('admin_users')
               .select('id')
-              .eq('user_id', signedInUser.id)
+              .eq('email', signedInUser.email)
               .single();
-            if (company) {
-              router.push('/company-dashboard');
+
+            if (adminUser) {
+              router.push('/admin');
             } else {
-              router.push('/instant-quote');
+              // Check if user is a company
+              const { data: company } = await supabase
+                .from('companies')
+                .select('id')
+                .eq('user_id', signedInUser.id)
+                .single();
+              if (company) {
+                router.push('/company-dashboard');
+              } else {
+                router.push('/instant-quote');
+              }
             }
           } else {
             router.push('/instant-quote');
