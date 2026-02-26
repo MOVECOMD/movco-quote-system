@@ -1,970 +1,421 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { useAuth } from '@/context/AuthContext';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import Image from 'next/image';
 
-// ═══════════════════════════════════════════════════════════════
-//  MOVCO — Internal Admin Portal
-//  Route: /admin
-//  Manages: Storage Partners, Removals Calculator, Removals CRM
-// ═══════════════════════════════════════════════════════════════
+// ⚠️ CHANGE THIS to your Supabase user ID to lock down admin access
+const ADMIN_USER_IDS = [
+  // Add your user_id here. Find it in Supabase → Authentication → Users
+  // e.g. 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+];
 
-// ─── Types ───
-
-type StoragePartner = {
+type AdminQuote = {
   id: string;
-  slug: string;
-  company_name: string;
-  logo_url: string | null;
-  primary_color: string;
-  email: string | null;
-  phone: string | null;
-  website: string | null;
-  active: boolean;
-  plan: string | null;
-  units: any[];
   created_at: string;
+  starting_address: string;
+  ending_address: string;
+  photo_urls: string[] | null;
+  status: string | null;
+  user_id: string;
+  interested_in_booking: boolean | null;
+  estimate?: number;
+  total_volume_m3?: number;
+  van_count?: number;
+  recommended_movers?: number;
+  distance_miles?: number;
 };
 
-type RemovalsPartner = {
-  id: string;
-  slug: string;
-  company_name: string;
-  logo_url: string | null;
-  primary_color: string;
-  accent_color: string | null;
-  email: string | null;
-  phone: string | null;
-  website: string | null;
-  active: boolean;
-  product_type: 'calculator' | 'crm';
-  plan: string | null;
-  pricing: any;
-  van_types: any[];
-  stripe_customer_id: string | null;
-  stripe_subscription_id: string | null;
-  trial_ends_at: string | null;
-  created_at: string;
+type DailyCount = {
+  date: string;
+  count: number;
 };
 
-type AnyPartner = (StoragePartner | RemovalsPartner) & {
-  _type: 'storage' | 'calc' | 'crm';
-  _leads_count?: number;
-  _mrr?: number;
-  _extra?: Record<string, any>;
-};
-
-// ─── Plan pricing map ───
-const PLAN_PRICING: Record<string, number> = {
-  trial: 0,
-  starter: 29.99,
-  pro: 49.99,
-  enterprise: 99.99,
-  crm_pro: 129.99,
-};
-
-const PLAN_LABELS: Record<string, string> = {
-  trial: 'Trial',
-  starter: 'Starter',
-  pro: 'Pro',
-  enterprise: 'Enterprise',
-  crm_pro: 'CRM Pro',
-};
-
-// ─── SVG Icon helper ───
-function Icon({ d, size = 20, color = 'currentColor' }: { d: string; size?: number; color?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
-      <path d={d} />
-    </svg>
-  );
-}
-
-const icons = {
-  dashboard: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0h4',
-  storage: 'M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4',
-  calculator: 'M9 7h6m0 0v6m0-6l-6 6M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z',
-  monitor: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z',
-  billing: 'M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z',
-  plus: 'M12 4v16m8-8H4',
-  edit: 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z',
-  x: 'M6 18L18 6M6 6l12 12',
-  search: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z',
-  refresh: 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15',
-};
-
-// ═══════════════════════════════════════════════════════════════
-//  MAIN COMPONENT
-// ═══════════════════════════════════════════════════════════════
-
-export default function AdminPortalPage() {
-  // ─── State ───
-  const [page, setPage] = useState('dashboard');
+export default function AdminDashboardPage() {
+  const [quotes, setQuotes] = useState<AdminQuote[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [storagePartners, setStoragePartners] = useState<AnyPartner[]>([]);
-  const [calcPartners, setCalcPartners] = useState<AnyPartner[]>([]);
-  const [crmPartners, setCrmPartners] = useState<AnyPartner[]>([]);
+  const { user, loading: authLoading, signOut } = useAuth();
+  const router = useRouter();
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [editModal, setEditModal] = useState<AnyPartner | null>(null);
-  const [addModal, setAddModal] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  // Edit form state
-  const [formData, setFormData] = useState<Record<string, any>>({});
-
-  // ─── Fetch all data ───
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      // Fetch storage partners + lead counts
-      const { data: storageData } = await supabase
-        .from('storage_partners')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      // Fetch storage lead counts
-      const { data: storageLeadCounts } = await supabase
-        .from('storage_leads')
-        .select('partner_id');
-
-      const storageLeadMap: Record<string, number> = {};
-      (storageLeadCounts || []).forEach((l: any) => {
-        storageLeadMap[l.partner_id] = (storageLeadMap[l.partner_id] || 0) + 1;
-      });
-
-      const mappedStorage: AnyPartner[] = (storageData || []).map((p: any) => ({
-        ...p,
-        _type: 'storage' as const,
-        _leads_count: storageLeadMap[p.id] || 0,
-        _mrr: p.active ? (PLAN_PRICING[p.plan] || 0) : 0,
-        _extra: { units_count: Array.isArray(p.units) ? p.units.length : 0 },
-      }));
-
-      // Fetch removals partners + lead counts
-      const { data: removalsData } = await supabase
-        .from('removals_partners')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      const { data: removalsLeadCounts } = await supabase
-        .from('removals_leads')
-        .select('partner_id');
-
-      const removalsLeadMap: Record<string, number> = {};
-      (removalsLeadCounts || []).forEach((l: any) => {
-        removalsLeadMap[l.partner_id] = (removalsLeadMap[l.partner_id] || 0) + 1;
-      });
-
-      const mappedCalc: AnyPartner[] = [];
-      const mappedCrm: AnyPartner[] = [];
-
-      (removalsData || []).forEach((p: any) => {
-        const partner: AnyPartner = {
-          ...p,
-          _type: p.product_type === 'crm' ? ('crm' as const) : ('calc' as const),
-          _leads_count: removalsLeadMap[p.id] || 0,
-          _mrr: p.active ? (PLAN_PRICING[p.plan] || 0) : 0,
-          _extra: {
-            van_count: Array.isArray(p.van_types) ? p.van_types.length : 0,
-          },
-        };
-        if (p.product_type === 'crm') {
-          mappedCrm.push(partner);
-        } else {
-          mappedCalc.push(partner);
-        }
-      });
-
-      setStoragePartners(mappedStorage);
-      setCalcPartners(mappedCalc);
-      setCrmPartners(mappedCrm);
-    } catch (err) {
-      console.error('Failed to fetch data:', err);
-    }
-    setLoading(false);
-  }, []);
-
+  // Auth + admin check
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (!authLoading && !user) {
+      router.push('/auth');
+    }
+    // If ADMIN_USER_IDS is set, enforce it
+    if (!authLoading && user && ADMIN_USER_IDS.length > 0 && !ADMIN_USER_IDS.includes(user.id)) {
+      router.push('/dashboard');
+    }
+  }, [user, authLoading, router]);
 
-  // ─── Toggle active status ───
-  const toggleActive = async (partner: AnyPartner) => {
-    const table = partner._type === 'storage' ? 'storage_partners' : 'removals_partners';
-    const newActive = !partner.active;
+  // Fetch ALL quotes (not filtered by user_id)
+  useEffect(() => {
+    async function fetchAllQuotes() {
+      if (!user) return;
 
-    await supabase.from(table).update({ active: newActive }).eq('id', partner.id);
-    fetchData();
-  };
+      try {
+        const { data, error } = await supabase
+          .from('instant_quotes')
+          .select('*')
+          .order('created_at', { ascending: false });
 
-  // ─── Save edit ───
-  const saveEdit = async () => {
-    if (!editModal) return;
-    setSaving(true);
-
-    const table = editModal._type === 'storage' ? 'storage_partners' : 'removals_partners';
-
-    const updateData: Record<string, any> = {
-      company_name: formData.company_name,
-      slug: formData.slug,
-      email: formData.email || null,
-      phone: formData.phone || null,
-      primary_color: formData.primary_color,
-      plan: formData.plan,
-      website: formData.website || null,
-    };
-
-    await supabase.from(table).update(updateData).eq('id', editModal.id);
-
-    setSaving(false);
-    setEditModal(null);
-    fetchData();
-  };
-
-  // ─── Add new partner ───
-  const addPartner = async () => {
-    if (!addModal) return;
-    setSaving(true);
-
-    if (addModal === 'storage') {
-      await supabase.from('storage_partners').insert({
-        company_name: formData.company_name,
-        slug: formData.slug,
-        email: formData.email || null,
-        phone: formData.phone || null,
-        primary_color: formData.primary_color || '2563EB',
-        plan: formData.plan || 'trial',
-        active: true,
-        units: [],
-      });
-    } else {
-      // removals — calc or crm
-      await supabase.from('removals_partners').insert({
-        company_name: formData.company_name,
-        slug: formData.slug,
-        email: formData.email || null,
-        phone: formData.phone || null,
-        primary_color: formData.primary_color || '2563EB',
-        plan: addModal === 'crm' ? 'crm_pro' : (formData.plan || 'trial'),
-        product_type: addModal === 'crm' ? 'crm' : 'calculator',
-        active: true,
-      });
+        if (error) {
+          console.error('Supabase error:', error);
+          setError(error.message);
+        } else {
+          setQuotes(data as AdminQuote[]);
+        }
+      } catch (err: any) {
+        console.error(err);
+        setError(err?.message || 'Failed to load quotes');
+      } finally {
+        setLoading(false);
+      }
     }
 
-    setSaving(false);
-    setAddModal(null);
-    setFormData({});
-    fetchData();
-  };
+    if (user) {
+      fetchAllQuotes();
+    }
+  }, [user]);
 
-  // ─── Open edit modal ───
-  const openEdit = (partner: AnyPartner) => {
-    setFormData({
-      company_name: partner.company_name,
-      slug: partner.slug,
-      email: partner.email || '',
-      phone: partner.phone || '',
-      primary_color: partner.primary_color,
-      plan: partner.plan || 'trial',
-      website: (partner as any).website || '',
-    });
-    setEditModal(partner);
-  };
-
-  // ─── Open add modal ───
-  const openAdd = (type: string) => {
-    setFormData({
-      company_name: '',
-      slug: '',
-      email: '',
-      phone: '',
-      primary_color: '2563EB',
-      plan: type === 'crm' ? 'crm_pro' : 'trial',
-      website: '',
-    });
-    setAddModal(type);
-  };
-
-  // ─── Stats ───
-  const allPartners = [...storagePartners, ...calcPartners, ...crmPartners];
-  const activePartners = allPartners.filter((p) => p.active);
-  const totalMRR = allPartners.reduce((s, p) => s + (p._mrr || 0), 0);
-  const totalLeads = allPartners.reduce((s, p) => s + (p._leads_count || 0), 0);
-  const storageActive = storagePartners.filter((p) => p.active).length;
-  const calcActive = calcPartners.filter((p) => p.active).length;
-  const crmActive = crmPartners.filter((p) => p.active).length;
-
-  // ─── Colors ───
-  const c = {
-    sidebar: '#0F1629',
-    sidebarHover: '#1A2342',
-    sidebarActive: '#2563EB',
-    surface: '#FFFFFF',
-    surfaceAlt: '#F8F9FC',
-    border: '#E8EBF0',
-    text: '#111827',
-    textMuted: '#6B7280',
-    textLight: '#9CA3AF',
-    accent: '#2563EB',
-    accentLight: '#EFF4FF',
-    green: '#059669',
-    greenLight: '#ECFDF5',
-    amber: '#D97706',
-    amberLight: '#FFFBEB',
-    red: '#DC2626',
-    redLight: '#FEF2F2',
-  };
-
-  const planColors: Record<string, { bg: string; text: string }> = {
-    trial: { bg: c.amberLight, text: c.amber },
-    starter: { bg: c.accentLight, text: c.accent },
-    pro: { bg: '#F0FDF4', text: '#16A34A' },
-    enterprise: { bg: '#F5F3FF', text: '#7C3AED' },
-    crm_pro: { bg: '#F0FDF4', text: '#16A34A' },
-  };
-
-  // ─── Nav items ───
-  const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: icons.dashboard },
-    { id: 'divider1', type: 'divider' as const, label: 'STORAGE' },
-    { id: 'storage', label: 'Storage Partners', icon: icons.storage, badge: storageActive },
-    { id: 'divider2', type: 'divider' as const, label: 'REMOVALS' },
-    { id: 'removals_calc', label: 'Calculator Partners', icon: icons.calculator, badge: calcActive },
-    { id: 'removals_crm', label: 'CRM Partners', icon: icons.monitor, badge: crmActive },
-    { id: 'divider3', type: 'divider' as const, label: 'FINANCE' },
-    { id: 'billing', label: 'Billing & Plans', icon: icons.billing },
-  ];
-
-  // ═══════════════════════════════════════════
-  //  PARTNER TABLE
-  // ═══════════════════════════════════════════
-  const PartnerTable = ({
-    partners,
-    type,
-    title,
-    subtitle,
-    extraColumns = [],
-  }: {
-    partners: AnyPartner[];
-    type: string;
-    title: string;
-    subtitle: string;
-    extraColumns?: { key: string; header: string; render?: (p: AnyPartner) => string }[];
-  }) => {
-    const filtered = searchTerm
-      ? partners.filter(
-          (p) =>
-            p.company_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.slug?.toLowerCase().includes(searchTerm.toLowerCase())
-        )
-      : partners;
-
+  if (authLoading || loading) {
     return (
-      <div>
-        <div className="flex justify-between items-start mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{title}</h1>
-            <p className="text-sm text-gray-500">{subtitle}</p>
-          </div>
-          <button
-            onClick={() => openAdd(type)}
-            className="flex items-center gap-2 bg-blue-600 text-white border-none rounded-lg px-5 py-2.5 text-sm font-semibold cursor-pointer hover:bg-blue-700 transition"
-          >
-            <Icon d={icons.plus} size={16} color="#fff" /> Add Partner
-          </button>
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="flex items-center gap-3">
+          <svg className="animate-spin h-8 w-8 text-blue-500" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <span className="text-white font-medium">Loading admin dashboard...</span>
         </div>
-
-        {/* Search */}
-        <div className="relative mb-5">
-          <div className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-40">
-            <Icon d={icons.search} size={16} />
-          </div>
-          <input
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search partners..."
-            className="w-full border border-gray-200 rounded-lg pl-10 pr-4 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
-          />
-        </div>
-
-        {/* Table */}
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
-            <thead>
-              <tr className="bg-gray-50">
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Company</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Plan</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">MRR</th>
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Leads</th>
-                {extraColumns.map((col) => (
-                  <th key={col.key} className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">{col.header}</th>
-                ))}
-                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((p, i) => {
-                const plan = planColors[p.plan || 'trial'] || planColors.trial;
-                return (
-                  <tr key={p.id} className={`border-t border-gray-100 hover:bg-gray-50 transition-colors ${i === 0 ? 'border-t-0' : ''}`}>
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className="w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm flex-shrink-0"
-                          style={{ backgroundColor: `#${p.primary_color}15`, color: `#${p.primary_color}` }}
-                        >
-                          {p.company_name.charAt(0)}
-                        </div>
-                        <div>
-                          <div className="font-semibold text-gray-900">{p.company_name}</div>
-                          <div className="text-xs text-gray-400">{p.slug}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${p.active ? 'text-emerald-600' : 'text-red-500'}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${p.active ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                        {p.active ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span
-                        className="text-xs font-semibold px-2.5 py-1 rounded-md"
-                        style={{ backgroundColor: plan.bg, color: plan.text }}
-                      >
-                        {PLAN_LABELS[p.plan || 'trial'] || 'Trial'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 text-right font-semibold">
-                      {(p._mrr || 0) > 0 ? `£${(p._mrr || 0).toFixed(2)}` : <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="px-4 py-3.5 text-right">{p._leads_count || 0}</td>
-                    {extraColumns.map((col) => (
-                      <td key={col.key} className="px-4 py-3.5 text-right">
-                        {col.render ? col.render(p) : (p._extra?.[col.key] ?? '—')}
-                      </td>
-                    ))}
-                    <td className="px-4 py-3.5 text-right">
-                      <div className="flex gap-1.5 justify-end">
-                        <button
-                          onClick={() => openEdit(p)}
-                          className="bg-gray-50 border border-gray-200 rounded-md px-2.5 py-1.5 text-xs font-medium text-gray-500 cursor-pointer hover:border-blue-400 hover:text-blue-600 transition flex items-center gap-1"
-                        >
-                          <Icon d={icons.edit} size={12} /> Edit
-                        </button>
-                        <button
-                          onClick={() => toggleActive(p)}
-                          className={`border-none rounded-md px-2.5 py-1.5 text-xs font-medium cursor-pointer transition ${
-                            p.active
-                              ? 'bg-red-50 text-red-600 hover:bg-red-100'
-                              : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
-                          }`}
-                        >
-                          {p.active ? 'Deactivate' : 'Activate'}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={5 + extraColumns.length + 1} className="px-4 py-10 text-center text-gray-400 text-sm">
-                    No partners found
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-  };
-
-  // ═══════════════════════════════════════════
-  //  MODAL
-  // ═══════════════════════════════════════════
-  const Modal = ({ onClose, children, title }: { onClose: () => void; children: React.ReactNode; title: string }) => (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="bg-white rounded-2xl p-7 max-w-lg w-[90%] max-h-[80vh] overflow-y-auto shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex justify-between items-center mb-5">
-          <h2 className="text-lg font-bold text-gray-900">{title}</h2>
-          <button onClick={onClose} className="bg-gray-100 border-none rounded-lg w-8 h-8 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition">
-            <Icon d={icons.x} size={16} color="#6B7280" />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-
-  // ═══════════════════════════════════════════
-  //  LOADING
-  // ═══════════════════════════════════════════
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <svg className="animate-spin h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
       </div>
     );
   }
 
-  // ═══════════════════════════════════════════
-  //  RENDER
-  // ═══════════════════════════════════════════
+  if (!user) return null;
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+        <div className="bg-slate-900 rounded-2xl p-8 max-w-md w-full text-center border border-slate-800">
+          <h2 className="text-xl font-bold text-white mb-2">Error</h2>
+          <p className="text-slate-400 mb-6">{error}</p>
+          <Link href="/dashboard" className="text-blue-400 hover:text-blue-300">
+            Back to dashboard
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Calculate Metrics ----
+  const totalQuotes = quotes.length;
+  const interestedInBooking = quotes.filter(q => q.interested_in_booking === true).length;
+  const notInterested = quotes.filter(q => q.interested_in_booking === false).length;
+  const pendingResponse = quotes.filter(q => q.interested_in_booking === null || q.interested_in_booking === undefined).length;
+  const withPhotos = quotes.filter(q => q.photo_urls && q.photo_urls.length > 0).length;
+  const totalPhotos = quotes.reduce((sum, q) => sum + (q.photo_urls?.length || 0), 0);
+
+  // Unique users
+  const uniqueUsers = new Set(quotes.map(q => q.user_id)).size;
+
+  // Quotes per day (last 14 days)
+  const dailyCounts: DailyCount[] = [];
+  const today = new Date();
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().split('T')[0];
+    const count = quotes.filter(q => q.created_at.startsWith(dateStr)).length;
+    dailyCounts.push({
+      date: d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
+      count,
+    });
+  }
+  const maxDailyCount = Math.max(...dailyCounts.map(d => d.count), 1);
+
+  // Quotes this week vs last week
+  const oneWeekAgo = new Date(today);
+  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+  const twoWeeksAgo = new Date(today);
+  twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+  const thisWeek = quotes.filter(q => new Date(q.created_at) >= oneWeekAgo).length;
+  const lastWeek = quotes.filter(q => {
+    const d = new Date(q.created_at);
+    return d >= twoWeeksAgo && d < oneWeekAgo;
+  }).length;
+  const weekChange = lastWeek > 0 ? Math.round(((thisWeek - lastWeek) / lastWeek) * 100) : thisWeek > 0 ? 100 : 0;
+
   return (
-    <div className="flex min-h-screen" style={{ fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", background: c.surfaceAlt }}>
-      {/* eslint-disable-next-line @next/next/no-page-custom-font */}
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <div className="min-h-screen bg-slate-950">
+      {/* Header */}
+      <header className="bg-slate-900 border-b border-slate-800">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center gap-3">
+              <Image
+                src="/movco-logo.png"
+                alt="MOVCO"
+                width={36}
+                height={36}
+                className="rounded-lg"
+              />
+              <span className="text-white font-bold text-lg tracking-wide">
+                MOVCO
+              </span>
+              <span className="bg-amber-500/20 text-amber-400 text-xs font-bold px-2 py-0.5 rounded-full">
+                ADMIN
+              </span>
+            </div>
 
-      {/* ─── SIDEBAR ─── */}
-      <aside className="w-60 flex-shrink-0 sticky top-0 h-screen flex flex-col" style={{ background: c.sidebar, borderRight: '1px solid rgba(255,255,255,0.06)' }}>
-        {/* Logo */}
-        <div className="px-5 pt-5 pb-6 flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center font-extrabold text-sm text-white" style={{ background: 'linear-gradient(135deg, #2563EB, #7C3AED)' }}>
-            M
-          </div>
-          <div>
-            <div className="text-white font-bold text-base tracking-tight">MOVCO</div>
-            <div className="text-white/40 text-[10px] font-medium">Admin Portal</div>
-          </div>
-        </div>
-
-        {/* Nav */}
-        <nav className="flex-1 px-2.5 overflow-y-auto">
-          {navItems.map((item) => {
-            if (item.type === 'divider') {
-              return (
-                <div key={item.id} className="text-[10px] font-semibold text-white/25 tracking-widest uppercase px-2.5 pt-5 pb-2">
-                  {item.label}
-                </div>
-              );
-            }
-            const isActive = page === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => { setPage(item.id); setSearchTerm(''); }}
-                className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg border-none cursor-pointer text-left mb-0.5 transition-all"
-                style={{
-                  background: isActive ? c.sidebarActive : 'transparent',
-                  color: isActive ? '#fff' : 'rgba(255,255,255,0.6)',
-                  fontSize: 13,
-                  fontWeight: isActive ? 600 : 500,
-                }}
-                onMouseOver={(e) => {
-                  if (!isActive) (e.currentTarget as HTMLElement).style.background = c.sidebarHover;
-                }}
-                onMouseOut={(e) => {
-                  if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent';
-                }}
+            <div className="flex items-center gap-3">
+              <Link
+                href="/dashboard"
+                className="text-slate-400 hover:text-white text-sm font-medium transition"
               >
-                <Icon d={item.icon!} size={18} color={isActive ? '#fff' : 'rgba(255,255,255,0.45)'} />
-                <span className="flex-1">{item.label}</span>
-                {item.badge !== undefined && (
-                  <span className="text-[10px] font-bold rounded-full px-2 py-0.5 min-w-[20px] text-center" style={{ background: isActive ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.08)' }}>
-                    {item.badge}
-                  </span>
-                )}
+                User Dashboard
+              </Link>
+              <button
+                onClick={async () => {
+                  await signOut();
+                  router.push('/auth');
+                }}
+                className="text-slate-400 hover:text-white text-sm font-medium transition"
+              >
+                Sign Out
               </button>
-            );
-          })}
-        </nav>
-
-        {/* Footer stats */}
-        <div className="p-4 border-t border-white/5">
-          <div className="rounded-xl p-3" style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.15), rgba(124,58,237,0.15))' }}>
-            <div className="text-xs font-semibold text-white/85">{activePartners.length} active partners</div>
-            <div className="text-[10px] text-white/40">£{totalMRR.toFixed(2)}/mo MRR</div>
-          </div>
-        </div>
-      </aside>
-
-      {/* ─── MAIN ─── */}
-      <main className="flex-1 p-7 min-w-0 overflow-x-hidden">
-        {/* Refresh button */}
-        <div className="flex justify-end mb-4">
-          <button
-            onClick={fetchData}
-            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-blue-600 transition cursor-pointer bg-transparent border-none"
-          >
-            <Icon d={icons.refresh} size={14} /> Refresh
-          </button>
-        </div>
-
-        {/* ═══ DASHBOARD ═══ */}
-        {page === 'dashboard' && (
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight mb-1">Dashboard</h1>
-            <p className="text-sm text-gray-500 mb-7">Overview of all MOVCO partner activity</p>
-
-            {/* KPIs */}
-            <div className="grid grid-cols-4 gap-3.5 mb-7">
-              {[
-                { label: 'Total Partners', value: allPartners.length, sub: `${activePartners.length} active`, color: c.accent },
-                { label: 'Monthly Revenue', value: `£${totalMRR.toFixed(2)}`, sub: `${allPartners.filter((p) => (p._mrr || 0) > 0).length} paying`, color: c.green },
-                { label: 'Total Leads', value: totalLeads, sub: 'All time', color: c.amber },
-                { label: 'ARR', value: `£${(totalMRR * 12).toFixed(0)}`, sub: 'Projected annual', color: '#7C3AED' },
-              ].map((kpi) => (
-                <div key={kpi.label} className="bg-white rounded-xl p-5 border border-gray-200">
-                  <div className="text-xs font-semibold text-gray-500 mb-2">{kpi.label}</div>
-                  <div className="text-3xl font-bold text-gray-900 tracking-tight" style={{ fontFamily: "'DM Mono', monospace" }}>{kpi.value}</div>
-                  <div className="text-xs text-gray-400 mt-1">{kpi.sub}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* Segment cards */}
-            <div className="grid grid-cols-3 gap-3.5 mb-7">
-              {[
-                {
-                  title: 'Storage Partners', icon: icons.storage, color: '#2563EB',
-                  active: storageActive, total: storagePartners.length,
-                  mrr: storagePartners.reduce((s, p) => s + (p._mrr || 0), 0),
-                  leads: storagePartners.reduce((s, p) => s + (p._leads_count || 0), 0),
-                  nav: 'storage',
-                },
-                {
-                  title: 'Removals — Calculator', icon: icons.calculator, color: '#0F766E',
-                  active: calcActive, total: calcPartners.length,
-                  mrr: calcPartners.reduce((s, p) => s + (p._mrr || 0), 0),
-                  leads: calcPartners.reduce((s, p) => s + (p._leads_count || 0), 0),
-                  nav: 'removals_calc',
-                },
-                {
-                  title: 'Removals — CRM', icon: icons.monitor, color: '#7C3AED',
-                  active: crmActive, total: crmPartners.length,
-                  mrr: crmPartners.reduce((s, p) => s + (p._mrr || 0), 0),
-                  leads: crmPartners.reduce((s, p) => s + (p._leads_count || 0), 0),
-                  nav: 'removals_crm',
-                },
-              ].map((seg) => (
-                <button
-                  key={seg.title}
-                  onClick={() => setPage(seg.nav)}
-                  className="bg-white rounded-xl p-5 border border-gray-200 cursor-pointer text-left hover:shadow-md transition-all"
-                  style={{ fontFamily: 'inherit' }}
-                >
-                  <div className="flex items-center gap-2.5 mb-4">
-                    <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: `${seg.color}12` }}>
-                      <Icon d={seg.icon} size={18} color={seg.color} />
-                    </div>
-                    <div className="text-sm font-semibold text-gray-900">{seg.title}</div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <div className="text-xl font-bold text-gray-900" style={{ fontFamily: "'DM Mono', monospace" }}>
-                        {seg.active}<span className="text-sm font-medium text-gray-400">/{seg.total}</span>
-                      </div>
-                      <div className="text-[11px] text-gray-400">Active</div>
-                    </div>
-                    <div>
-                      <div className="text-xl font-bold text-emerald-600" style={{ fontFamily: "'DM Mono', monospace" }}>£{seg.mrr.toFixed(0)}</div>
-                      <div className="text-[11px] text-gray-400">MRR</div>
-                    </div>
-                  </div>
-                  <div className="mt-3.5 pt-3.5 border-t border-gray-100 flex justify-between text-xs text-gray-500">
-                    <span>{seg.leads} leads</span>
-                    <span style={{ color: seg.color, fontWeight: 600 }}>View →</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            {/* Recent partners */}
-            <div className="bg-white rounded-xl p-6 border border-gray-200">
-              <h3 className="text-sm font-bold text-gray-900 mb-4">Recently Added Partners</h3>
-              <div className="space-y-1">
-                {[...allPartners]
-                  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-                  .slice(0, 6)
-                  .map((p) => {
-                    const typeLabel = p._type === 'storage' ? 'Storage' : p._type === 'calc' ? 'Removals Calc' : 'Removals CRM';
-                    const typeColor = p._type === 'storage' ? '#2563EB' : p._type === 'calc' ? '#0F766E' : '#7C3AED';
-                    return (
-                      <div key={p.id} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 transition">
-                        <div
-                          className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0"
-                          style={{ background: `#${p.primary_color}12`, color: `#${p.primary_color}` }}
-                        >
-                          {p.company_name.charAt(0)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold text-gray-900 truncate">{p.company_name}</div>
-                          <div className="text-[11px] text-gray-400 truncate">{p.email}</div>
-                        </div>
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md flex-shrink-0" style={{ background: `${typeColor}10`, color: typeColor }}>
-                          {typeLabel}
-                        </span>
-                        <span className="text-[11px] text-gray-400 flex-shrink-0">
-                          {new Date(p.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}
-                        </span>
-                      </div>
-                    );
-                  })}
-              </div>
             </div>
           </div>
-        )}
+        </div>
+      </header>
 
-        {/* ═══ STORAGE ═══ */}
-        {page === 'storage' && (
-          <PartnerTable
-            partners={storagePartners}
-            type="storage"
-            title="Storage Partners"
-            subtitle={`${storageActive} active · ${storagePartners.length} total · White-label storage calculators`}
-            extraColumns={[{ key: 'units_count', header: 'Units' }]}
-          />
-        )}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Title */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-white">Admin Dashboard</h1>
+          <p className="text-slate-400 mt-1">
+            Overview of all quotes and booking activity
+          </p>
+        </div>
 
-        {/* ═══ REMOVALS CALC ═══ */}
-        {page === 'removals_calc' && (
-          <PartnerTable
-            partners={calcPartners}
-            type="calc"
-            title="Removals — Calculator"
-            subtitle={`${calcActive} active · ${calcPartners.length} total · White-label removals quote tools`}
-            extraColumns={[{ key: 'van_count', header: 'Vans' }]}
-          />
-        )}
+        {/* Top Stats Row */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          {/* Total Quotes */}
+          <div className="bg-slate-900 rounded-xl p-5 border border-slate-800">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Total Quotes</p>
+            <p className="text-3xl font-bold text-white mt-2">{totalQuotes}</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {thisWeek} this week
+              {weekChange !== 0 && (
+                <span className={weekChange > 0 ? ' text-green-400' : ' text-red-400'}>
+                  {' '}({weekChange > 0 ? '+' : ''}{weekChange}%)
+                </span>
+              )}
+            </p>
+          </div>
 
-        {/* ═══ REMOVALS CRM ═══ */}
-        {page === 'removals_crm' && (
-          <PartnerTable
-            partners={crmPartners}
-            type="crm"
-            title="Removals — CRM"
-            subtitle={`${crmActive} active · ${crmPartners.length} total · Full CRM at £129.99/mo`}
-            extraColumns={[]}
-          />
-        )}
+          {/* Unique Users */}
+          <div className="bg-slate-900 rounded-xl p-5 border border-slate-800">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Unique Users</p>
+            <p className="text-3xl font-bold text-white mt-2">{uniqueUsers}</p>
+            <p className="text-xs text-slate-500 mt-1">{totalPhotos} photos uploaded</p>
+          </div>
 
-        {/* ═══ BILLING ═══ */}
-        {page === 'billing' && (
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight mb-1">Billing & Plans</h1>
-            <p className="text-sm text-gray-500 mb-7">Subscription overview and revenue breakdown</p>
+          {/* Booking Interest */}
+          <div className="bg-slate-900 rounded-xl p-5 border border-slate-800">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Want Booking</p>
+            <p className="text-3xl font-bold text-green-400 mt-2">{interestedInBooking}</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {notInterested} declined · {pendingResponse} pending
+            </p>
+          </div>
 
-            {/* Revenue KPIs */}
-            <div className="grid grid-cols-3 gap-3.5 mb-7">
-              {[
-                { label: 'Monthly Recurring Revenue', value: `£${totalMRR.toFixed(2)}`, color: c.green },
-                { label: 'Annual Run Rate', value: `£${(totalMRR * 12).toFixed(0)}`, color: c.accent },
-                { label: 'Paying Partners', value: `${allPartners.filter((p) => (p._mrr || 0) > 0).length} / ${allPartners.length}`, color: '#7C3AED' },
-              ].map((kpi) => (
-                <div key={kpi.label} className="bg-white rounded-xl p-6 border border-gray-200">
-                  <div className="text-xs font-semibold text-gray-500 mb-2">{kpi.label}</div>
-                  <div className="text-3xl font-bold tracking-tight" style={{ color: kpi.color, fontFamily: "'DM Mono', monospace" }}>{kpi.value}</div>
-                </div>
-              ))}
-            </div>
+          {/* Conversion Rate */}
+          <div className="bg-slate-900 rounded-xl p-5 border border-slate-800">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Conversion Rate</p>
+            <p className="text-3xl font-bold text-amber-400 mt-2">
+              {totalQuotes > 0 ? Math.round((interestedInBooking / totalQuotes) * 100) : 0}%
+            </p>
+            <p className="text-xs text-slate-500 mt-1">interested / total quotes</p>
+          </div>
+        </div>
 
-            {/* Revenue by plan */}
-            <div className="bg-white rounded-xl p-6 border border-gray-200 mb-5">
-              <h3 className="text-sm font-bold text-gray-900 mb-4">Revenue by Plan</h3>
-              {[
-                { plan: 'CRM Pro', price: '£129.99/mo', count: crmPartners.filter((p) => p.active && (p._mrr || 0) > 0).length, mrr: crmPartners.reduce((s, p) => s + (p._mrr || 0), 0), color: '#7C3AED' },
-                { plan: 'Pro (Calculator)', price: '£49.99/mo', count: [...storagePartners, ...calcPartners].filter((p) => p.plan === 'pro' && (p._mrr || 0) > 0).length, mrr: [...storagePartners, ...calcPartners].filter((p) => p.plan === 'pro').reduce((s, p) => s + (p._mrr || 0), 0), color: '#16A34A' },
-                { plan: 'Starter', price: '£29.99/mo', count: [...storagePartners, ...calcPartners].filter((p) => p.plan === 'starter' && (p._mrr || 0) > 0).length, mrr: [...storagePartners, ...calcPartners].filter((p) => p.plan === 'starter').reduce((s, p) => s + (p._mrr || 0), 0), color: c.accent },
-                { plan: 'Trial', price: 'Free', count: allPartners.filter((p) => p.plan === 'trial').length, mrr: 0, color: c.amber },
-              ].map((row) => (
-                <div key={row.plan} className="flex items-center py-3.5 border-b border-gray-100 last:border-b-0">
-                  <span className="w-2.5 h-2.5 rounded-full mr-3.5 flex-shrink-0" style={{ background: row.color }} />
-                  <div className="flex-1">
-                    <div className="text-sm font-semibold text-gray-900">{row.plan}</div>
-                    <div className="text-xs text-gray-400">{row.price} · {row.count} partner{row.count !== 1 ? 's' : ''}</div>
-                  </div>
-                  <div className="text-base font-bold" style={{ color: row.mrr > 0 ? c.text : c.textLight, fontFamily: "'DM Mono', monospace" }}>
-                    {row.mrr > 0 ? `£${row.mrr.toFixed(2)}` : '£0'}
-                  </div>
-                </div>
-              ))}
-              <div className="flex justify-between pt-4 mt-1">
-                <span className="text-sm font-bold text-gray-900">Total MRR</span>
-                <span className="text-lg font-bold text-emerald-600" style={{ fontFamily: "'DM Mono', monospace" }}>£{totalMRR.toFixed(2)}</span>
+        {/* Chart: Quotes Over Time */}
+        <div className="bg-slate-900 rounded-xl p-6 border border-slate-800 mb-8">
+          <h2 className="text-sm font-semibold text-white mb-4">Quotes — Last 14 Days</h2>
+          <div className="flex items-end gap-1.5 h-40">
+            {dailyCounts.map((day, idx) => (
+              <div key={idx} className="flex-1 flex flex-col items-center gap-1">
+                <span className="text-[10px] text-slate-500 font-medium">
+                  {day.count > 0 ? day.count : ''}
+                </span>
+                <div
+                  className="w-full rounded-t-sm transition-all duration-300"
+                  style={{
+                    height: `${Math.max((day.count / maxDailyCount) * 100, day.count > 0 ? 8 : 2)}%`,
+                    backgroundColor: day.count > 0 ? '#3b82f6' : '#1e293b',
+                    minHeight: day.count > 0 ? '8px' : '2px',
+                  }}
+                />
+                <span className="text-[9px] text-slate-600 whitespace-nowrap">
+                  {day.date.split(' ')[0]}
+                </span>
               </div>
-            </div>
+            ))}
+          </div>
+          <div className="flex justify-between mt-1">
+            <span className="text-[10px] text-slate-600">{dailyCounts[0]?.date}</span>
+            <span className="text-[10px] text-slate-600">{dailyCounts[dailyCounts.length - 1]?.date}</span>
+          </div>
+        </div>
 
-            {/* All subscriptions */}
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100">
-                <h3 className="text-sm font-bold text-gray-900">All Subscriptions</h3>
-              </div>
-              <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr className="bg-gray-50">
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Company</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Type</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Plan</th>
-                    <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase">MRR</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Since</th>
+        {/* Booking Interest Breakdown */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <div className="bg-slate-900 rounded-xl p-5 border border-slate-800">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-3 h-3 rounded-full bg-green-400"></div>
+              <p className="text-sm font-medium text-white">Interested in Booking</p>
+            </div>
+            <p className="text-2xl font-bold text-green-400">{interestedInBooking}</p>
+            <div className="mt-3 bg-slate-800 rounded-full h-2 overflow-hidden">
+              <div
+                className="bg-green-400 h-full rounded-full transition-all"
+                style={{ width: `${totalQuotes > 0 ? (interestedInBooking / totalQuotes) * 100 : 0}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="bg-slate-900 rounded-xl p-5 border border-slate-800">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-3 h-3 rounded-full bg-red-400"></div>
+              <p className="text-sm font-medium text-white">Declined</p>
+            </div>
+            <p className="text-2xl font-bold text-red-400">{notInterested}</p>
+            <div className="mt-3 bg-slate-800 rounded-full h-2 overflow-hidden">
+              <div
+                className="bg-red-400 h-full rounded-full transition-all"
+                style={{ width: `${totalQuotes > 0 ? (notInterested / totalQuotes) * 100 : 0}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="bg-slate-900 rounded-xl p-5 border border-slate-800">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-3 h-3 rounded-full bg-slate-500"></div>
+              <p className="text-sm font-medium text-white">No Response Yet</p>
+            </div>
+            <p className="text-2xl font-bold text-slate-400">{pendingResponse}</p>
+            <div className="mt-3 bg-slate-800 rounded-full h-2 overflow-hidden">
+              <div
+                className="bg-slate-500 h-full rounded-full transition-all"
+                style={{ width: `${totalQuotes > 0 ? (pendingResponse / totalQuotes) * 100 : 0}%` }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* All Quotes Table */}
+        <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-white">All Quotes ({totalQuotes})</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-800">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Date</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">From → To</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Photos</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Booking</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {quotes.map((quote) => (
+                  <tr key={quote.id} className="hover:bg-slate-800/50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap text-xs text-slate-400">
+                      {new Date(quote.created_at).toLocaleDateString('en-GB', {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                      })}
+                      <br />
+                      <span className="text-slate-600">
+                        {new Date(quote.created_at).toLocaleTimeString('en-GB', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <p className="text-sm text-white font-medium truncate max-w-[200px]">
+                        {quote.starting_address}
+                      </p>
+                      <p className="text-xs text-slate-500 truncate max-w-[200px]">
+                        → {quote.ending_address}
+                      </p>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className="text-xs text-slate-400">
+                        {quote.photo_urls?.length || 0}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                        quote.status === 'new'
+                          ? 'bg-green-500/20 text-green-400'
+                          : quote.status === 'booked'
+                          ? 'bg-blue-500/20 text-blue-400'
+                          : quote.status === 'completed'
+                          ? 'bg-purple-500/20 text-purple-400'
+                          : 'bg-slate-700 text-slate-400'
+                      }`}>
+                        {quote.status || 'new'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      {quote.interested_in_booking === true && (
+                        <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-500/20 text-green-400">
+                          Interested
+                        </span>
+                      )}
+                      {quote.interested_in_booking === false && (
+                        <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-500/20 text-red-400">
+                          Declined
+                        </span>
+                      )}
+                      {(quote.interested_in_booking === null || quote.interested_in_booking === undefined) && (
+                        <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-700 text-slate-500">
+                          Pending
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <Link
+                        href={`/dashboard/${quote.id}`}
+                        className="text-blue-400 hover:text-blue-300 text-xs font-medium"
+                      >
+                        View →
+                      </Link>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {allPartners
-                    .filter((p) => (p._mrr || 0) > 0)
-                    .sort((a, b) => (b._mrr || 0) - (a._mrr || 0))
-                    .map((p, i) => {
-                      const typeLabel = p._type === 'storage' ? 'Storage' : p._type === 'calc' ? 'Removals Calc' : 'Removals CRM';
-                      return (
-                        <tr key={p.id} className={`hover:bg-gray-50 ${i > 0 ? 'border-t border-gray-100' : ''}`}>
-                          <td className="px-4 py-3 font-medium">{p.company_name}</td>
-                          <td className="px-4 py-3 text-gray-500">{typeLabel}</td>
-                          <td className="px-4 py-3">
-                            <span
-                              className="text-xs font-semibold px-2 py-0.5 rounded-md"
-                              style={{
-                                background: (planColors[p.plan || 'trial'] || planColors.trial).bg,
-                                color: (planColors[p.plan || 'trial'] || planColors.trial).text,
-                              }}
-                            >
-                              {PLAN_LABELS[p.plan || 'trial'] || 'Trial'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-right font-semibold" style={{ fontFamily: "'DM Mono', monospace" }}>£{(p._mrr || 0).toFixed(2)}</td>
-                          <td className="px-4 py-3 text-gray-400">
-                            {new Date(p.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
-        )}
+          {quotes.length === 0 && (
+            <div className="px-6 py-12 text-center">
+              <p className="text-slate-500">No quotes yet</p>
+            </div>
+          )}
+        </div>
       </main>
-
-      {/* ═══ EDIT MODAL ═══ */}
-      {editModal && (
-        <Modal title={`Edit — ${editModal.company_name}`} onClose={() => setEditModal(null)}>
-          <div className="space-y-3.5">
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Company Name</label>
-              <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.company_name || ''} onChange={(e) => setFormData({ ...formData, company_name: e.target.value })} />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Slug</label>
-              <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.slug || ''} onChange={(e) => setFormData({ ...formData, slug: e.target.value })} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">Email</label>
-                <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.email || ''} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">Phone</label>
-                <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.phone || ''} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">Brand Colour</label>
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg flex-shrink-0 border border-gray-200" style={{ background: `#${formData.primary_color || '2563EB'}` }} />
-                  <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.primary_color || ''} onChange={(e) => setFormData({ ...formData, primary_color: e.target.value })} />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">Plan</label>
-                <select
-                  className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition bg-white"
-                  value={formData.plan || 'trial'}
-                  onChange={(e) => setFormData({ ...formData, plan: e.target.value })}
-                >
-                  <option value="trial">Trial</option>
-                  <option value="starter">Starter — £29.99/mo</option>
-                  <option value="pro">Pro — £49.99/mo</option>
-                  <option value="enterprise">Enterprise — £99.99/mo</option>
-                  {editModal._type === 'crm' && <option value="crm_pro">CRM Pro — £129.99/mo</option>}
-                </select>
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Website</label>
-              <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.website || ''} onChange={(e) => setFormData({ ...formData, website: e.target.value })} placeholder="https://..." />
-            </div>
-          </div>
-          <div className="flex gap-2.5 mt-6">
-            <button onClick={() => setEditModal(null)} className="flex-1 bg-gray-100 border border-gray-200 rounded-lg py-2.5 text-sm font-semibold text-gray-500 cursor-pointer hover:bg-gray-200 transition">
-              Cancel
-            </button>
-            <button onClick={saveEdit} disabled={saving} className="flex-1 bg-blue-600 text-white border-none rounded-lg py-2.5 text-sm font-semibold cursor-pointer hover:bg-blue-700 transition disabled:opacity-50">
-              {saving ? 'Saving...' : 'Save Changes'}
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      {/* ═══ ADD MODAL ═══ */}
-      {addModal && (
-        <Modal
-          title={`Add New ${addModal === 'storage' ? 'Storage' : addModal === 'calc' ? 'Removals Calculator' : 'Removals CRM'} Partner`}
-          onClose={() => { setAddModal(null); setFormData({}); }}
-        >
-          <div className="space-y-3.5">
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Company Name</label>
-              <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="e.g. SecureBox Manchester" value={formData.company_name || ''} onChange={(e) => setFormData({ ...formData, company_name: e.target.value })} />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Slug (URL path)</label>
-              <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="e.g. securebox-manchester" value={formData.slug || ''} onChange={(e) => setFormData({ ...formData, slug: e.target.value })} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">Email</label>
-                <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="info@company.co.uk" value={formData.email || ''} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">Phone</label>
-                <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="01234 567 890" value={formData.phone || ''} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">Brand Colour (hex)</label>
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg flex-shrink-0 border border-gray-200" style={{ background: `#${formData.primary_color || '2563EB'}` }} />
-                  <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="2563EB" value={formData.primary_color || ''} onChange={(e) => setFormData({ ...formData, primary_color: e.target.value })} />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">Plan</label>
-                <select
-                  className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition bg-white"
-                  value={formData.plan || 'trial'}
-                  onChange={(e) => setFormData({ ...formData, plan: e.target.value })}
-                >
-                  <option value="trial">Trial</option>
-                  <option value="starter">Starter — £29.99/mo</option>
-                  <option value="pro">Pro — £49.99/mo</option>
-                  {addModal === 'crm' && <option value="crm_pro">CRM Pro — £129.99/mo</option>}
-                </select>
-              </div>
-            </div>
-          </div>
-          <div className="flex gap-2.5 mt-6">
-            <button onClick={() => { setAddModal(null); setFormData({}); }} className="flex-1 bg-gray-100 border border-gray-200 rounded-lg py-2.5 text-sm font-semibold text-gray-500 cursor-pointer hover:bg-gray-200 transition">
-              Cancel
-            </button>
-            <button onClick={addPartner} disabled={saving || !formData.company_name || !formData.slug} className="flex-1 bg-blue-600 text-white border-none rounded-lg py-2.5 text-sm font-semibold cursor-pointer hover:bg-blue-700 transition disabled:opacity-50">
-              {saving ? 'Adding...' : 'Add Partner'}
-            </button>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }
