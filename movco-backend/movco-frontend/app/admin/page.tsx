@@ -19,6 +19,7 @@ type StoragePartner = {
   logo_url: string | null;
   primary_color: string;
   email: string | null;
+  notification_email: string | null;
   phone: string | null;
   website: string | null;
   active: boolean;
@@ -35,6 +36,7 @@ type RemovalsPartner = {
   primary_color: string;
   accent_color: string | null;
   email: string | null;
+  notification_email: string | null;
   phone: string | null;
   website: string | null;
   active: boolean;
@@ -68,14 +70,12 @@ const PLAN_LABELS: Record<string, string> = {
   crm_pro: 'CRM Pro',
 };
 
-// Helper: get MRR for any plan name (handles legacy names)
 function getPlanMRR(plan: string | null): number {
   if (!plan || plan === 'trial') return 0;
   if (plan === 'crm_pro') return 149.99;
-  return 99.99; // All calculator plans (starter, pro, enterprise, calculator)
+  return 99.99;
 }
 
-// Helper: get display label for any plan
 function getPlanLabel(plan: string | null): string {
   if (!plan || plan === 'trial') return 'Trial';
   if (plan === 'crm_pro') return 'CRM Pro';
@@ -115,7 +115,6 @@ const icons = {
 export default function AdminPortalPage() {
   const { user, loading: authLoading, signOut } = useAuth();
 
-  // ─── State ───
   const [page, setPage] = useState('dashboard');
   const [loading, setLoading] = useState(true);
   const [authorized, setAuthorized] = useState<boolean | null>(null);
@@ -133,169 +132,92 @@ export default function AdminPortalPage() {
   const [addTeamModal, setAddTeamModal] = useState(false);
   const [teamForm, setTeamForm] = useState({ email: '', name: '', role: 'admin' });
 
-  // Edit form state
   const [formData, setFormData] = useState<Record<string, any>>({});
 
   // ─── Auth check ───
   useEffect(() => {
     if (authLoading) return;
-    if (!user) {
-      setAuthorized(false);
-      setLoading(false);
-      return;
-    }
-
+    if (!user) { setAuthorized(false); setLoading(false); return; }
     const checkAdmin = async () => {
-      const { data } = await supabase
-        .from('admin_users')
-        .select('*')
-        .eq('email', user.email)
-        .single();
-
-      if (data) {
-        setAuthorized(true);
-        setCurrentAdmin(data);
-      } else {
-        setAuthorized(false);
-      }
+      const { data } = await supabase.from('admin_users').select('*').eq('email', user.email).single();
+      if (data) { setAuthorized(true); setCurrentAdmin(data); } else { setAuthorized(false); }
       setLoading(false);
     };
-
     checkAdmin();
   }, [user, authLoading]);
 
-  // ─── Fetch admin users ───
   const fetchAdminUsers = useCallback(async () => {
-    const { data } = await supabase
-      .from('admin_users')
-      .select('*')
-      .order('created_at', { ascending: true });
+    const { data } = await supabase.from('admin_users').select('*').order('created_at', { ascending: true });
     setAdminUsers(data || []);
   }, []);
 
-  // ─── Fetch all data ───
   const fetchData = useCallback(async () => {
     try {
-      // Fetch storage partners + lead counts
-      const { data: storageData } = await supabase
-        .from('storage_partners')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      // Fetch storage lead counts
-      const { data: storageLeadCounts } = await supabase
-        .from('storage_leads')
-        .select('partner_id');
-
+      const { data: storageData } = await supabase.from('storage_partners').select('*').order('created_at', { ascending: false });
+      const { data: storageLeadCounts } = await supabase.from('storage_leads').select('partner_id');
       const storageLeadMap: Record<string, number> = {};
-      (storageLeadCounts || []).forEach((l: any) => {
-        storageLeadMap[l.partner_id] = (storageLeadMap[l.partner_id] || 0) + 1;
-      });
+      (storageLeadCounts || []).forEach((l: any) => { storageLeadMap[l.partner_id] = (storageLeadMap[l.partner_id] || 0) + 1; });
 
       const mappedStorage: AnyPartner[] = (storageData || []).map((p: any) => ({
-        ...p,
-        _type: 'storage' as const,
-        _leads_count: storageLeadMap[p.id] || 0,
-        _mrr: p.active ? (getPlanMRR(p.plan)) : 0,
-        _extra: { units_count: Array.isArray(p.units) ? p.units.length : 0 },
+        ...p, _type: 'storage' as const, _leads_count: storageLeadMap[p.id] || 0,
+        _mrr: p.active ? getPlanMRR(p.plan) : 0, _extra: { units_count: Array.isArray(p.units) ? p.units.length : 0 },
       }));
 
-      // Fetch removals partners + lead counts
-      const { data: removalsData } = await supabase
-        .from('removals_partners')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      const { data: removalsLeadCounts } = await supabase
-        .from('removals_leads')
-        .select('partner_id');
-
+      const { data: removalsData } = await supabase.from('removals_partners').select('*').order('created_at', { ascending: false });
+      const { data: removalsLeadCounts } = await supabase.from('removals_leads').select('partner_id');
       const removalsLeadMap: Record<string, number> = {};
-      (removalsLeadCounts || []).forEach((l: any) => {
-        removalsLeadMap[l.partner_id] = (removalsLeadMap[l.partner_id] || 0) + 1;
-      });
+      (removalsLeadCounts || []).forEach((l: any) => { removalsLeadMap[l.partner_id] = (removalsLeadMap[l.partner_id] || 0) + 1; });
 
       const mappedCalc: AnyPartner[] = [];
       const mappedCrm: AnyPartner[] = [];
-
       (removalsData || []).forEach((p: any) => {
         const partner: AnyPartner = {
-          ...p,
-          _type: p.product_type === 'crm' ? ('crm' as const) : ('calc' as const),
-          _leads_count: removalsLeadMap[p.id] || 0,
-          _mrr: p.active ? (getPlanMRR(p.plan)) : 0,
-          _extra: {
-            van_count: Array.isArray(p.van_types) ? p.van_types.length : 0,
-          },
+          ...p, _type: p.product_type === 'crm' ? ('crm' as const) : ('calc' as const),
+          _leads_count: removalsLeadMap[p.id] || 0, _mrr: p.active ? getPlanMRR(p.plan) : 0,
+          _extra: { van_count: Array.isArray(p.van_types) ? p.van_types.length : 0 },
         };
-        if (p.product_type === 'crm') {
-          mappedCrm.push(partner);
-        } else {
-          mappedCalc.push(partner);
-        }
+        if (p.product_type === 'crm') { mappedCrm.push(partner); } else { mappedCalc.push(partner); }
       });
 
       setStoragePartners(mappedStorage);
       setCalcPartners(mappedCalc);
       setCrmPartners(mappedCrm);
-    } catch (err) {
-      console.error('Failed to fetch data:', err);
-    }
+    } catch (err) { console.error('Failed to fetch data:', err); }
     setLoading(false);
   }, []);
 
-  useEffect(() => {
-    if (authorized) {
-      fetchData();
-      fetchAdminUsers();
-    }
-  }, [authorized, fetchData, fetchAdminUsers]);
+  useEffect(() => { if (authorized) { fetchData(); fetchAdminUsers(); } }, [authorized, fetchData, fetchAdminUsers]);
 
   // ─── Team CRUD ───
   const addTeamMember = async () => {
     if (!teamForm.email || !teamForm.name) return;
     setSaving(true);
     await adminApi({ action: 'insert', table: 'admin_users', data: { email: teamForm.email.toLowerCase().trim(), name: teamForm.name, role: teamForm.role } });
-    setSaving(false);
-    setAddTeamModal(false);
-    setTeamForm({ email: '', name: '', role: 'admin' });
-    fetchAdminUsers();
+    setSaving(false); setAddTeamModal(false); setTeamForm({ email: '', name: '', role: 'admin' }); fetchAdminUsers();
   };
 
   const removeTeamMember = async (id: string) => {
     if (adminUsers.find((u) => u.id === id)?.role === 'owner') return;
-    await adminApi({ action: 'delete', table: 'admin_users', id });
-    fetchAdminUsers();
+    await adminApi({ action: 'delete', table: 'admin_users', id }); fetchAdminUsers();
   };
 
-  // ─── Admin API helper ───
   const adminApi = async (body: Record<string, any>) => {
-    const res = await fetch('/api/admin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    const res = await fetch('/api/admin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     return res.json();
   };
 
-  // ─── Toggle active status ───
   const toggleActive = async (partner: AnyPartner) => {
     const table = partner._type === 'storage' ? 'storage_partners' : 'removals_partners';
-    await adminApi({ action: 'toggle_active', table, id: partner.id });
-    fetchData();
+    await adminApi({ action: 'toggle_active', table, id: partner.id }); fetchData();
   };
 
-  // ─── Save edit ───
+  // ─── Save edit — UPDATED: includes notification_email ───
   const saveEdit = async () => {
     if (!editModal) return;
     setSaving(true);
-
     const table = editModal._type === 'storage' ? 'storage_partners' : 'removals_partners';
-
     await adminApi({
-      action: 'update',
-      table,
-      id: editModal.id,
+      action: 'update', table, id: editModal.id,
       data: {
         company_name: formData.company_name,
         slug: formData.slug,
@@ -304,58 +226,32 @@ export default function AdminPortalPage() {
         primary_color: formData.primary_color,
         plan: formData.plan,
         website: formData.website || null,
+        notification_email: formData.notification_email || null, // ← NEW
       },
     });
-
-    setSaving(false);
-    setEditModal(null);
-    fetchData();
+    setSaving(false); setEditModal(null); fetchData();
   };
 
   // ─── Add new partner ───
   const addPartner = async () => {
     if (!addModal) return;
     setSaving(true);
-
     if (addModal === 'storage') {
-      await adminApi({
-        action: 'insert',
-        table: 'storage_partners',
-        data: {
-          company_name: formData.company_name,
-          slug: formData.slug,
-          email: formData.email || null,
-          phone: formData.phone || null,
-          primary_color: formData.primary_color || '2563EB',
-          plan: formData.plan || 'calculator',
-          active: true,
-          units: [],
-        },
-      });
+      await adminApi({ action: 'insert', table: 'storage_partners', data: {
+        company_name: formData.company_name, slug: formData.slug, email: formData.email || null, phone: formData.phone || null,
+        primary_color: formData.primary_color || '2563EB', plan: formData.plan || 'calculator', active: true, units: [],
+      }});
     } else {
-      await adminApi({
-        action: 'insert',
-        table: 'removals_partners',
-        data: {
-          company_name: formData.company_name,
-          slug: formData.slug,
-          email: formData.email || null,
-          phone: formData.phone || null,
-          primary_color: formData.primary_color || '2563EB',
-          plan: addModal === 'crm' ? 'crm_pro' : (formData.plan || 'calculator'),
-          product_type: addModal === 'crm' ? 'crm' : 'calculator',
-          active: true,
-        },
-      });
+      await adminApi({ action: 'insert', table: 'removals_partners', data: {
+        company_name: formData.company_name, slug: formData.slug, email: formData.email || null, phone: formData.phone || null,
+        primary_color: formData.primary_color || '2563EB', plan: addModal === 'crm' ? 'crm_pro' : (formData.plan || 'calculator'),
+        product_type: addModal === 'crm' ? 'crm' : 'calculator', active: true,
+      }});
     }
-
-    setSaving(false);
-    setAddModal(null);
-    setFormData({});
-    fetchData();
+    setSaving(false); setAddModal(null); setFormData({}); fetchData();
   };
 
-  // ─── Open edit modal ───
+  // ─── Open edit modal — UPDATED: includes notification_email ───
   const openEdit = (partner: AnyPartner) => {
     setFormData({
       company_name: partner.company_name,
@@ -365,21 +261,13 @@ export default function AdminPortalPage() {
       primary_color: partner.primary_color,
       plan: partner.plan || 'trial',
       website: (partner as any).website || '',
+      notification_email: (partner as any).notification_email || '', // ← NEW
     });
     setEditModal(partner);
   };
 
-  // ─── Open add modal ───
   const openAdd = (type: string) => {
-    setFormData({
-      company_name: '',
-      slug: '',
-      email: '',
-      phone: '',
-      primary_color: '2563EB',
-      plan: type === 'crm' ? 'crm_pro' : 'calculator',
-      website: '',
-    });
+    setFormData({ company_name: '', slug: '', email: '', phone: '', primary_color: '2563EB', plan: type === 'crm' ? 'crm_pro' : 'calculator', website: '' });
     setAddModal(type);
   };
 
@@ -392,37 +280,18 @@ export default function AdminPortalPage() {
   const calcActive = calcPartners.filter((p) => p.active).length;
   const crmActive = crmPartners.filter((p) => p.active).length;
 
-  // ─── Colors ───
   const c = {
-    sidebar: '#0F1629',
-    sidebarHover: '#1A2342',
-    sidebarActive: '#2563EB',
-    surface: '#FFFFFF',
-    surfaceAlt: '#F8F9FC',
-    border: '#E8EBF0',
-    text: '#111827',
-    textMuted: '#6B7280',
-    textLight: '#9CA3AF',
-    accent: '#2563EB',
-    accentLight: '#EFF4FF',
-    green: '#059669',
-    greenLight: '#ECFDF5',
-    amber: '#D97706',
-    amberLight: '#FFFBEB',
-    red: '#DC2626',
-    redLight: '#FEF2F2',
+    sidebar: '#0F1629', sidebarHover: '#1A2342', sidebarActive: '#2563EB', surface: '#FFFFFF', surfaceAlt: '#F8F9FC',
+    border: '#E8EBF0', text: '#111827', textMuted: '#6B7280', textLight: '#9CA3AF', accent: '#2563EB', accentLight: '#EFF4FF',
+    green: '#059669', greenLight: '#ECFDF5', amber: '#D97706', amberLight: '#FFFBEB', red: '#DC2626', redLight: '#FEF2F2',
   };
 
   const planColors: Record<string, { bg: string; text: string }> = {
-    trial: { bg: c.amberLight, text: c.amber },
-    calculator: { bg: c.accentLight, text: c.accent },
-    starter: { bg: c.accentLight, text: c.accent },
-    pro: { bg: c.accentLight, text: c.accent },
-    enterprise: { bg: c.accentLight, text: c.accent },
-    crm_pro: { bg: '#F0FDF4', text: '#16A34A' },
+    trial: { bg: c.amberLight, text: c.amber }, calculator: { bg: c.accentLight, text: c.accent },
+    starter: { bg: c.accentLight, text: c.accent }, pro: { bg: c.accentLight, text: c.accent },
+    enterprise: { bg: c.accentLight, text: c.accent }, crm_pro: { bg: '#F0FDF4', text: '#16A34A' },
   };
 
-  // ─── Nav items ───
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: icons.dashboard },
     { id: 'divider1', type: 'divider' as const, label: 'STORAGE' },
@@ -436,30 +305,16 @@ export default function AdminPortalPage() {
     { id: 'team', label: 'Team Access', icon: icons.team, badge: adminUsers.length },
   ];
 
-  // ═══════════════════════════════════════════
-  //  PARTNER TABLE
-  // ═══════════════════════════════════════════
-  const PartnerTable = ({
-    partners,
-    type,
-    title,
-    subtitle,
-    extraColumns = [],
-  }: {
-    partners: AnyPartner[];
-    type: string;
-    title: string;
-    subtitle: string;
+  // ═══ PARTNER TABLE ═══
+  const PartnerTable = ({ partners, type, title, subtitle, extraColumns = [] }: {
+    partners: AnyPartner[]; type: string; title: string; subtitle: string;
     extraColumns?: { key: string; header: string; render?: (p: AnyPartner) => string }[];
   }) => {
-    const filtered = searchTerm
-      ? partners.filter(
-          (p) =>
-            p.company_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            p.slug?.toLowerCase().includes(searchTerm.toLowerCase())
-        )
-      : partners;
+    const filtered = searchTerm ? partners.filter((p) =>
+      p.company_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      p.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      p.slug?.toLowerCase().includes(searchTerm.toLowerCase())
+    ) : partners;
 
     return (
       <div>
@@ -468,28 +323,14 @@ export default function AdminPortalPage() {
             <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{title}</h1>
             <p className="text-sm text-gray-500">{subtitle}</p>
           </div>
-          <button
-            onClick={() => openAdd(type)}
-            className="flex items-center gap-2 bg-blue-600 text-white border-none rounded-lg px-5 py-2.5 text-sm font-semibold cursor-pointer hover:bg-blue-700 transition"
-          >
+          <button onClick={() => openAdd(type)} className="flex items-center gap-2 bg-blue-600 text-white border-none rounded-lg px-5 py-2.5 text-sm font-semibold cursor-pointer hover:bg-blue-700 transition">
             <Icon d={icons.plus} size={16} color="#fff" /> Add Partner
           </button>
         </div>
-
-        {/* Search */}
         <div className="relative mb-5">
-          <div className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-40">
-            <Icon d={icons.search} size={16} />
-          </div>
-          <input
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search partners..."
-            className="w-full border border-gray-200 rounded-lg pl-10 pr-4 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition"
-          />
+          <div className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-40"><Icon d={icons.search} size={16} /></div>
+          <input value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Search partners..." className="w-full border border-gray-200 rounded-lg pl-10 pr-4 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition" />
         </div>
-
-        {/* Table */}
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
             <thead>
@@ -499,9 +340,7 @@ export default function AdminPortalPage() {
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Plan</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">MRR</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Leads</th>
-                {extraColumns.map((col) => (
-                  <th key={col.key} className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">{col.header}</th>
-                ))}
+                {extraColumns.map((col) => (<th key={col.key} className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">{col.header}</th>))}
                 <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
               </tr>
             </thead>
@@ -512,71 +351,29 @@ export default function AdminPortalPage() {
                   <tr key={p.id} className={`border-t border-gray-100 hover:bg-gray-50 transition-colors ${i === 0 ? 'border-t-0' : ''}`}>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-3">
-                        <div
-                          className="w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm flex-shrink-0"
-                          style={{ backgroundColor: `#${p.primary_color}15`, color: `#${p.primary_color}` }}
-                        >
-                          {p.company_name.charAt(0)}
-                        </div>
-                        <div>
-                          <div className="font-semibold text-gray-900">{p.company_name}</div>
-                          <div className="text-xs text-gray-400">{p.slug}</div>
-                        </div>
+                        <div className="w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm flex-shrink-0" style={{ backgroundColor: `#${p.primary_color}15`, color: `#${p.primary_color}` }}>{p.company_name.charAt(0)}</div>
+                        <div><div className="font-semibold text-gray-900">{p.company_name}</div><div className="text-xs text-gray-400">{p.slug}</div></div>
                       </div>
                     </td>
                     <td className="px-4 py-3.5">
                       <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${p.active ? 'text-emerald-600' : 'text-red-500'}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${p.active ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                        {p.active ? 'Active' : 'Inactive'}
+                        <span className={`w-1.5 h-1.5 rounded-full ${p.active ? 'bg-emerald-500' : 'bg-red-500'}`} />{p.active ? 'Active' : 'Inactive'}
                       </span>
                     </td>
-                    <td className="px-4 py-3.5">
-                      <span
-                        className="text-xs font-semibold px-2.5 py-1 rounded-md"
-                        style={{ backgroundColor: plan.bg, color: plan.text }}
-                      >
-                        {getPlanLabel(p.plan)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 text-right font-semibold">
-                      {(p._mrr || 0) > 0 ? `£${(p._mrr || 0).toFixed(2)}` : <span className="text-gray-300">—</span>}
-                    </td>
+                    <td className="px-4 py-3.5"><span className="text-xs font-semibold px-2.5 py-1 rounded-md" style={{ backgroundColor: plan.bg, color: plan.text }}>{getPlanLabel(p.plan)}</span></td>
+                    <td className="px-4 py-3.5 text-right font-semibold">{(p._mrr || 0) > 0 ? `£${(p._mrr || 0).toFixed(2)}` : <span className="text-gray-300">—</span>}</td>
                     <td className="px-4 py-3.5 text-right">{p._leads_count || 0}</td>
-                    {extraColumns.map((col) => (
-                      <td key={col.key} className="px-4 py-3.5 text-right">
-                        {col.render ? col.render(p) : (p._extra?.[col.key] ?? '—')}
-                      </td>
-                    ))}
+                    {extraColumns.map((col) => (<td key={col.key} className="px-4 py-3.5 text-right">{col.render ? col.render(p) : (p._extra?.[col.key] ?? '—')}</td>))}
                     <td className="px-4 py-3.5 text-right">
                       <div className="flex gap-1.5 justify-end">
-                        <button
-                          onClick={() => openEdit(p)}
-                          className="bg-gray-50 border border-gray-200 rounded-md px-2.5 py-1.5 text-xs font-medium text-gray-500 cursor-pointer hover:border-blue-400 hover:text-blue-600 transition flex items-center gap-1"
-                        >
-                          <Icon d={icons.edit} size={12} /> Edit
-                        </button>
-                        <button
-                          onClick={() => toggleActive(p)}
-                          className={`border-none rounded-md px-2.5 py-1.5 text-xs font-medium cursor-pointer transition ${
-                            p.active
-                              ? 'bg-red-50 text-red-600 hover:bg-red-100'
-                              : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
-                          }`}
-                        >
-                          {p.active ? 'Deactivate' : 'Activate'}
-                        </button>
+                        <button onClick={() => openEdit(p)} className="bg-gray-50 border border-gray-200 rounded-md px-2.5 py-1.5 text-xs font-medium text-gray-500 cursor-pointer hover:border-blue-400 hover:text-blue-600 transition flex items-center gap-1"><Icon d={icons.edit} size={12} /> Edit</button>
+                        <button onClick={() => toggleActive(p)} className={`border-none rounded-md px-2.5 py-1.5 text-xs font-medium cursor-pointer transition ${p.active ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}>{p.active ? 'Deactivate' : 'Activate'}</button>
                       </div>
                     </td>
                   </tr>
                 );
               })}
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={5 + extraColumns.length + 1} className="px-4 py-10 text-center text-gray-400 text-sm">
-                    No partners found
-                  </td>
-                </tr>
-              )}
+              {filtered.length === 0 && (<tr><td colSpan={5 + extraColumns.length + 1} className="px-4 py-10 text-center text-gray-400 text-sm">No partners found</td></tr>)}
             </tbody>
           </table>
         </div>
@@ -584,71 +381,38 @@ export default function AdminPortalPage() {
     );
   };
 
-  // ═══════════════════════════════════════════
-  //  MODAL
-  // ═══════════════════════════════════════════
+  // ═══ MODAL ═══
   const Modal = ({ onClose, children, title }: { onClose: () => void; children: React.ReactNode; title: string }) => (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="bg-white rounded-2xl p-7 max-w-lg w-[90%] max-h-[80vh] overflow-y-auto shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="bg-white rounded-2xl p-7 max-w-lg w-[90%] max-h-[80vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-5">
           <h2 className="text-lg font-bold text-gray-900">{title}</h2>
-          <button onClick={onClose} className="bg-gray-100 border-none rounded-lg w-8 h-8 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition">
-            <Icon d={icons.x} size={16} color="#6B7280" />
-          </button>
+          <button onClick={onClose} className="bg-gray-100 border-none rounded-lg w-8 h-8 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition"><Icon d={icons.x} size={16} color="#6B7280" /></button>
         </div>
         {children}
       </div>
     </div>
   );
 
-  // ═══════════════════════════════════════════
-  //  LOADING
-  // ═══════════════════════════════════════════
+  // ═══ LOADING ═══
   if (loading || authLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <svg className="animate-spin h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
-      </div>
-    );
+    return (<div className="min-h-screen bg-gray-50 flex items-center justify-center"><svg className="animate-spin h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg></div>);
   }
 
-  // ─── Access Denied ───
   if (!authorized || !user) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center" style={{ fontFamily: "'DM Sans', sans-serif" }}>
         <div className="text-center max-w-sm">
-          <div className="w-16 h-16 rounded-2xl mx-auto mb-5 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #0F1629, #1A2342)' }}>
-            <Icon d={icons.lock} size={28} color="#fff" />
-          </div>
+          <div className="w-16 h-16 rounded-2xl mx-auto mb-5 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #0F1629, #1A2342)' }}><Icon d={icons.lock} size={28} color="#fff" /></div>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h1>
-          <p className="text-sm text-gray-500 mb-6">
-            {!user
-              ? 'You need to sign in to access the admin portal.'
-              : `${user.email} does not have admin access. Contact a MOVCO team member to get added.`}
-          </p>
-          {!user ? (
-            <a href="/auth" className="inline-block bg-blue-600 text-white rounded-lg px-6 py-2.5 text-sm font-semibold no-underline hover:bg-blue-700 transition">
-              Sign In
-            </a>
-          ) : (
-            <button onClick={signOut} className="bg-gray-100 border border-gray-200 rounded-lg px-6 py-2.5 text-sm font-semibold text-gray-500 cursor-pointer hover:bg-gray-200 transition">
-              Sign Out
-            </button>
-          )}
+          <p className="text-sm text-gray-500 mb-6">{!user ? 'You need to sign in to access the admin portal.' : `${user.email} does not have admin access. Contact a MOVCO team member to get added.`}</p>
+          {!user ? (<a href="/auth" className="inline-block bg-blue-600 text-white rounded-lg px-6 py-2.5 text-sm font-semibold no-underline hover:bg-blue-700 transition">Sign In</a>) : (<button onClick={signOut} className="bg-gray-100 border border-gray-200 rounded-lg px-6 py-2.5 text-sm font-semibold text-gray-500 cursor-pointer hover:bg-gray-200 transition">Sign Out</button>)}
         </div>
       </div>
     );
   }
 
-  // ═══════════════════════════════════════════
-  //  RENDER
-  // ═══════════════════════════════════════════
+  // ═══ RENDER ═══
   return (
     <div className="flex min-h-screen" style={{ fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", background: c.surfaceAlt }}>
       {/* eslint-disable-next-line @next/next/no-page-custom-font */}
@@ -656,93 +420,45 @@ export default function AdminPortalPage() {
 
       {/* ─── SIDEBAR ─── */}
       <aside className="w-60 flex-shrink-0 sticky top-0 h-screen flex flex-col" style={{ background: c.sidebar, borderRight: '1px solid rgba(255,255,255,0.06)' }}>
-        {/* Logo */}
         <div className="px-5 pt-5 pb-6 flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center font-extrabold text-sm text-white" style={{ background: 'linear-gradient(135deg, #2563EB, #7C3AED)' }}>
-            M
-          </div>
-          <div>
-            <div className="text-white font-bold text-base tracking-tight">MOVCO</div>
-            <div className="text-white/40 text-[10px] font-medium">Admin Portal</div>
-          </div>
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center font-extrabold text-sm text-white" style={{ background: 'linear-gradient(135deg, #2563EB, #7C3AED)' }}>M</div>
+          <div><div className="text-white font-bold text-base tracking-tight">MOVCO</div><div className="text-white/40 text-[10px] font-medium">Admin Portal</div></div>
         </div>
-
-        {/* Nav */}
         <nav className="flex-1 px-2.5 overflow-y-auto">
           {navItems.map((item) => {
-            if (item.type === 'divider') {
-              return (
-                <div key={item.id} className="text-[10px] font-semibold text-white/25 tracking-widest uppercase px-2.5 pt-5 pb-2">
-                  {item.label}
-                </div>
-              );
-            }
+            if (item.type === 'divider') return (<div key={item.id} className="text-[10px] font-semibold text-white/25 tracking-widest uppercase px-2.5 pt-5 pb-2">{item.label}</div>);
             const isActive = page === item.id;
             return (
-              <button
-                key={item.id}
-                onClick={() => { setPage(item.id); setSearchTerm(''); }}
+              <button key={item.id} onClick={() => { setPage(item.id); setSearchTerm(''); }}
                 className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg border-none cursor-pointer text-left mb-0.5 transition-all"
-                style={{
-                  background: isActive ? c.sidebarActive : 'transparent',
-                  color: isActive ? '#fff' : 'rgba(255,255,255,0.6)',
-                  fontSize: 13,
-                  fontWeight: isActive ? 600 : 500,
-                }}
-                onMouseOver={(e) => {
-                  if (!isActive) (e.currentTarget as HTMLElement).style.background = c.sidebarHover;
-                }}
-                onMouseOut={(e) => {
-                  if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent';
-                }}
+                style={{ background: isActive ? c.sidebarActive : 'transparent', color: isActive ? '#fff' : 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: isActive ? 600 : 500 }}
+                onMouseOver={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = c.sidebarHover; }}
+                onMouseOut={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
               >
                 <Icon d={item.icon!} size={18} color={isActive ? '#fff' : 'rgba(255,255,255,0.45)'} />
                 <span className="flex-1">{item.label}</span>
-                {item.badge !== undefined && (
-                  <span className="text-[10px] font-bold rounded-full px-2 py-0.5 min-w-[20px] text-center" style={{ background: isActive ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.08)' }}>
-                    {item.badge}
-                  </span>
-                )}
+                {item.badge !== undefined && (<span className="text-[10px] font-bold rounded-full px-2 py-0.5 min-w-[20px] text-center" style={{ background: isActive ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.08)' }}>{item.badge}</span>)}
               </button>
             );
           })}
         </nav>
-
-        {/* Footer */}
         <div className="p-4 border-t border-white/5">
           <div className="rounded-xl p-3 mb-2" style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.15), rgba(124,58,237,0.15))' }}>
             <div className="text-xs font-semibold text-white/85">{activePartners.length} active partners</div>
             <div className="text-[10px] text-white/40">£{totalMRR.toFixed(2)}/mo MRR</div>
           </div>
           <div className="flex items-center gap-2.5 px-1">
-            <div className="w-7 h-7 rounded-full bg-blue-600/20 flex items-center justify-center text-[10px] font-bold text-blue-400 flex-shrink-0">
-              {currentAdmin?.name?.charAt(0) || 'A'}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium text-white/70 truncate">{currentAdmin?.name}</div>
-              <div className="text-[10px] text-white/30 truncate">{currentAdmin?.role}</div>
-            </div>
-            <button
-              onClick={signOut}
-              className="bg-transparent border-none cursor-pointer p-1 opacity-40 hover:opacity-80 transition"
-              title="Sign out"
-            >
-              <Icon d={icons.logout} size={14} color="#fff" />
-            </button>
+            <div className="w-7 h-7 rounded-full bg-blue-600/20 flex items-center justify-center text-[10px] font-bold text-blue-400 flex-shrink-0">{currentAdmin?.name?.charAt(0) || 'A'}</div>
+            <div className="flex-1 min-w-0"><div className="text-xs font-medium text-white/70 truncate">{currentAdmin?.name}</div><div className="text-[10px] text-white/30 truncate">{currentAdmin?.role}</div></div>
+            <button onClick={signOut} className="bg-transparent border-none cursor-pointer p-1 opacity-40 hover:opacity-80 transition" title="Sign out"><Icon d={icons.logout} size={14} color="#fff" /></button>
           </div>
         </div>
       </aside>
 
       {/* ─── MAIN ─── */}
       <main className="flex-1 p-7 min-w-0 overflow-x-hidden">
-        {/* Refresh button */}
         <div className="flex justify-end mb-4">
-          <button
-            onClick={fetchData}
-            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-blue-600 transition cursor-pointer bg-transparent border-none"
-          >
-            <Icon d={icons.refresh} size={14} /> Refresh
-          </button>
+          <button onClick={fetchData} className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-blue-600 transition cursor-pointer bg-transparent border-none"><Icon d={icons.refresh} size={14} /> Refresh</button>
         </div>
 
         {/* ═══ DASHBOARD ═══ */}
@@ -750,8 +466,6 @@ export default function AdminPortalPage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900 tracking-tight mb-1">Dashboard</h1>
             <p className="text-sm text-gray-500 mb-7">Overview of all MOVCO partner activity</p>
-
-            {/* KPIs */}
             <div className="grid grid-cols-4 gap-3.5 mb-7">
               {[
                 { label: 'Total Partners', value: allPartners.length, sub: `${activePartners.length} active`, color: c.accent },
@@ -766,140 +480,54 @@ export default function AdminPortalPage() {
                 </div>
               ))}
             </div>
-
-            {/* Segment cards */}
             <div className="grid grid-cols-3 gap-3.5 mb-7">
               {[
-                {
-                  title: 'Storage Partners', icon: icons.storage, color: '#2563EB',
-                  active: storageActive, total: storagePartners.length,
-                  mrr: storagePartners.reduce((s, p) => s + (p._mrr || 0), 0),
-                  leads: storagePartners.reduce((s, p) => s + (p._leads_count || 0), 0),
-                  nav: 'storage',
-                },
-                {
-                  title: 'Removals — Calculator', icon: icons.calculator, color: '#0F766E',
-                  active: calcActive, total: calcPartners.length,
-                  mrr: calcPartners.reduce((s, p) => s + (p._mrr || 0), 0),
-                  leads: calcPartners.reduce((s, p) => s + (p._leads_count || 0), 0),
-                  nav: 'removals_calc',
-                },
-                {
-                  title: 'Removals — CRM', icon: icons.monitor, color: '#7C3AED',
-                  active: crmActive, total: crmPartners.length,
-                  mrr: crmPartners.reduce((s, p) => s + (p._mrr || 0), 0),
-                  leads: crmPartners.reduce((s, p) => s + (p._leads_count || 0), 0),
-                  nav: 'removals_crm',
-                },
+                { title: 'Storage Partners', icon: icons.storage, color: '#2563EB', active: storageActive, total: storagePartners.length, mrr: storagePartners.reduce((s, p) => s + (p._mrr || 0), 0), leads: storagePartners.reduce((s, p) => s + (p._leads_count || 0), 0), nav: 'storage' },
+                { title: 'Removals — Calculator', icon: icons.calculator, color: '#0F766E', active: calcActive, total: calcPartners.length, mrr: calcPartners.reduce((s, p) => s + (p._mrr || 0), 0), leads: calcPartners.reduce((s, p) => s + (p._leads_count || 0), 0), nav: 'removals_calc' },
+                { title: 'Removals — CRM', icon: icons.monitor, color: '#7C3AED', active: crmActive, total: crmPartners.length, mrr: crmPartners.reduce((s, p) => s + (p._mrr || 0), 0), leads: crmPartners.reduce((s, p) => s + (p._leads_count || 0), 0), nav: 'removals_crm' },
               ].map((seg) => (
-                <button
-                  key={seg.title}
-                  onClick={() => setPage(seg.nav)}
-                  className="bg-white rounded-xl p-5 border border-gray-200 cursor-pointer text-left hover:shadow-md transition-all"
-                  style={{ fontFamily: 'inherit' }}
-                >
+                <button key={seg.title} onClick={() => setPage(seg.nav)} className="bg-white rounded-xl p-5 border border-gray-200 cursor-pointer text-left hover:shadow-md transition-all" style={{ fontFamily: 'inherit' }}>
                   <div className="flex items-center gap-2.5 mb-4">
-                    <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: `${seg.color}12` }}>
-                      <Icon d={seg.icon} size={18} color={seg.color} />
-                    </div>
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: `${seg.color}12` }}><Icon d={seg.icon} size={18} color={seg.color} /></div>
                     <div className="text-sm font-semibold text-gray-900">{seg.title}</div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <div className="text-xl font-bold text-gray-900" style={{ fontFamily: "'DM Mono', monospace" }}>
-                        {seg.active}<span className="text-sm font-medium text-gray-400">/{seg.total}</span>
-                      </div>
-                      <div className="text-[11px] text-gray-400">Active</div>
-                    </div>
-                    <div>
-                      <div className="text-xl font-bold text-emerald-600" style={{ fontFamily: "'DM Mono', monospace" }}>£{seg.mrr.toFixed(0)}</div>
-                      <div className="text-[11px] text-gray-400">MRR</div>
-                    </div>
+                    <div><div className="text-xl font-bold text-gray-900" style={{ fontFamily: "'DM Mono', monospace" }}>{seg.active}<span className="text-sm font-medium text-gray-400">/{seg.total}</span></div><div className="text-[11px] text-gray-400">Active</div></div>
+                    <div><div className="text-xl font-bold text-emerald-600" style={{ fontFamily: "'DM Mono', monospace" }}>£{seg.mrr.toFixed(0)}</div><div className="text-[11px] text-gray-400">MRR</div></div>
                   </div>
-                  <div className="mt-3.5 pt-3.5 border-t border-gray-100 flex justify-between text-xs text-gray-500">
-                    <span>{seg.leads} leads</span>
-                    <span style={{ color: seg.color, fontWeight: 600 }}>View →</span>
-                  </div>
+                  <div className="mt-3.5 pt-3.5 border-t border-gray-100 flex justify-between text-xs text-gray-500"><span>{seg.leads} leads</span><span style={{ color: seg.color, fontWeight: 600 }}>View →</span></div>
                 </button>
               ))}
             </div>
-
-            {/* Recent partners */}
             <div className="bg-white rounded-xl p-6 border border-gray-200">
               <h3 className="text-sm font-bold text-gray-900 mb-4">Recently Added Partners</h3>
               <div className="space-y-1">
-                {[...allPartners]
-                  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-                  .slice(0, 6)
-                  .map((p) => {
-                    const typeLabel = p._type === 'storage' ? 'Storage' : p._type === 'calc' ? 'Removals Calc' : 'Removals CRM';
-                    const typeColor = p._type === 'storage' ? '#2563EB' : p._type === 'calc' ? '#0F766E' : '#7C3AED';
-                    return (
-                      <div key={p.id} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 transition">
-                        <div
-                          className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0"
-                          style={{ background: `#${p.primary_color}12`, color: `#${p.primary_color}` }}
-                        >
-                          {p.company_name.charAt(0)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold text-gray-900 truncate">{p.company_name}</div>
-                          <div className="text-[11px] text-gray-400 truncate">{p.email}</div>
-                        </div>
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md flex-shrink-0" style={{ background: `${typeColor}10`, color: typeColor }}>
-                          {typeLabel}
-                        </span>
-                        <span className="text-[11px] text-gray-400 flex-shrink-0">
-                          {new Date(p.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}
-                        </span>
-                      </div>
-                    );
-                  })}
+                {[...allPartners].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 6).map((p) => {
+                  const typeLabel = p._type === 'storage' ? 'Storage' : p._type === 'calc' ? 'Removals Calc' : 'Removals CRM';
+                  const typeColor = p._type === 'storage' ? '#2563EB' : p._type === 'calc' ? '#0F766E' : '#7C3AED';
+                  return (
+                    <div key={p.id} className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-50 transition">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0" style={{ background: `#${p.primary_color}12`, color: `#${p.primary_color}` }}>{p.company_name.charAt(0)}</div>
+                      <div className="flex-1 min-w-0"><div className="text-sm font-semibold text-gray-900 truncate">{p.company_name}</div><div className="text-[11px] text-gray-400 truncate">{p.email}</div></div>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md flex-shrink-0" style={{ background: `${typeColor}10`, color: typeColor }}>{typeLabel}</span>
+                      <span className="text-[11px] text-gray-400 flex-shrink-0">{new Date(p.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
         )}
 
-        {/* ═══ STORAGE ═══ */}
-        {page === 'storage' && (
-          <PartnerTable
-            partners={storagePartners}
-            type="storage"
-            title="Storage Partners"
-            subtitle={`${storageActive} active · ${storagePartners.length} total · White-label storage calculators`}
-            extraColumns={[{ key: 'units_count', header: 'Units' }]}
-          />
-        )}
-
-        {/* ═══ REMOVALS CALC ═══ */}
-        {page === 'removals_calc' && (
-          <PartnerTable
-            partners={calcPartners}
-            type="calc"
-            title="Removals — Calculator"
-            subtitle={`${calcActive} active · ${calcPartners.length} total · White-label removals quote tools`}
-            extraColumns={[{ key: 'van_count', header: 'Vans' }]}
-          />
-        )}
-
-        {/* ═══ REMOVALS CRM ═══ */}
-        {page === 'removals_crm' && (
-          <PartnerTable
-            partners={crmPartners}
-            type="crm"
-            title="Removals — CRM"
-            subtitle={`${crmActive} active · ${crmPartners.length} total · Full CRM at £149.99/mo`}
-            extraColumns={[]}
-          />
-        )}
+        {page === 'storage' && (<PartnerTable partners={storagePartners} type="storage" title="Storage Partners" subtitle={`${storageActive} active · ${storagePartners.length} total · White-label storage calculators`} extraColumns={[{ key: 'units_count', header: 'Units' }]} />)}
+        {page === 'removals_calc' && (<PartnerTable partners={calcPartners} type="calc" title="Removals — Calculator" subtitle={`${calcActive} active · ${calcPartners.length} total · White-label removals quote tools`} extraColumns={[{ key: 'van_count', header: 'Vans' }]} />)}
+        {page === 'removals_crm' && (<PartnerTable partners={crmPartners} type="crm" title="Removals — CRM" subtitle={`${crmActive} active · ${crmPartners.length} total · Full CRM at £149.99/mo`} extraColumns={[]} />)}
 
         {/* ═══ BILLING ═══ */}
         {page === 'billing' && (
           <div>
             <h1 className="text-2xl font-bold text-gray-900 tracking-tight mb-1">Billing & Plans</h1>
             <p className="text-sm text-gray-500 mb-7">Subscription overview and revenue breakdown</p>
-
-            {/* Revenue KPIs */}
             <div className="grid grid-cols-3 gap-3.5 mb-7">
               {[
                 { label: 'Monthly Recurring Revenue', value: `£${totalMRR.toFixed(2)}`, color: c.green },
@@ -912,8 +540,6 @@ export default function AdminPortalPage() {
                 </div>
               ))}
             </div>
-
-            {/* Revenue by plan */}
             <div className="bg-white rounded-xl p-6 border border-gray-200 mb-5">
               <h3 className="text-sm font-bold text-gray-900 mb-4">Revenue by Plan</h3>
               {[
@@ -923,64 +549,28 @@ export default function AdminPortalPage() {
               ].map((row) => (
                 <div key={row.plan} className="flex items-center py-3.5 border-b border-gray-100 last:border-b-0">
                   <span className="w-2.5 h-2.5 rounded-full mr-3.5 flex-shrink-0" style={{ background: row.color }} />
-                  <div className="flex-1">
-                    <div className="text-sm font-semibold text-gray-900">{row.plan}</div>
-                    <div className="text-xs text-gray-400">{row.price} · {row.count} partner{row.count !== 1 ? 's' : ''}</div>
-                  </div>
-                  <div className="text-base font-bold" style={{ color: row.mrr > 0 ? c.text : c.textLight, fontFamily: "'DM Mono', monospace" }}>
-                    {row.mrr > 0 ? `£${row.mrr.toFixed(2)}` : '£0'}
-                  </div>
+                  <div className="flex-1"><div className="text-sm font-semibold text-gray-900">{row.plan}</div><div className="text-xs text-gray-400">{row.price} · {row.count} partner{row.count !== 1 ? 's' : ''}</div></div>
+                  <div className="text-base font-bold" style={{ color: row.mrr > 0 ? c.text : c.textLight, fontFamily: "'DM Mono', monospace" }}>{row.mrr > 0 ? `£${row.mrr.toFixed(2)}` : '£0'}</div>
                 </div>
               ))}
-              <div className="flex justify-between pt-4 mt-1">
-                <span className="text-sm font-bold text-gray-900">Total MRR</span>
-                <span className="text-lg font-bold text-emerald-600" style={{ fontFamily: "'DM Mono', monospace" }}>£{totalMRR.toFixed(2)}</span>
-              </div>
+              <div className="flex justify-between pt-4 mt-1"><span className="text-sm font-bold text-gray-900">Total MRR</span><span className="text-lg font-bold text-emerald-600" style={{ fontFamily: "'DM Mono', monospace" }}>£{totalMRR.toFixed(2)}</span></div>
             </div>
-
-            {/* All subscriptions */}
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-100">
-                <h3 className="text-sm font-bold text-gray-900">All Subscriptions</h3>
-              </div>
+              <div className="px-5 py-4 border-b border-gray-100"><h3 className="text-sm font-bold text-gray-900">All Subscriptions</h3></div>
               <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr className="bg-gray-50">
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Company</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Type</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Plan</th>
-                    <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase">MRR</th>
-                    <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Since</th>
-                  </tr>
-                </thead>
+                <thead><tr className="bg-gray-50"><th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Company</th><th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Type</th><th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Plan</th><th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase">MRR</th><th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Since</th></tr></thead>
                 <tbody>
-                  {allPartners
-                    .filter((p) => (p._mrr || 0) > 0)
-                    .sort((a, b) => (b._mrr || 0) - (a._mrr || 0))
-                    .map((p, i) => {
-                      const typeLabel = p._type === 'storage' ? 'Storage' : p._type === 'calc' ? 'Removals Calc' : 'Removals CRM';
-                      return (
-                        <tr key={p.id} className={`hover:bg-gray-50 ${i > 0 ? 'border-t border-gray-100' : ''}`}>
-                          <td className="px-4 py-3 font-medium">{p.company_name}</td>
-                          <td className="px-4 py-3 text-gray-500">{typeLabel}</td>
-                          <td className="px-4 py-3">
-                            <span
-                              className="text-xs font-semibold px-2 py-0.5 rounded-md"
-                              style={{
-                                background: (planColors[p.plan || 'trial'] || planColors.trial).bg,
-                                color: (planColors[p.plan || 'trial'] || planColors.trial).text,
-                              }}
-                            >
-                              {getPlanLabel(p.plan)}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-right font-semibold" style={{ fontFamily: "'DM Mono', monospace" }}>£{(p._mrr || 0).toFixed(2)}</td>
-                          <td className="px-4 py-3 text-gray-400">
-                            {new Date(p.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                  {allPartners.filter((p) => (p._mrr || 0) > 0).sort((a, b) => (b._mrr || 0) - (a._mrr || 0)).map((p, i) => {
+                    const typeLabel = p._type === 'storage' ? 'Storage' : p._type === 'calc' ? 'Removals Calc' : 'Removals CRM';
+                    return (
+                      <tr key={p.id} className={`hover:bg-gray-50 ${i > 0 ? 'border-t border-gray-100' : ''}`}>
+                        <td className="px-4 py-3 font-medium">{p.company_name}</td><td className="px-4 py-3 text-gray-500">{typeLabel}</td>
+                        <td className="px-4 py-3"><span className="text-xs font-semibold px-2 py-0.5 rounded-md" style={{ background: (planColors[p.plan || 'trial'] || planColors.trial).bg, color: (planColors[p.plan || 'trial'] || planColors.trial).text }}>{getPlanLabel(p.plan)}</span></td>
+                        <td className="px-4 py-3 text-right font-semibold" style={{ fontFamily: "'DM Mono', monospace" }}>£{(p._mrr || 0).toFixed(2)}</td>
+                        <td className="px-4 py-3 text-gray-400">{new Date(p.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -991,81 +581,27 @@ export default function AdminPortalPage() {
         {page === 'team' && (
           <div>
             <div className="flex justify-between items-start mb-6">
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Team Access</h1>
-                <p className="text-sm text-gray-500">Manage who can access the MOVCO admin portal</p>
-              </div>
-              {currentAdmin?.role === 'owner' && (
-                <button
-                  onClick={() => setAddTeamModal(true)}
-                  className="flex items-center gap-2 bg-blue-600 text-white border-none rounded-lg px-5 py-2.5 text-sm font-semibold cursor-pointer hover:bg-blue-700 transition"
-                >
-                  <Icon d={icons.plus} size={16} color="#fff" /> Add Team Member
-                </button>
-              )}
+              <div><h1 className="text-2xl font-bold text-gray-900 tracking-tight">Team Access</h1><p className="text-sm text-gray-500">Manage who can access the MOVCO admin portal</p></div>
+              {currentAdmin?.role === 'owner' && (<button onClick={() => setAddTeamModal(true)} className="flex items-center gap-2 bg-blue-600 text-white border-none rounded-lg px-5 py-2.5 text-sm font-semibold cursor-pointer hover:bg-blue-700 transition"><Icon d={icons.plus} size={16} color="#fff" /> Add Team Member</button>)}
             </div>
-
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr className="bg-gray-50">
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">User</th>
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Role</th>
-                    <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Added</th>
-                    <th className="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
-                  </tr>
-                </thead>
+                <thead><tr className="bg-gray-50"><th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">User</th><th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Role</th><th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Added</th><th className="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th></tr></thead>
                 <tbody>
                   {adminUsers.map((u, i) => (
                     <tr key={u.id} className={`hover:bg-gray-50 transition ${i > 0 ? 'border-t border-gray-100' : ''}`}>
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0" style={{ background: u.role === 'owner' ? '#EFF4FF' : '#F3F4F6', color: u.role === 'owner' ? '#2563EB' : '#6B7280' }}>
-                            {u.name.charAt(0)}
-                          </div>
-                          <div>
-                            <div className="font-semibold text-gray-900">{u.name}</div>
-                            <div className="text-xs text-gray-400">{u.email}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-5 py-4">
-                        <span
-                          className="text-xs font-semibold px-2.5 py-1 rounded-md"
-                          style={{
-                            background: u.role === 'owner' ? '#EFF4FF' : '#F3F4F6',
-                            color: u.role === 'owner' ? '#2563EB' : '#6B7280',
-                          }}
-                        >
-                          {u.role === 'owner' ? 'Owner' : 'Admin'}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4 text-gray-400 text-sm">
-                        {new Date(u.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}
-                      </td>
-                      <td className="px-5 py-4 text-right">
-                        {u.role !== 'owner' && currentAdmin?.role === 'owner' ? (
-                          <button
-                            onClick={() => removeTeamMember(u.id)}
-                            className="bg-red-50 border-none rounded-md px-3 py-1.5 text-xs font-medium text-red-600 cursor-pointer hover:bg-red-100 transition flex items-center gap-1 ml-auto"
-                          >
-                            <Icon d={icons.trash} size={12} color="#DC2626" /> Remove
-                          </button>
-                        ) : (
-                          <span className="text-xs text-gray-300">—</span>
-                        )}
-                      </td>
+                      <td className="px-5 py-4"><div className="flex items-center gap-3"><div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0" style={{ background: u.role === 'owner' ? '#EFF4FF' : '#F3F4F6', color: u.role === 'owner' ? '#2563EB' : '#6B7280' }}>{u.name.charAt(0)}</div><div><div className="font-semibold text-gray-900">{u.name}</div><div className="text-xs text-gray-400">{u.email}</div></div></div></td>
+                      <td className="px-5 py-4"><span className="text-xs font-semibold px-2.5 py-1 rounded-md" style={{ background: u.role === 'owner' ? '#EFF4FF' : '#F3F4F6', color: u.role === 'owner' ? '#2563EB' : '#6B7280' }}>{u.role === 'owner' ? 'Owner' : 'Admin'}</span></td>
+                      <td className="px-5 py-4 text-gray-400 text-sm">{new Date(u.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}</td>
+                      <td className="px-5 py-4 text-right">{u.role !== 'owner' && currentAdmin?.role === 'owner' ? (<button onClick={() => removeTeamMember(u.id)} className="bg-red-50 border-none rounded-md px-3 py-1.5 text-xs font-medium text-red-600 cursor-pointer hover:bg-red-100 transition flex items-center gap-1 ml-auto"><Icon d={icons.trash} size={12} color="#DC2626" /> Remove</button>) : (<span className="text-xs text-gray-300">—</span>)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-
             <div className="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-5">
               <div className="text-sm font-semibold text-amber-800 mb-1">How access works</div>
-              <div className="text-xs text-amber-700 leading-relaxed">
-                Team members must have a MOVCO account (signed up at /auth). Once added here with their email, they can access /admin when signed in. Only Owners can add or remove team members.
-              </div>
+              <div className="text-xs text-amber-700 leading-relaxed">Team members must have a MOVCO account (signed up at /auth). Once added here with their email, they can access /admin when signed in. Only Owners can add or remove team members.</div>
             </div>
           </div>
         )}
@@ -1075,151 +611,60 @@ export default function AdminPortalPage() {
       {addTeamModal && (
         <Modal title="Add Team Member" onClose={() => { setAddTeamModal(false); setTeamForm({ email: '', name: '', role: 'admin' }); }}>
           <div className="space-y-3.5">
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Full Name</label>
-              <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="e.g. John Smith" value={teamForm.name} onChange={(e) => setTeamForm({ ...teamForm, name: e.target.value })} />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Email Address</label>
-              <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="john@movco.co.uk" type="email" value={teamForm.email} onChange={(e) => setTeamForm({ ...teamForm, email: e.target.value })} />
-              <div className="text-[11px] text-gray-400 mt-1">Must match their MOVCO sign-in email</div>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Role</label>
-              <select
-                className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition bg-white"
-                value={teamForm.role}
-                onChange={(e) => setTeamForm({ ...teamForm, role: e.target.value })}
-              >
-                <option value="admin">Admin — Can view and manage partners</option>
-                <option value="owner">Owner — Full access + manage team</option>
-              </select>
-            </div>
+            <div><label className="block text-xs font-semibold text-gray-500 mb-1">Full Name</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="e.g. John Smith" value={teamForm.name} onChange={(e) => setTeamForm({ ...teamForm, name: e.target.value })} /></div>
+            <div><label className="block text-xs font-semibold text-gray-500 mb-1">Email Address</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="john@movco.co.uk" type="email" value={teamForm.email} onChange={(e) => setTeamForm({ ...teamForm, email: e.target.value })} /><div className="text-[11px] text-gray-400 mt-1">Must match their MOVCO sign-in email</div></div>
+            <div><label className="block text-xs font-semibold text-gray-500 mb-1">Role</label><select className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition bg-white" value={teamForm.role} onChange={(e) => setTeamForm({ ...teamForm, role: e.target.value })}><option value="admin">Admin — Can view and manage partners</option><option value="owner">Owner — Full access + manage team</option></select></div>
           </div>
           <div className="flex gap-2.5 mt-6">
-            <button onClick={() => { setAddTeamModal(false); setTeamForm({ email: '', name: '', role: 'admin' }); }} className="flex-1 bg-gray-100 border border-gray-200 rounded-lg py-2.5 text-sm font-semibold text-gray-500 cursor-pointer hover:bg-gray-200 transition">
-              Cancel
-            </button>
-            <button onClick={addTeamMember} disabled={saving || !teamForm.email || !teamForm.name} className="flex-1 bg-blue-600 text-white border-none rounded-lg py-2.5 text-sm font-semibold cursor-pointer hover:bg-blue-700 transition disabled:opacity-50">
-              {saving ? 'Adding...' : 'Add Member'}
-            </button>
+            <button onClick={() => { setAddTeamModal(false); setTeamForm({ email: '', name: '', role: 'admin' }); }} className="flex-1 bg-gray-100 border border-gray-200 rounded-lg py-2.5 text-sm font-semibold text-gray-500 cursor-pointer hover:bg-gray-200 transition">Cancel</button>
+            <button onClick={addTeamMember} disabled={saving || !teamForm.email || !teamForm.name} className="flex-1 bg-blue-600 text-white border-none rounded-lg py-2.5 text-sm font-semibold cursor-pointer hover:bg-blue-700 transition disabled:opacity-50">{saving ? 'Adding...' : 'Add Member'}</button>
           </div>
         </Modal>
       )}
 
-      {/* ═══ EDIT MODAL ═══ */}
+      {/* ═══ EDIT MODAL — UPDATED: includes notification_email field ═══ */}
       {editModal && (
         <Modal title={`Edit — ${editModal.company_name}`} onClose={() => setEditModal(null)}>
           <div className="space-y-3.5">
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Company Name</label>
-              <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.company_name || ''} onChange={(e) => setFormData({ ...formData, company_name: e.target.value })} />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Slug</label>
-              <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.slug || ''} onChange={(e) => setFormData({ ...formData, slug: e.target.value })} />
+            <div><label className="block text-xs font-semibold text-gray-500 mb-1">Company Name</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.company_name || ''} onChange={(e) => setFormData({ ...formData, company_name: e.target.value })} /></div>
+            <div><label className="block text-xs font-semibold text-gray-500 mb-1">Slug</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.slug || ''} onChange={(e) => setFormData({ ...formData, slug: e.target.value })} /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="block text-xs font-semibold text-gray-500 mb-1">Email</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.email || ''} onChange={(e) => setFormData({ ...formData, email: e.target.value })} /></div>
+              <div><label className="block text-xs font-semibold text-gray-500 mb-1">Phone</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.phone || ''} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} /></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">Email</label>
-                <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.email || ''} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">Phone</label>
-                <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.phone || ''} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
-              </div>
+              <div><label className="block text-xs font-semibold text-gray-500 mb-1">Brand Colour</label><div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg flex-shrink-0 border border-gray-200" style={{ background: `#${formData.primary_color || '2563EB'}` }} /><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.primary_color || ''} onChange={(e) => setFormData({ ...formData, primary_color: e.target.value })} /></div></div>
+              <div><label className="block text-xs font-semibold text-gray-500 mb-1">Plan</label><select className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition bg-white" value={formData.plan || 'trial'} onChange={(e) => setFormData({ ...formData, plan: e.target.value })}><option value="trial">Trial</option><option value="calculator">Calculator — £99.99/mo</option>{editModal._type === 'crm' && <option value="crm_pro">CRM Pro — £149.99/mo</option>}</select></div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">Brand Colour</label>
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg flex-shrink-0 border border-gray-200" style={{ background: `#${formData.primary_color || '2563EB'}` }} />
-                  <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.primary_color || ''} onChange={(e) => setFormData({ ...formData, primary_color: e.target.value })} />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">Plan</label>
-                <select
-                  className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition bg-white"
-                  value={formData.plan || 'trial'}
-                  onChange={(e) => setFormData({ ...formData, plan: e.target.value })}
-                >
-                  <option value="trial">Trial</option>
-                  <option value="calculator">Calculator — £99.99/mo</option>
-                  {editModal._type === 'crm' && <option value="crm_pro">CRM Pro — £149.99/mo</option>}
-                </select>
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Website</label>
-              <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.website || ''} onChange={(e) => setFormData({ ...formData, website: e.target.value })} placeholder="https://..." />
-            </div>
+            <div><label className="block text-xs font-semibold text-gray-500 mb-1">Website</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.website || ''} onChange={(e) => setFormData({ ...formData, website: e.target.value })} placeholder="https://..." /></div>
+            {/* ← NEW: Notification Email field */}
+            <div><label className="block text-xs font-semibold text-gray-500 mb-1">Notification Email (optional)</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.notification_email || ''} onChange={(e) => setFormData({ ...formData, notification_email: e.target.value })} placeholder="e.g. sales@company.co.uk — defaults to main email" /><div className="text-[11px] text-gray-400 mt-1">Lead notifications go here. If blank, uses the main email above.</div></div>
           </div>
           <div className="flex gap-2.5 mt-6">
-            <button onClick={() => setEditModal(null)} className="flex-1 bg-gray-100 border border-gray-200 rounded-lg py-2.5 text-sm font-semibold text-gray-500 cursor-pointer hover:bg-gray-200 transition">
-              Cancel
-            </button>
-            <button onClick={saveEdit} disabled={saving} className="flex-1 bg-blue-600 text-white border-none rounded-lg py-2.5 text-sm font-semibold cursor-pointer hover:bg-blue-700 transition disabled:opacity-50">
-              {saving ? 'Saving...' : 'Save Changes'}
-            </button>
+            <button onClick={() => setEditModal(null)} className="flex-1 bg-gray-100 border border-gray-200 rounded-lg py-2.5 text-sm font-semibold text-gray-500 cursor-pointer hover:bg-gray-200 transition">Cancel</button>
+            <button onClick={saveEdit} disabled={saving} className="flex-1 bg-blue-600 text-white border-none rounded-lg py-2.5 text-sm font-semibold cursor-pointer hover:bg-blue-700 transition disabled:opacity-50">{saving ? 'Saving...' : 'Save Changes'}</button>
           </div>
         </Modal>
       )}
 
       {/* ═══ ADD MODAL ═══ */}
       {addModal && (
-        <Modal
-          title={`Add New ${addModal === 'storage' ? 'Storage' : addModal === 'calc' ? 'Removals Calculator' : 'Removals CRM'} Partner`}
-          onClose={() => { setAddModal(null); setFormData({}); }}
-        >
+        <Modal title={`Add New ${addModal === 'storage' ? 'Storage' : addModal === 'calc' ? 'Removals Calculator' : 'Removals CRM'} Partner`} onClose={() => { setAddModal(null); setFormData({}); }}>
           <div className="space-y-3.5">
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Company Name</label>
-              <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="e.g. SecureBox Manchester" value={formData.company_name || ''} onChange={(e) => setFormData({ ...formData, company_name: e.target.value })} />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Slug (URL path)</label>
-              <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="e.g. securebox-manchester" value={formData.slug || ''} onChange={(e) => setFormData({ ...formData, slug: e.target.value })} />
+            <div><label className="block text-xs font-semibold text-gray-500 mb-1">Company Name</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="e.g. SecureBox Manchester" value={formData.company_name || ''} onChange={(e) => setFormData({ ...formData, company_name: e.target.value })} /></div>
+            <div><label className="block text-xs font-semibold text-gray-500 mb-1">Slug (URL path)</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="e.g. securebox-manchester" value={formData.slug || ''} onChange={(e) => setFormData({ ...formData, slug: e.target.value })} /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><label className="block text-xs font-semibold text-gray-500 mb-1">Email</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="info@company.co.uk" value={formData.email || ''} onChange={(e) => setFormData({ ...formData, email: e.target.value })} /></div>
+              <div><label className="block text-xs font-semibold text-gray-500 mb-1">Phone</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="01234 567 890" value={formData.phone || ''} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} /></div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">Email</label>
-                <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="info@company.co.uk" value={formData.email || ''} onChange={(e) => setFormData({ ...formData, email: e.target.value })} />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">Phone</label>
-                <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="01234 567 890" value={formData.phone || ''} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">Brand Colour (hex)</label>
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg flex-shrink-0 border border-gray-200" style={{ background: `#${formData.primary_color || '2563EB'}` }} />
-                  <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="2563EB" value={formData.primary_color || ''} onChange={(e) => setFormData({ ...formData, primary_color: e.target.value })} />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">Plan</label>
-                <select
-                  className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition bg-white"
-                  value={formData.plan || 'trial'}
-                  onChange={(e) => setFormData({ ...formData, plan: e.target.value })}
-                >
-                  <option value="trial">Trial</option>
-                  <option value="calculator">Calculator — £99.99/mo</option>
-                  {addModal === 'crm' && <option value="crm_pro">CRM Pro — £149.99/mo</option>}
-                </select>
-              </div>
+              <div><label className="block text-xs font-semibold text-gray-500 mb-1">Brand Colour (hex)</label><div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg flex-shrink-0 border border-gray-200" style={{ background: `#${formData.primary_color || '2563EB'}` }} /><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="2563EB" value={formData.primary_color || ''} onChange={(e) => setFormData({ ...formData, primary_color: e.target.value })} /></div></div>
+              <div><label className="block text-xs font-semibold text-gray-500 mb-1">Plan</label><select className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition bg-white" value={formData.plan || 'trial'} onChange={(e) => setFormData({ ...formData, plan: e.target.value })}><option value="trial">Trial</option><option value="calculator">Calculator — £99.99/mo</option>{addModal === 'crm' && <option value="crm_pro">CRM Pro — £149.99/mo</option>}</select></div>
             </div>
           </div>
           <div className="flex gap-2.5 mt-6">
-            <button onClick={() => { setAddModal(null); setFormData({}); }} className="flex-1 bg-gray-100 border border-gray-200 rounded-lg py-2.5 text-sm font-semibold text-gray-500 cursor-pointer hover:bg-gray-200 transition">
-              Cancel
-            </button>
-            <button onClick={addPartner} disabled={saving || !formData.company_name || !formData.slug} className="flex-1 bg-blue-600 text-white border-none rounded-lg py-2.5 text-sm font-semibold cursor-pointer hover:bg-blue-700 transition disabled:opacity-50">
-              {saving ? 'Adding...' : 'Add Partner'}
-            </button>
+            <button onClick={() => { setAddModal(null); setFormData({}); }} className="flex-1 bg-gray-100 border border-gray-200 rounded-lg py-2.5 text-sm font-semibold text-gray-500 cursor-pointer hover:bg-gray-200 transition">Cancel</button>
+            <button onClick={addPartner} disabled={saving || !formData.company_name || !formData.slug} className="flex-1 bg-blue-600 text-white border-none rounded-lg py-2.5 text-sm font-semibold cursor-pointer hover:bg-blue-700 transition disabled:opacity-50">{saving ? 'Adding...' : 'Add Partner'}</button>
           </div>
         </Modal>
       )}

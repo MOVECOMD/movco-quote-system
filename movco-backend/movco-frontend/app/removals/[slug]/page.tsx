@@ -101,7 +101,6 @@ export default function RemovalsCalculatorPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Steps: intro → details → photos → contact → uploading → analyzing → results
   const [step, setStep] = useState<
     'intro' | 'details' | 'photos' | 'contact' | 'uploading' | 'analyzing' | 'results'
   >('intro');
@@ -170,13 +169,13 @@ export default function RemovalsCalculatorPage() {
   // ─── Quote calculation ───
   const calculateQuote = (analysisData: AnalysisResult, partnerData: Partner): Quote => {
     const vans = partnerData.van_types as VanType[];
-    const volumeNeeded = analysisData.totalVolumeM3 * 1.15; // 15% buffer
+    const volumeNeeded = analysisData.totalVolumeM3 * 1.15;
     const sorted = [...vans].sort((a, b) => a.capacity_m3 - b.capacity_m3);
     const recommended = sorted.find((v) => v.capacity_m3 >= volumeNeeded) || sorted[sorted.length - 1];
 
     const hours = analysisData.estimated_hours || 4;
     const labour = recommended.hourly * hours;
-    const mileageEstimate = 15; // default miles, could be calculated from addresses
+    const mileageEstimate = 15;
     const mileageCost = mileageEstimate * partnerData.pricing.per_mile;
     const packingCost = extras.packing ? partnerData.pricing.packing_flat : 0;
     const disassemblyCost = extras.disassembly ? partnerData.pricing.disassembly_flat : 0;
@@ -253,7 +252,6 @@ export default function RemovalsCalculatorPage() {
           description: data.description || '',
         };
       } else {
-        // Fallback estimate based on photo count
         const photoCount = uploadedUrls.length;
         analysisData = {
           items: [{ name: 'Estimated contents', quantity: photoCount * 8 }],
@@ -292,6 +290,33 @@ export default function RemovalsCalculatorPage() {
         quote_high: quoteData.high,
         quote_breakdown: quoteData.breakdown,
       });
+
+      // 5. Notify partner via email (fire-and-forget)
+      try {
+        fetch('/api/notify-partner', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            partner_id: partner.id,
+            product_type: 'removals',
+            lead_data: {
+              customer_name: customerName,
+              customer_email: customerEmail,
+              customer_phone: customerPhone,
+              moving_from: moveFrom,
+              moving_to: moveTo,
+              items: analysisData.items,
+              van_size: quoteData.van.name,
+              crew_size: quoteData.crew,
+              estimated_time: `${quoteData.hours} hours`,
+              quoted_price: `£${quoteData.low} – £${quoteData.high}`,
+              photo_urls: uploadedUrls,
+            },
+          }),
+        });
+      } catch (e) {
+        console.error('Notification failed:', e);
+      }
 
       setStep('results');
     } catch (err) {
@@ -392,7 +417,6 @@ export default function RemovalsCalculatorPage() {
     return (
       <div className="min-h-screen bg-gray-50 p-6">
         <div className="max-w-lg mx-auto space-y-6">
-          {/* Progress bar */}
           <div className="flex gap-1.5 pt-4">
             {['details', 'photos', 'contact'].map((s, i) => (
               <div key={s} className="flex-1 h-1 rounded-full" style={{ backgroundColor: i === 0 ? `#${pc}` : '#E5E7EB' }} />
@@ -405,7 +429,6 @@ export default function RemovalsCalculatorPage() {
           </div>
 
           <div className="bg-white rounded-2xl shadow-lg p-6 space-y-5">
-            {/* Property type */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">Property Type</label>
               <div className="grid grid-cols-3 gap-2">
@@ -426,7 +449,6 @@ export default function RemovalsCalculatorPage() {
               </div>
             </div>
 
-            {/* Addresses */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Moving From</label>
               <input
@@ -450,7 +472,6 @@ export default function RemovalsCalculatorPage() {
               />
             </div>
 
-            {/* Date + Flexibility */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">Move Date</label>
@@ -478,7 +499,6 @@ export default function RemovalsCalculatorPage() {
               </div>
             </div>
 
-            {/* Extras */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">Optional Extras</label>
               <div className="space-y-2">
@@ -710,7 +730,6 @@ export default function RemovalsCalculatorPage() {
     return (
       <div className="min-h-screen bg-gray-50 p-6">
         <div className="max-w-2xl mx-auto space-y-6">
-          {/* Header */}
           <div className="text-center pt-6">
             <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: `#${pc}20` }}>
               <svg className="w-8 h-8" style={{ color: `#${pc}` }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -724,7 +743,6 @@ export default function RemovalsCalculatorPage() {
             </p>
           </div>
 
-          {/* Quote Hero */}
           <div className="text-white rounded-2xl shadow-xl p-8 text-center" style={{ backgroundColor: `#${pc}` }}>
             <p className="text-sm font-medium opacity-80 mb-2 tracking-wider uppercase">Estimated Quote</p>
             <div className="flex items-baseline justify-center gap-2 mb-2">
@@ -749,7 +767,6 @@ export default function RemovalsCalculatorPage() {
             </div>
           </div>
 
-          {/* Price Breakdown */}
           <div className="bg-white rounded-2xl shadow-lg p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Price Breakdown</h3>
             {[
@@ -775,7 +792,6 @@ export default function RemovalsCalculatorPage() {
             )}
           </div>
 
-          {/* Items Detected */}
           <div className="bg-white rounded-2xl shadow-lg p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Items Detected ({totalItems})</h3>
             <div className="max-h-52 overflow-y-auto space-y-1">
@@ -788,7 +804,6 @@ export default function RemovalsCalculatorPage() {
             </div>
           </div>
 
-          {/* Van Options */}
           <div className="bg-white rounded-2xl shadow-lg p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Van Options</h3>
             <div className="space-y-3">
@@ -836,7 +851,6 @@ export default function RemovalsCalculatorPage() {
             </div>
           </div>
 
-          {/* CTA */}
           <div className="bg-white rounded-2xl shadow-lg p-6 text-center space-y-4">
             <h3 className="text-lg font-semibold text-gray-900">Ready to Book Your Move?</h3>
             <p className="text-sm text-gray-500">Contact {partner.company_name} to confirm your date and finalise the price.</p>

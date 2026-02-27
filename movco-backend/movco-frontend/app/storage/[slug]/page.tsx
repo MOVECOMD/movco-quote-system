@@ -158,7 +158,6 @@ export default function StorageCalculatorPage() {
 
       // 3. Recommend storage unit
       const units = partner.units as StorageUnit[];
-      // Find smallest unit that fits (with 20% buffer)
       const volumeNeeded = analysisData.totalVolumeM3 * 1.2;
       const sorted = [...units].sort((a, b) => a.volume_m3 - b.volume_m3);
       const recommended = sorted.find((u) => u.volume_m3 >= volumeNeeded) || sorted[sorted.length - 1];
@@ -177,6 +176,28 @@ export default function StorageCalculatorPage() {
         recommended_unit: recommended.name,
         recommended_price: recommended.monthly_price,
       });
+
+      // 5. Notify partner via email (fire-and-forget)
+      try {
+        fetch('/api/notify-partner', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            partner_id: partner.id,
+            product_type: 'storage',
+            lead_data: {
+              customer_name: customerName,
+              customer_email: customerEmail,
+              customer_phone: customerPhone,
+              storage_requirements: `${analysisData.totalVolumeM3} m³ across ${analysisData.items.reduce((s: number, i: DetectedItem) => s + i.quantity, 0)} items`,
+              recommended_unit: recommended.name,
+              quoted_price: `£${recommended.monthly_price}/mo`,
+            },
+          }),
+        });
+      } catch (e) {
+        console.error('Notification failed:', e);
+      }
 
       setStep('results');
     } catch (err) {
@@ -213,7 +234,6 @@ export default function StorageCalculatorPage() {
   if (step === 'intro') {
     return (
       <div className="min-h-screen bg-gray-50">
-        {/* Hero */}
         <div className="text-white py-16 px-6" style={{ backgroundColor: `#${pc}` }}>
           <div className="max-w-2xl mx-auto text-center">
             <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-6 backdrop-blur">
@@ -227,7 +247,6 @@ export default function StorageCalculatorPage() {
           </div>
         </div>
 
-        {/* How it works */}
         <div className="max-w-2xl mx-auto px-6 py-12">
           <h2 className="text-xl font-bold text-gray-900 text-center mb-8">How It Works</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-10">
@@ -414,7 +433,6 @@ export default function StorageCalculatorPage() {
     return (
       <div className="min-h-screen bg-gray-50 p-6">
         <div className="max-w-2xl mx-auto space-y-6">
-          {/* Header */}
           <div className="text-center pt-6">
             <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: `#${pc}20` }}>
               <svg className="w-8 h-8" style={{ color: `#${pc}` }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -425,7 +443,6 @@ export default function StorageCalculatorPage() {
             <p className="text-gray-500 mt-1">Based on AI analysis of {photos.length} photo{photos.length !== 1 ? 's' : ''}</p>
           </div>
 
-          {/* Recommended Unit - Hero */}
           <div className="text-white rounded-2xl shadow-xl p-8 text-center" style={{ backgroundColor: `#${pc}` }}>
             <p className="text-sm font-medium opacity-80 mb-2">WE RECOMMEND</p>
             <h2 className="text-4xl font-bold mb-1">{recommendedUnit.name}</h2>
@@ -436,10 +453,8 @@ export default function StorageCalculatorPage() {
             </div>
           </div>
 
-          {/* Volume breakdown */}
           <div className="bg-white rounded-2xl shadow-lg p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Your Items</h3>
-
             <div className="grid grid-cols-2 gap-4 mb-6">
               <div className="bg-blue-50 rounded-xl p-4 text-center">
                 <p className="text-2xl font-bold text-blue-700">{analysis.totalVolumeM3}</p>
@@ -450,7 +465,6 @@ export default function StorageCalculatorPage() {
                 <p className="text-xs text-green-600 font-medium">Items Detected</p>
               </div>
             </div>
-
             {analysis.items.length > 0 && (
               <div className="max-h-48 overflow-y-auto space-y-1 border-t border-gray-100 pt-3">
                 {analysis.items.map((item, idx) => (
@@ -463,7 +477,6 @@ export default function StorageCalculatorPage() {
             )}
           </div>
 
-          {/* All unit sizes */}
           <div className="bg-white rounded-2xl shadow-lg p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">All Available Units</h3>
             <div className="space-y-3">
@@ -500,7 +513,6 @@ export default function StorageCalculatorPage() {
                         <p className="text-xs text-gray-500">/month</p>
                       </div>
                     </div>
-                    {/* Volume bar */}
                     <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
                       <div
                         className="h-2 rounded-full transition-all"
@@ -517,7 +529,6 @@ export default function StorageCalculatorPage() {
             </div>
           </div>
 
-          {/* CTA */}
           <div className="bg-white rounded-2xl shadow-lg p-6 text-center space-y-4">
             <h3 className="text-lg font-semibold text-gray-900">Ready to Book?</h3>
             <p className="text-sm text-gray-500">Contact {partner.company_name} to reserve your unit.</p>
