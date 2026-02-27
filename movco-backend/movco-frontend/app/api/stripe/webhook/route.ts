@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
+import { Resend } from 'resend';
+import { buildWelcomeEmail } from '@/app/lib/emailTemplates';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-01-28.clover',
@@ -10,6 +12,8 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function POST(req: Request) {
   const body = await req.text();
@@ -249,6 +253,158 @@ export async function POST(req: Request) {
 
       return NextResponse.json({ received: true });
     }
+
+    // ============================================
+    // HANDLE: Payment Link — Partner Subscription
+    // (No metadata.type = came from a Stripe Payment Link)
+    // ============================================
+    if (!paymentType) {
+      const customerEmail = session.customer_details?.email?.toLowerCase().trim();
+      const customerId = session.customer as string;
+      const subscriptionId = session.subscription as string | null;
+
+      if (!customerEmail) {
+        console.log('[MOVCO] Payment link checkout with no email — ignoring');
+        return NextResponse.json({ received: true });
+      }
+
+      // Retrieve line items to determine what they bought
+      let lineItems;
+      try {
+        lineItems = await stripe.checkout.sessions.listLineItems(session.id, {
+          expand: ['data.price.product'],
+        });
+      } catch (err) {
+        console.error('[MOVCO] Failed to retrieve line items:', err);
+        return NextResponse.json({ received: true, warning: 'Could not retrieve line items' });
+      }
+
+      let plan: string | null = null;
+      let productType: 'storage' | 'calculator' | 'crm' | null = null;
+      let productLabel = '';
+      let monthlyPrice = '';
+      let includesInstallation = false;
+
+      for (const item of lineItems.data) {
+        const product = item.price?.product as Stripe.Product;
+        const productName = product?.name?.toLowerCase() || '';
+        const isRecurring = item.price?.type === 'recurring';
+
+        if (!isRecurring) {
+          // One-time charge — check if it's the installation upsell
+          if (productName.includes('install')) {
+            includesInstallation = true;
+          }
+          continue;
+        }
+
+        // Determine plan from the recurring product name
+        if (productName.includes('crm')) {
+          plan = 'crm_pro';
+          productType = 'crm';
+          productLabel = 'Removals CRM Pro';
+          monthlyPrice = '£149.99';
+        } else if (productName.includes('removals') || productName.includes('removal')) {
+          plan = 'calculator';
+          productType = 'calculator';
+          productLabel = 'Removals Calculator';
+          monthlyPrice = '£99.99';
+        } else if (productName.includes('storage')) {
+          plan = 'calculator';
+          productType = 'storage';
+          productLabel = 'Storage Calculator';
+          monthlyPrice = '£99.99';
+        }
+      }
+
+      // If we couldn't identify a partner product, it might be a different checkout — skip
+      if (!plan || !productType) {
+        console.log('[MOVCO] Payment link checkout but could not match a partner product — ignoring');
+        return NextResponse.json({ received: true });
+      }
+
+      console.log(`[MOVCO] 📦 Payment Link: ${productLabel} | Plan: ${plan} | Installation: ${includesInstallation} | Email: ${customerEmail}`);
+
+      // Find the partner by email
+      let partner: any = null;
+      let partnerTable: string;
+
+      if (productType === 'storage') {
+        partnerTable = 'storage_partners';
+        const { data } = await supabase
+          .from('storage_partners')
+          .select('*')
+          .eq('email', customerEmail)
+          .maybeSingle();
+        partner = data;
+      } else {
+        partnerTable = 'removals_partners';
+        const { data } = await supabase
+          .from('removals_partners')
+          .select('*')
+          .eq('email', customerEmail)
+          .maybeSingle();
+        partner = data;
+      }
+
+      if (!partner) {
+        console.error(`[MOVCO] ⚠️ Partner not found with email: ${customerEmail} in ${partnerTable}. Manual activation needed.`);
+        return NextResponse.json({
+          received: true,
+          warning: `No partner found with email ${customerEmail}. Manual activation needed.`,
+        });
+      }
+
+      // Activate partner + save Stripe IDs
+      const { error: updateError } = await supabase
+        .from(partnerTable)
+        .update({
+          active: true,
+          plan,
+          stripe_customer_id: customerId,
+          stripe_subscription_id: subscriptionId,
+        })
+        .eq('id', partner.id);
+
+      if (updateError) {
+        console.error('[MOVCO] Failed to update partner:', updateError);
+        return NextResponse.json({ error: 'Failed to update partner' }, { status: 500 });
+      }
+
+      console.log(`[MOVCO] ✅ Partner activated: ${partner.company_name} (${customerEmail})`);
+
+      // Send welcome email (fire-and-forget)
+      try {
+        const calculatorUrl = productType === 'storage'
+          ? `https://movco-quote-system.vercel.app/storage/${partner.slug}`
+          : productType === 'calculator'
+          ? `https://movco-quote-system.vercel.app/removals/${partner.slug}`
+          : `https://movco-quote-system.vercel.app/company-dashboard`;
+
+        const html = buildWelcomeEmail({
+          companyName: partner.company_name,
+          contactName: partner.company_name,
+          productLabel,
+          monthlyPrice,
+          calculatorUrl,
+          slug: partner.slug,
+          includesInstallation,
+        });
+
+        await resend.emails.send({
+          from: 'MOVCO <welcome@movco.co.uk>',
+          to: customerEmail,
+          subject: `Welcome to MOVCO — ${productLabel} is Live! 🚀`,
+          html,
+        });
+
+        console.log(`[MOVCO] 📧 Welcome email sent to ${customerEmail}`);
+      } catch (emailErr) {
+        console.error('[MOVCO] Failed to send welcome email:', emailErr);
+      }
+
+      return NextResponse.json({ received: true, activated: partner.company_name });
+    }
   }
 
   // ============================================
@@ -258,7 +414,7 @@ export async function POST(req: Request) {
     const subscription: any = event.data.object;
     const status = subscription.status;
 
-    // Find the CRM subscription by stripe_subscription_id
+    // Check CRM subscriptions table
     const { data: crmSub } = await supabase
       .from('crm_subscriptions')
       .select('id, company_id')
@@ -295,7 +451,8 @@ export async function POST(req: Request) {
   if (event.type === 'customer.subscription.deleted') {
     const subscription: any = event.data.object;
 
-    const { error } = await supabase
+    // Check CRM subscriptions table
+    const { error: crmError } = await supabase
       .from('crm_subscriptions')
       .update({
         status: 'canceled',
@@ -303,10 +460,27 @@ export async function POST(req: Request) {
       })
       .eq('stripe_subscription_id', subscription.id);
 
-    if (error) {
-      console.error('Failed to cancel subscription:', error);
-    } else {
-      console.log(`[MOVCO] ✅ CRM subscription ${subscription.id} canceled`);
+    if (crmError) {
+      console.error('Failed to cancel CRM subscription:', crmError);
+    }
+
+    // Also check partner tables (for payment link subscriptions)
+    for (const table of ['storage_partners', 'removals_partners']) {
+      const { data } = await supabase
+        .from(table)
+        .select('id, company_name')
+        .eq('stripe_subscription_id', subscription.id)
+        .maybeSingle();
+
+      if (data) {
+        await supabase
+          .from(table)
+          .update({ active: false, plan: 'trial' })
+          .eq('id', data.id);
+
+        console.log(`[MOVCO] ⛔ Partner deactivated: ${data.company_name} (subscription cancelled)`);
+        break;
+      }
     }
   }
 

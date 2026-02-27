@@ -1,5 +1,5 @@
 // lib/emailTemplates.ts
-// Partner email notification templates for MOVCO lead alerts
+// Partner email notification templates for MOVCO lead alerts + welcome emails
 
 interface StorageLeadEmail {
   partnerName: string;
@@ -26,6 +26,16 @@ interface RemovalsLeadEmail {
   quotedPrice: string;
   photoUrls: string[];
   date: string;
+}
+
+interface WelcomeEmail {
+  companyName: string;
+  contactName: string;
+  productLabel: string;
+  monthlyPrice: string;
+  calculatorUrl: string;
+  slug: string;
+  includesInstallation: boolean;
 }
 
 function baseWrapper(content: string, partnerName: string): string {
@@ -211,4 +221,149 @@ export function buildRemovalsLeadEmail(data: RemovalsLeadEmail): string {
   `;
 
   return baseWrapper(content, data.partnerName);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  WELCOME / SIGN-UP CONFIRMATION EMAIL
+//  Sent when a partner pays via Stripe Payment Link
+// ═══════════════════════════════════════════════════════════════
+
+export function buildWelcomeEmail(data: WelcomeEmail): string {
+  const installationBlock = data.includesInstallation ? `
+    <div style="background-color:#f0fdf4;border-radius:8px;padding:16px 20px;margin-bottom:20px;border:1px solid #bbf7d0;">
+      <span style="font-size:18px;margin-right:8px;">🔧</span>
+      <span style="color:#15803d;font-size:14px;font-weight:600;">Installation Package Included</span>
+      <p style="margin:8px 0 0;color:#166534;font-size:13px;line-height:1.5;">Our team will handle the full setup of your calculator, including branding, pricing configuration, and embedding on your website. We'll be in touch within 24 hours to get started.</p>
+    </div>` : '';
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to MOVCO</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f5f7;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f5f7;padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+
+          <!-- Header -->
+          <tr>
+            <td style="background-color:#0F1629;padding:40px 32px;text-align:center;">
+              <div style="width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#2563EB,#7C3AED);margin:0 auto 16px;line-height:56px;text-align:center;">
+                <span style="color:#ffffff;font-size:24px;font-weight:800;">M</span>
+              </div>
+              <h1 style="margin:0 0 8px;color:#ffffff;font-size:26px;font-weight:700;">Welcome to MOVCO! 🚀</h1>
+              <p style="margin:0;color:#94a3b8;font-size:15px;">Your subscription is active and ready to go</p>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:32px;">
+
+              <p style="margin:0 0 20px;color:#1e293b;font-size:15px;line-height:1.6;">Hi ${data.companyName},</p>
+              <p style="margin:0 0 24px;color:#475569;font-size:14px;line-height:1.6;">Thanks for choosing MOVCO! Your <strong>${data.productLabel}</strong> subscription is now active. Here's everything you need to know.</p>
+
+              <!-- Subscription Details -->
+              <div style="background-color:#f8fafc;border-radius:8px;padding:20px;margin-bottom:20px;">
+                <h3 style="margin:0 0 16px;color:#1e293b;font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Your Subscription</h3>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="padding:6px 0;color:#64748b;font-size:13px;font-weight:600;width:140px;">Product</td>
+                    <td style="padding:6px 0;color:#1e293b;font-size:14px;font-weight:600;">${data.productLabel}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0;color:#64748b;font-size:13px;font-weight:600;">Monthly Price</td>
+                    <td style="padding:6px 0;color:#1e293b;font-size:14px;font-weight:600;">${data.monthlyPrice}/month</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:6px 0;color:#64748b;font-size:13px;font-weight:600;">Status</td>
+                    <td style="padding:6px 0;">
+                      <span style="background-color:#ecfdf5;color:#059669;font-size:12px;font-weight:600;padding:3px 10px;border-radius:20px;">✓ Active</span>
+                    </td>
+                  </tr>
+                </table>
+              </div>
+
+              ${installationBlock}
+
+              <!-- Calculator URL -->
+              <div style="background-color:#0F1629;border-radius:8px;padding:24px;margin-bottom:20px;text-align:center;">
+                <p style="margin:0 0 4px;color:#94a3b8;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;">Your Calculator URL</p>
+                <p style="margin:0 0 16px;color:#ffffff;font-size:14px;word-break:break-all;">
+                  <a href="${data.calculatorUrl}" style="color:#60a5fa;text-decoration:none;">${data.calculatorUrl}</a>
+                </p>
+                <a href="${data.calculatorUrl}" style="display:inline-block;background-color:#2563EB;color:#ffffff;font-size:14px;font-weight:600;padding:12px 28px;border-radius:8px;text-decoration:none;">View Your Calculator →</a>
+              </div>
+
+              <!-- Next Steps -->
+              <div style="background-color:#f8fafc;border-radius:8px;padding:20px;margin-bottom:20px;">
+                <h3 style="margin:0 0 16px;color:#1e293b;font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">What Happens Next</h3>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="padding:8px 0;vertical-align:top;width:32px;">
+                      <div style="width:24px;height:24px;border-radius:6px;background-color:#2563EB;color:#fff;font-size:12px;font-weight:700;text-align:center;line-height:24px;">1</div>
+                    </td>
+                    <td style="padding:8px 0 8px 12px;vertical-align:top;">
+                      <div style="color:#1e293b;font-size:13px;font-weight:600;">Embed on your website</div>
+                      <div style="color:#64748b;font-size:12px;margin-top:2px;">Add a link or iframe to your site pointing to your calculator URL</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px 0;vertical-align:top;width:32px;">
+                      <div style="width:24px;height:24px;border-radius:6px;background-color:#2563EB;color:#fff;font-size:12px;font-weight:700;text-align:center;line-height:24px;">2</div>
+                    </td>
+                    <td style="padding:8px 0 8px 12px;vertical-align:top;">
+                      <div style="color:#1e293b;font-size:13px;font-weight:600;">Receive leads by email</div>
+                      <div style="color:#64748b;font-size:12px;margin-top:2px;">Every time a customer completes a quote, you'll get an instant email with full details</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px 0;vertical-align:top;width:32px;">
+                      <div style="width:24px;height:24px;border-radius:6px;background-color:#2563EB;color:#fff;font-size:12px;font-weight:700;text-align:center;line-height:24px;">3</div>
+                    </td>
+                    <td style="padding:8px 0 8px 12px;vertical-align:top;">
+                      <div style="color:#1e293b;font-size:13px;font-weight:600;">Close the deal</div>
+                      <div style="color:#64748b;font-size:12px;margin-top:2px;">Follow up with leads fast — the quickest response wins the job</div>
+                    </td>
+                  </tr>
+                </table>
+              </div>
+
+              <!-- Support -->
+              <div style="text-align:center;padding:8px 0;">
+                <p style="margin:0 0 4px;color:#1e293b;font-size:14px;font-weight:600;">Need help?</p>
+                <p style="margin:0;color:#64748b;font-size:13px;">
+                  Reply to this email or contact us at
+                  <a href="mailto:support@movco.co.uk" style="color:#2563EB;text-decoration:none;">support@movco.co.uk</a>
+                </p>
+              </div>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color:#f8fafc;padding:20px 32px;border-top:1px solid #e2e8f0;">
+              <p style="margin:0;color:#94a3b8;font-size:12px;text-align:center;">
+                You're receiving this because you subscribed to MOVCO.<br>
+                Manage your subscription in Stripe or contact us for help.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+
+        <p style="color:#94a3b8;font-size:11px;margin-top:16px;text-align:center;">
+          © MOVCO ${new Date().getFullYear()} · <a href="https://movco.co.uk" style="color:#2563EB;text-decoration:none;">movco.co.uk</a>
+        </p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
 }
