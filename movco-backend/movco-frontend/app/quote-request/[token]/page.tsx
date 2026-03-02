@@ -380,9 +380,21 @@ export default function QuoteRequestPage() {
                 <h3 className="text-sm font-semibold text-slate-900 mb-3">Items Detected ({analysis.items.reduce((s, i) => s + i.quantity, 0)} total)</h3>
                 <div className="max-h-60 overflow-y-auto space-y-1">
                   {analysis.items.map((item, idx) => (
-                    <div key={idx} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-gray-50 text-sm">
+                    <div key={idx} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-gray-50 text-sm group">
                       <span className="text-slate-700">{item.name}</span>
-                      <span className="text-xs font-medium bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">×{item.quantity}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">×{item.quantity}</span>
+                        <button
+                          onClick={() => {
+                            const newItems = analysis.items.filter((_, i) => i !== idx);
+                            setAnalysis({ ...analysis, items: newItems });
+                          }}
+                          className="w-5 h-5 flex items-center justify-center rounded-full text-gray-300 hover:bg-red-50 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
+                          title="Remove item"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>

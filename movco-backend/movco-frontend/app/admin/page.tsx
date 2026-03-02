@@ -57,18 +57,32 @@ type AnyPartner = (StoragePartner | RemovalsPartner) & {
   _extra?: Record<string, any>;
 };
 
-// ─── Plan pricing map ───
-const PLAN_PRICING: Record<string, number> = {
-  trial: 0,
-  calculator: 99.99,
-  crm_pro: 149.99,
-};
+// ─── Helpers ───
 
-const PLAN_LABELS: Record<string, string> = {
-  trial: 'Trial',
-  calculator: 'Calculator',
-  crm_pro: 'CRM Pro',
-};
+function generateSlug(name: string): string {
+  const base = name
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  const code = Math.random().toString(36).substring(2, 6);
+  return base ? `${base}-${code}` : code;
+}
+
+function getPartnerUrl(partner: AnyPartner): string {
+  const base = typeof window !== 'undefined' ? window.location.origin : 'https://movco-quote-system.vercel.app';
+  if (partner._type === 'storage') return `${base}/storage/${partner.slug}`;
+  if (partner._type === 'crm') return `${base}/crm/${partner.slug}`;
+  return `${base}/removals/${partner.slug}`;
+}
+
+function getPartnerUrlFromType(type: string, slug: string): string {
+  const base = typeof window !== 'undefined' ? window.location.origin : 'https://movco-quote-system.vercel.app';
+  if (type === 'storage') return `${base}/storage/${slug}`;
+  if (type === 'crm') return `${base}/crm/${slug}`;
+  return `${base}/removals/${slug}`;
+}
 
 function getPlanMRR(plan: string | null): number {
   if (!plan || plan === 'trial') return 0;
@@ -106,6 +120,8 @@ const icons = {
   lock: 'M19 11H5a2 2 0 00-2 2v7a2 2 0 002 2h14a2 2 0 002-2v-7a2 2 0 00-2-2zM7 11V7a5 5 0 0110 0v4',
   logout: 'M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9',
   trash: 'M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14',
+  link: 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1',
+  check: 'M5 13l4 4L19 7',
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -131,8 +147,16 @@ export default function AdminPortalPage() {
   const [saving, setSaving] = useState(false);
   const [addTeamModal, setAddTeamModal] = useState(false);
   const [teamForm, setTeamForm] = useState({ email: '', name: '', role: 'admin' });
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState<Record<string, any>>({});
+
+  // ─── Copy URL helper ───
+  const copyUrl = (url: string, id?: string) => {
+    navigator.clipboard.writeText(url);
+    setCopiedId(id || 'add');
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
   // ─── Auth check ───
   useEffect(() => {
@@ -211,7 +235,7 @@ export default function AdminPortalPage() {
     await adminApi({ action: 'toggle_active', table, id: partner.id }); fetchData();
   };
 
-  // ─── Save edit — UPDATED: includes notification_email ───
+  // ─── Save edit ───
   const saveEdit = async () => {
     if (!editModal) return;
     setSaving(true);
@@ -226,24 +250,25 @@ export default function AdminPortalPage() {
         primary_color: formData.primary_color,
         plan: formData.plan,
         website: formData.website || null,
-        notification_email: formData.notification_email || null, // ← NEW
+        notification_email: formData.notification_email || null,
       },
     });
     setSaving(false); setEditModal(null); fetchData();
   };
 
-  // ─── Add new partner ───
+  // ─── Add new partner — auto-generates slug ───
   const addPartner = async () => {
     if (!addModal) return;
     setSaving(true);
+    const slug = formData.slug || generateSlug(formData.company_name || 'partner');
     if (addModal === 'storage') {
       await adminApi({ action: 'insert', table: 'storage_partners', data: {
-        company_name: formData.company_name, slug: formData.slug, email: formData.email || null, phone: formData.phone || null,
+        company_name: formData.company_name, slug, email: formData.email || null, phone: formData.phone || null,
         primary_color: formData.primary_color || '2563EB', plan: formData.plan || 'calculator', active: true, units: [],
       }});
     } else {
       await adminApi({ action: 'insert', table: 'removals_partners', data: {
-        company_name: formData.company_name, slug: formData.slug, email: formData.email || null, phone: formData.phone || null,
+        company_name: formData.company_name, slug, email: formData.email || null, phone: formData.phone || null,
         primary_color: formData.primary_color || '2563EB', plan: addModal === 'crm' ? 'crm_pro' : (formData.plan || 'calculator'),
         product_type: addModal === 'crm' ? 'crm' : 'calculator', active: true,
       }});
@@ -251,7 +276,7 @@ export default function AdminPortalPage() {
     setSaving(false); setAddModal(null); setFormData({}); fetchData();
   };
 
-  // ─── Open edit modal — UPDATED: includes notification_email ───
+  // ─── Open edit modal ───
   const openEdit = (partner: AnyPartner) => {
     setFormData({
       company_name: partner.company_name,
@@ -261,14 +286,20 @@ export default function AdminPortalPage() {
       primary_color: partner.primary_color,
       plan: partner.plan || 'trial',
       website: (partner as any).website || '',
-      notification_email: (partner as any).notification_email || '', // ← NEW
+      notification_email: (partner as any).notification_email || '',
     });
     setEditModal(partner);
   };
 
+  // ─── Open add modal — auto-generates slug from company name ───
   const openAdd = (type: string) => {
     setFormData({ company_name: '', slug: '', email: '', phone: '', primary_color: '2563EB', plan: type === 'crm' ? 'crm_pro' : 'calculator', website: '' });
     setAddModal(type);
+  };
+
+  // ─── Auto-slug when typing company name in add modal ───
+  const handleAddCompanyNameChange = (name: string) => {
+    setFormData({ ...formData, company_name: name, slug: generateSlug(name) });
   };
 
   // ─── Stats ───
@@ -305,7 +336,7 @@ export default function AdminPortalPage() {
     { id: 'team', label: 'Team Access', icon: icons.team, badge: adminUsers.length },
   ];
 
-  // ═══ PARTNER TABLE ═══
+  // ═══ PARTNER TABLE — now with copy URL button ═══
   const PartnerTable = ({ partners, type, title, subtitle, extraColumns = [] }: {
     partners: AnyPartner[]; type: string; title: string; subtitle: string;
     extraColumns?: { key: string; header: string; render?: (p: AnyPartner) => string }[];
@@ -347,12 +378,30 @@ export default function AdminPortalPage() {
             <tbody>
               {filtered.map((p, i) => {
                 const plan = planColors[p.plan || 'trial'] || planColors.trial;
+                const isCopied = copiedId === p.id;
                 return (
                   <tr key={p.id} className={`border-t border-gray-100 hover:bg-gray-50 transition-colors ${i === 0 ? 'border-t-0' : ''}`}>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-3">
                         <div className="w-9 h-9 rounded-lg flex items-center justify-center font-bold text-sm flex-shrink-0" style={{ backgroundColor: `#${p.primary_color}15`, color: `#${p.primary_color}` }}>{p.company_name.charAt(0)}</div>
-                        <div><div className="font-semibold text-gray-900">{p.company_name}</div><div className="text-xs text-gray-400">{p.slug}</div></div>
+                        <div>
+                          <div className="font-semibold text-gray-900">{p.company_name}</div>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <code className="text-[11px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded font-mono">{p.slug}</code>
+                            <button
+                              onClick={() => copyUrl(getPartnerUrl(p), p.id)}
+                              className="text-gray-300 hover:text-blue-600 transition bg-transparent border-none cursor-pointer p-0 flex items-center"
+                              title="Copy calculator URL"
+                            >
+                              {isCopied ? (
+                                <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>
+                              ) : (
+                                <Icon d={icons.link} size={12} />
+                              )}
+                            </button>
+                            {isCopied && <span className="text-[10px] text-emerald-600 font-medium">Copied!</span>}
+                          </div>
+                        </div>
                       </div>
                     </td>
                     <td className="px-4 py-3.5">
@@ -622,12 +671,16 @@ export default function AdminPortalPage() {
         </Modal>
       )}
 
-      {/* ═══ EDIT MODAL — UPDATED: includes notification_email field ═══ */}
+      {/* ═══ EDIT MODAL ═══ */}
       {editModal && (
         <Modal title={`Edit — ${editModal.company_name}`} onClose={() => setEditModal(null)}>
           <div className="space-y-3.5">
             <div><label className="block text-xs font-semibold text-gray-500 mb-1">Company Name</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.company_name || ''} onChange={(e) => setFormData({ ...formData, company_name: e.target.value })} /></div>
-            <div><label className="block text-xs font-semibold text-gray-500 mb-1">Slug</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.slug || ''} onChange={(e) => setFormData({ ...formData, slug: e.target.value })} /></div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Unique Code (slug)</label>
+              <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition font-mono" value={formData.slug || ''} onChange={(e) => setFormData({ ...formData, slug: e.target.value })} />
+              <div className="text-[11px] text-blue-500 mt-1 font-mono truncate">{getPartnerUrl({ ...editModal, slug: formData.slug || editModal.slug } as AnyPartner)}</div>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div><label className="block text-xs font-semibold text-gray-500 mb-1">Email</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.email || ''} onChange={(e) => setFormData({ ...formData, email: e.target.value })} /></div>
               <div><label className="block text-xs font-semibold text-gray-500 mb-1">Phone</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.phone || ''} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} /></div>
@@ -637,7 +690,6 @@ export default function AdminPortalPage() {
               <div><label className="block text-xs font-semibold text-gray-500 mb-1">Plan</label><select className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition bg-white" value={formData.plan || 'trial'} onChange={(e) => setFormData({ ...formData, plan: e.target.value })}><option value="trial">Trial</option><option value="calculator">Calculator — £99.99/mo</option>{editModal._type === 'crm' && <option value="crm_pro">CRM Pro — £149.99/mo</option>}</select></div>
             </div>
             <div><label className="block text-xs font-semibold text-gray-500 mb-1">Website</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.website || ''} onChange={(e) => setFormData({ ...formData, website: e.target.value })} placeholder="https://..." /></div>
-            {/* ← NEW: Notification Email field */}
             <div><label className="block text-xs font-semibold text-gray-500 mb-1">Notification Email (optional)</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.notification_email || ''} onChange={(e) => setFormData({ ...formData, notification_email: e.target.value })} placeholder="e.g. sales@company.co.uk — defaults to main email" /><div className="text-[11px] text-gray-400 mt-1">Lead notifications go here. If blank, uses the main email above.</div></div>
           </div>
           <div className="flex gap-2.5 mt-6">
@@ -647,12 +699,46 @@ export default function AdminPortalPage() {
         </Modal>
       )}
 
-      {/* ═══ ADD MODAL ═══ */}
+      {/* ═══ ADD MODAL — auto-generates unique slug ═══ */}
       {addModal && (
         <Modal title={`Add New ${addModal === 'storage' ? 'Storage' : addModal === 'calc' ? 'Removals Calculator' : 'Removals CRM'} Partner`} onClose={() => { setAddModal(null); setFormData({}); }}>
           <div className="space-y-3.5">
-            <div><label className="block text-xs font-semibold text-gray-500 mb-1">Company Name</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="e.g. SecureBox Manchester" value={formData.company_name || ''} onChange={(e) => setFormData({ ...formData, company_name: e.target.value })} /></div>
-            <div><label className="block text-xs font-semibold text-gray-500 mb-1">Slug (URL path)</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="e.g. securebox-manchester" value={formData.slug || ''} onChange={(e) => setFormData({ ...formData, slug: e.target.value })} /></div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Company Name</label>
+              <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="e.g. SecureBox Manchester" value={formData.company_name || ''} onChange={(e) => handleAddCompanyNameChange(e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Unique Code (auto-generated)</label>
+              <div className="flex items-center gap-2">
+                <input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition font-mono bg-gray-50" value={formData.slug || ''} onChange={(e) => setFormData({ ...formData, slug: e.target.value })} />
+                <button
+                  onClick={() => setFormData({ ...formData, slug: generateSlug(formData.company_name || 'partner') })}
+                  className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2.5 text-xs font-medium text-gray-500 cursor-pointer hover:bg-gray-200 transition whitespace-nowrap flex items-center gap-1"
+                  title="Regenerate code"
+                >
+                  <Icon d={icons.refresh} size={12} /> New
+                </button>
+              </div>
+              {formData.slug && (
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <div className="text-[11px] text-blue-500 font-mono truncate flex-1">
+                    {getPartnerUrlFromType(addModal, formData.slug)}
+                  </div>
+                  <button
+                    onClick={() => copyUrl(getPartnerUrlFromType(addModal, formData.slug), 'add')}
+                    className="text-gray-300 hover:text-blue-600 transition bg-transparent border-none cursor-pointer p-0 flex items-center flex-shrink-0"
+                    title="Copy URL"
+                  >
+                    {copiedId === 'add' ? (
+                      <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>
+                    ) : (
+                      <Icon d={icons.link} size={12} />
+                    )}
+                  </button>
+                  {copiedId === 'add' && <span className="text-[10px] text-emerald-600 font-medium flex-shrink-0">Copied!</span>}
+                </div>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div><label className="block text-xs font-semibold text-gray-500 mb-1">Email</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="info@company.co.uk" value={formData.email || ''} onChange={(e) => setFormData({ ...formData, email: e.target.value })} /></div>
               <div><label className="block text-xs font-semibold text-gray-500 mb-1">Phone</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" placeholder="01234 567 890" value={formData.phone || ''} onChange={(e) => setFormData({ ...formData, phone: e.target.value })} /></div>

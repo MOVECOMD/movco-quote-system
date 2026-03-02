@@ -796,9 +796,21 @@ export default function RemovalsCalculatorPage() {
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Items Detected ({totalItems})</h3>
             <div className="max-h-52 overflow-y-auto space-y-1">
               {analysis.items.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-gray-50 text-sm">
+                <div key={idx} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-gray-50 text-sm group">
                   <span className="text-gray-700">{item.name}</span>
-                  <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: `#${pc}10`, color: `#${pc}` }}>×{item.quantity}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ backgroundColor: `#${pc}10`, color: `#${pc}` }}>×{item.quantity}</span>
+                    <button
+                      onClick={() => {
+                        const newItems = analysis.items.filter((_, i) => i !== idx);
+                        setAnalysis({ ...analysis, items: newItems });
+                      }}
+                      className="w-5 h-5 flex items-center justify-center rounded-full text-gray-300 hover:bg-red-50 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
+                      title="Remove item"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
