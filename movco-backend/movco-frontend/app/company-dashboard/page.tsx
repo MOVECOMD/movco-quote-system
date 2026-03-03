@@ -147,6 +147,8 @@ export default function CompanyDashboardPage() {
   const [showQuoteBuilder, setShowQuoteBuilder] = useState(false);
   const [editingQuote, setEditingQuote] = useState<CrmQuote | null>(null);
   const [quotePrefill, setQuotePrefill] = useState<QuotePrefill | null>(null);
+  const [selectedQuote, setSelectedQuote] = useState<CrmQuote | null>(null);
+  const [showQuoteDetail, setShowQuoteDetail] = useState(false);
 
   // Pipeline state
   const [stages, setStages] = useState<PipelineStage[]>([]);
@@ -168,7 +170,7 @@ export default function CompanyDashboardPage() {
   const [editingEvent, setEditingEvent] = useState<DiaryEvent | null>(null);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
 
-  // NEW: Detail popup states
+  // Detail popup states
   const [showDealDetail, setShowDealDetail] = useState(false);
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
   const [showEventDetail, setShowEventDetail] = useState(false);
@@ -208,7 +210,6 @@ export default function CompanyDashboardPage() {
 
       setCompany(companyData as Company);
 
-      // Check CRM subscription
       const { data: subData } = await supabase
         .from('crm_subscriptions')
         .select('*')
@@ -219,7 +220,6 @@ export default function CompanyDashboardPage() {
       setCrmActive(!!subData);
       setCrmLoading(false);
 
-      // Load leads
       const { data: leadsData } = await supabase
         .from('company_leads')
         .select('*, instant_quotes(*)')
@@ -228,7 +228,6 @@ export default function CompanyDashboardPage() {
 
       if (leadsData) setLeads(leadsData as Lead[]);
 
-      // Load CRM data if active
       if (subData) {
         await loadCRMData(companyData.id);
       }
@@ -311,7 +310,6 @@ export default function CompanyDashboardPage() {
     }
   };
 
-  // Deal CRUD
   const saveDeal = async (deal: Partial<Deal>) => {
     if (!company) return;
     if (editingDeal) {
@@ -354,7 +352,6 @@ export default function CompanyDashboardPage() {
     }
   };
 
-  // Event CRUD
   const saveEvent = async (event: Partial<DiaryEvent>) => {
     if (!company) return;
     if (editingEvent) {
@@ -397,7 +394,6 @@ export default function CompanyDashboardPage() {
     }
   };
 
-  // Customer CRUD — UPDATED: also creates deal if stage selected
   const saveCustomer = async (customer: Partial<Customer>, stageId?: string) => {
     if (!company) return;
     if (editingCustomer) {
@@ -417,7 +413,6 @@ export default function CompanyDashboardPage() {
       if (!error && data) {
         setCustomers((prev) => [data as Customer, ...prev]);
 
-        // Auto-create deal if pipeline stage was selected
         if (stageId && stages.length > 0) {
           const { data: dealData, error: dealError } = await supabase
             .from('crm_deals')
@@ -451,7 +446,6 @@ export default function CompanyDashboardPage() {
     if (!error) setCustomers((prev) => prev.filter((c) => c.id !== customerId));
   };
 
-  // Generate shareable quote link for a customer
   const sendQuoteLink = async (customer: Customer) => {
     if (!company) { alert('Company not loaded yet.'); return; }
     const token = crypto.randomUUID().replace(/-/g, '').slice(0, 24);
@@ -480,7 +474,6 @@ export default function CompanyDashboardPage() {
     }
   };
 
-  // Quote save (from builder)
   const saveQuoteFromBuilder = async (quote: Partial<CrmQuote>) => {
     if (!company) return;
     const { data, error } = await supabase
@@ -495,7 +488,6 @@ export default function CompanyDashboardPage() {
     setQuotePrefill(null);
   };
 
-  // Quote simple edit (for status/notes changes on existing quotes)
   const updateQuoteFields = async (quoteId: string, fields: Partial<CrmQuote>) => {
     const { error } = await supabase
       .from('crm_quotes')
@@ -515,7 +507,6 @@ export default function CompanyDashboardPage() {
   const updateQuoteStatus = async (quoteId: string, status: string) => {
     await updateQuoteFields(quoteId, { status } as any);
 
-    // If marking as sent, auto-move linked deal to "Quote Sent" stage
     if (status === 'sent') {
       const quote = crmQuotes.find((q) => q.id === quoteId);
       if (quote?.deal_id) {
@@ -524,7 +515,6 @@ export default function CompanyDashboardPage() {
           await moveDeal(quote.deal_id, quoteSentStage.id);
         }
       } else if (quote) {
-        // No linked deal — find or create one and move to Quote Sent
         const quoteSentStage = stages.find((s) => s.name.toLowerCase().includes('quote sent'));
         if (quoteSentStage && company && stages.length > 0) {
           const { data: dealData, error } = await supabase
@@ -545,7 +535,6 @@ export default function CompanyDashboardPage() {
             .single();
           if (!error && dealData) {
             setDeals((prev) => [dealData as Deal, ...prev]);
-            // Link the quote to the new deal
             await supabase.from('crm_quotes').update({ deal_id: dealData.id }).eq('id', quoteId);
             setCrmQuotes((prev) => prev.map((q) => (q.id === quoteId ? { ...q, deal_id: dealData.id } as CrmQuote : q)));
           }
@@ -554,7 +543,6 @@ export default function CompanyDashboardPage() {
     }
   };
 
-  // Convert quote to deal
   const convertQuoteToDeal = async (quote: CrmQuote) => {
     if (!company || stages.length === 0) return;
     const { data, error } = await supabase
@@ -581,7 +569,6 @@ export default function CompanyDashboardPage() {
     }
   };
 
-  // NEW: Quick book event from deal detail popup
   const quickBookEvent = async (event: Partial<DiaryEvent>) => {
     if (!company) return;
     const { data, error } = await supabase
@@ -595,9 +582,7 @@ export default function CompanyDashboardPage() {
     setShowQuickBookModal(false);
   };
 
-  // NEW: Open quote builder pre-filled from event/deal
   const openQuoteFromEvent = (event: DiaryEvent) => {
-    // Find linked deal if any
     const linkedDeal = event.deal_id ? deals.find((d) => d.id === event.deal_id) : null;
     setQuotePrefill({
       customer_name: event.customer_name || linkedDeal?.customer_name || '',
@@ -665,7 +650,6 @@ export default function CompanyDashboardPage() {
     { tab: 'settings', label: 'Settings', icon: 'settings', crm: false },
   ];
 
-  // Check if a deal has a booked diary event
   const dealHasBooking = (dealId: string) => events.some((e) => e.deal_id === dealId);
 
   // ============================================
@@ -674,7 +658,6 @@ export default function CompanyDashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      {/* Mobile overlay */}
       {sidebarOpen && (
         <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
@@ -696,16 +679,16 @@ export default function CompanyDashboardPage() {
             <button
               key={item.tab}
               onClick={() => {
-  if (item.tab === 'settings') {
-    router.push('/company-dashboard/settings');
-    setSidebarOpen(false);
-  } else {
-    setActiveTab(item.tab);
-    setSidebarOpen(false);
-    setShowQuoteBuilder(false);
-    setQuotePrefill(null);
-  }
-}}
+                if (item.tab === 'settings') {
+                  router.push('/company-dashboard/settings');
+                  setSidebarOpen(false);
+                } else {
+                  setActiveTab(item.tab);
+                  setSidebarOpen(false);
+                  setShowQuoteBuilder(false);
+                  setQuotePrefill(null);
+                }
+              }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-150 ${
                 activeTab === item.tab
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
@@ -720,7 +703,7 @@ export default function CompanyDashboardPage() {
                 </svg>
               )}
             </button>
-         ))}
+          ))}
 
           <div className="pt-3 mt-3 border-t border-white/10">
             <button
@@ -788,7 +771,6 @@ export default function CompanyDashboardPage() {
         </div>
 
         <div className="p-4 md:p-8 overflow-auto h-[calc(100vh-56px)] lg:h-screen">
-          {/* CRM LOCK OVERLAY */}
           {isCrmTab && !crmActive && !crmLoading && (
             <CRMLockOverlay tab={activeTab} onSubscribe={startCrmSubscription} />
           )}
@@ -803,6 +785,7 @@ export default function CompanyDashboardPage() {
                 onDeleteQuote={deleteQuote}
                 onUpdateStatus={updateQuoteStatus}
                 onConvertToDeal={convertQuoteToDeal}
+                onClickQuote={(q) => { setSelectedQuote(q); setShowQuoteDetail(true); }}
               />
             )}
             {activeTab === 'quotes' && showQuoteBuilder && (
@@ -885,7 +868,6 @@ export default function CompanyDashboardPage() {
         />
       )}
 
-      {/* NEW: Deal Detail Popup */}
       {showDealDetail && selectedDeal && (
         <DealDetailPopup
           deal={selectedDeal}
@@ -899,7 +881,6 @@ export default function CompanyDashboardPage() {
         />
       )}
 
-      {/* NEW: Quick Book Modal (from deal detail) */}
       {showQuickBookModal && selectedDeal && (
         <QuickBookEventModal
           deal={selectedDeal}
@@ -908,7 +889,17 @@ export default function CompanyDashboardPage() {
         />
       )}
 
-      {/* NEW: Event Detail Popup */}
+      {showQuoteDetail && selectedQuote && (
+        <QuoteDetailPopup
+          quote={selectedQuote}
+          company={company}
+          onClose={() => { setShowQuoteDetail(false); setSelectedQuote(null); }}
+          onUpdateStatus={(status) => { updateQuoteStatus(selectedQuote.id, status); setSelectedQuote({ ...selectedQuote, status } as CrmQuote); }}
+          onDelete={() => { deleteQuote(selectedQuote.id); setShowQuoteDetail(false); setSelectedQuote(null); }}
+          onConvertToDeal={() => { convertQuoteToDeal(selectedQuote); setShowQuoteDetail(false); setSelectedQuote(null); }}
+        />
+      )}
+
       {showEventDetail && selectedEvent && (
         <EventDetailPopup
           event={selectedEvent}
@@ -994,7 +985,7 @@ function CRMLockOverlay({ tab, onSubscribe }: { tab: Tab; onSubscribe: () => voi
 }
 
 // ============================================
-// AI QUOTE BUILDER — UPDATED with prefill support
+// AI QUOTE BUILDER — with editable inventory
 // ============================================
 
 function QuoteBuilder({ company, onSave, onCancel, prefill }: {
@@ -1006,10 +997,8 @@ function QuoteBuilder({ company, onSave, onCancel, prefill }: {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
-  // If prefilled, start on photos step
   const [step, setStep] = useState<'details' | 'photos' | 'analyzing' | 'results'>(prefill ? 'photos' : 'details');
 
-  // Customer form — pre-fill if data provided
   const [customerName, setCustomerName] = useState(prefill?.customer_name || '');
   const [customerEmail, setCustomerEmail] = useState(prefill?.customer_email || '');
   const [customerPhone, setCustomerPhone] = useState(prefill?.customer_phone || '');
@@ -1018,22 +1007,21 @@ function QuoteBuilder({ company, onSave, onCancel, prefill }: {
   const [movingDate, setMovingDate] = useState(prefill?.moving_date || '');
   const [notes, setNotes] = useState(prefill?.notes || '');
 
-  // Photo state
   const [files, setFiles] = useState<File[]>([]);
   const [uploadedUrls, setUploadedUrls] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
 
-  // AI results
   const [aiResult, setAiResult] = useState<any>(null);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
 
-  // Editable result fields
   const [editItems, setEditItems] = useState<any[]>([]);
   const [editPrice, setEditPrice] = useState('');
   const [editVolume, setEditVolume] = useState('');
   const [editVans, setEditVans] = useState('1');
   const [editMovers, setEditMovers] = useState('2');
-const [showAddItemModal, setShowAddItemModal] = useState(false);
+
+  // Inventory editor state
+  const [showAddItemModal, setShowAddItemModal] = useState(false);
   const [itemSearch, setItemSearch] = useState('');
   const [customItemName, setCustomItemName] = useState('');
   const [customItemVolume, setCustomItemVolume] = useState('');
@@ -1076,7 +1064,7 @@ const [showAddItemModal, setShowAddItemModal] = useState(false);
     setCustomItemVolume('');
     setShowAddItemModal(false);
   };
-  // Photo handlers
+
   const handleCameraChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const newFiles = Array.from(e.target.files);
@@ -1095,16 +1083,9 @@ const [showAddItemModal, setShowAddItemModal] = useState(false);
     setFiles((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  // Upload photos to Supabase then analyze
   const uploadAndAnalyze = async () => {
-    if (files.length === 0) {
-      alert('Please upload at least one photo');
-      return;
-    }
-    if (!movingFrom.trim() || !movingTo.trim()) {
-      alert('Please enter moving from and moving to addresses');
-      return;
-    }
+    if (files.length === 0) { alert('Please upload at least one photo'); return; }
+    if (!movingFrom.trim() || !movingTo.trim()) { alert('Please enter moving from and moving to addresses'); return; }
 
     setStep('analyzing');
     setAnalyzeError(null);
@@ -1113,18 +1094,11 @@ const [showAddItemModal, setShowAddItemModal] = useState(false);
       const urls: string[] = [];
       for (const file of files) {
         const filePath = `crm-quotes/${company.id}/${Date.now()}-${file.name}`;
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('movco-photos')
-          .upload(filePath, file);
+        const { data: uploadData, error: uploadError } = await supabase.storage.from('movco-photos').upload(filePath, file);
 
         if (uploadError) {
-          const { data: uploadData2, error: uploadError2 } = await supabase.storage
-            .from('photos')
-            .upload(filePath, file);
-          if (uploadError2) {
-            console.error('Upload error:', uploadError2);
-            continue;
-          }
+          const { data: uploadData2, error: uploadError2 } = await supabase.storage.from('photos').upload(filePath, file);
+          if (uploadError2) { console.error('Upload error:', uploadError2); continue; }
           const { data: pubData2 } = supabase.storage.from('photos').getPublicUrl(filePath);
           if (pubData2?.publicUrl) urls.push(pubData2.publicUrl);
         } else {
@@ -1134,36 +1108,24 @@ const [showAddItemModal, setShowAddItemModal] = useState(false);
       }
 
       setUploadedUrls(urls);
-
-      if (urls.length === 0) {
-        throw new Error('Failed to upload photos. Please try again.');
-      }
+      if (urls.length === 0) throw new Error('Failed to upload photos. Please try again.');
 
       const response = await fetch('https://movco-api.onrender.com/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          starting_address: movingFrom,
-          ending_address: movingTo,
-          photo_urls: urls,
-        }),
+        body: JSON.stringify({ starting_address: movingFrom, ending_address: movingTo, photo_urls: urls }),
       });
 
-      if (!response.ok) {
-        throw new Error(`Analysis failed (${response.status}). Please try again.`);
-      }
+      if (!response.ok) throw new Error(`Analysis failed (${response.status}). Please try again.`);
 
       const data = await response.json();
       setAiResult(data);
-
       setEditItems(data.items || []);
       setEditPrice(data.estimate?.toFixed(2) || '');
       setEditVolume(data.totalVolumeM3?.toString() || '');
-
       const vol = data.totalVolumeM3 || 0;
       setEditVans(vol <= 15 ? '1' : vol <= 30 ? '2' : '3');
       setEditMovers(vol <= 15 ? '2' : vol <= 30 ? '3' : '4');
-
       setStep('results');
     } catch (err: any) {
       console.error('Analyze error:', err);
@@ -1172,13 +1134,8 @@ const [showAddItemModal, setShowAddItemModal] = useState(false);
     }
   };
 
-  // Save final quote
   const handleSaveQuote = () => {
-    if (!customerName.trim()) {
-      alert('Please enter a customer name');
-      return;
-    }
-
+    if (!customerName.trim()) { alert('Please enter a customer name'); return; }
     onSave({
       customer_name: customerName,
       customer_email: customerEmail || null,
@@ -1197,7 +1154,6 @@ const [showAddItemModal, setShowAddItemModal] = useState(false);
     } as any);
   };
 
-  // Step indicator
   const steps = [
     { key: 'details', label: 'Customer Details' },
     { key: 'photos', label: 'Upload Photos' },
@@ -1206,7 +1162,6 @@ const [showAddItemModal, setShowAddItemModal] = useState(false);
 
   return (
     <div>
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <button onClick={onCancel} className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition">
@@ -1214,9 +1169,7 @@ const [showAddItemModal, setShowAddItemModal] = useState(false);
           </button>
           <div>
             <h2 className="text-2xl font-bold text-gray-900">New AI Quote</h2>
-            <p className="text-sm text-gray-500">
-              {prefill ? `Pre-filled for ${prefill.customer_name}` : 'Upload photos for AI-powered item detection & pricing'}
-            </p>
+            <p className="text-sm text-gray-500">{prefill ? `Pre-filled for ${prefill.customer_name}` : 'Upload photos for AI-powered item detection & pricing'}</p>
           </div>
         </div>
       </div>
@@ -1240,7 +1193,7 @@ const [showAddItemModal, setShowAddItemModal] = useState(false);
         })}
       </div>
 
-      {/* ===== STEP 1: Customer Details ===== */}
+      {/* STEP 1: Customer Details */}
       {step === 'details' && (
         <div className="space-y-6">
           <div className="bg-white rounded-xl border p-6">
@@ -1256,7 +1209,6 @@ const [showAddItemModal, setShowAddItemModal] = useState(false);
               </div>
             </div>
           </div>
-
           <div className="bg-white rounded-xl border p-6">
             <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
               <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
@@ -1274,79 +1226,53 @@ const [showAddItemModal, setShowAddItemModal] = useState(false);
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Additional notes..." rows={2} className="w-full px-4 py-3 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
             </div>
           </div>
-
-          <button
-            onClick={() => {
-              if (!customerName.trim()) return alert('Customer name is required');
-              if (!movingFrom.trim() || !movingTo.trim()) return alert('Moving from and moving to are required');
-              setStep('photos');
-            }}
-            className="w-full bg-blue-600 text-white font-semibold py-3.5 rounded-xl hover:bg-blue-700 transition text-lg"
-          >
+          <button onClick={() => { if (!customerName.trim()) return alert('Customer name is required'); if (!movingFrom.trim() || !movingTo.trim()) return alert('Moving from and moving to are required'); setStep('photos'); }} className="w-full bg-blue-600 text-white font-semibold py-3.5 rounded-xl hover:bg-blue-700 transition text-lg">
             Next — Upload Photos →
           </button>
         </div>
       )}
 
-      {/* ===== STEP 2: Photo Upload ===== */}
+      {/* STEP 2: Photo Upload */}
       {step === 'photos' && (
         <div className="space-y-6">
-          {/* Show pre-filled customer summary if prefilled */}
           {prefill && (
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center justify-between">
-              <div>
-                <p className="font-semibold text-blue-900">{customerName}</p>
-                <p className="text-sm text-blue-700">{movingFrom} → {movingTo}</p>
-              </div>
-              <button onClick={() => setStep('details')} className="text-xs text-blue-600 hover:text-blue-800 font-medium px-3 py-1.5 bg-white rounded-lg border border-blue-200">
-                Edit Details
-              </button>
+              <div><p className="font-semibold text-blue-900">{customerName}</p><p className="text-sm text-blue-700">{movingFrom} → {movingTo}</p></div>
+              <button onClick={() => setStep('details')} className="text-xs text-blue-600 hover:text-blue-800 font-medium px-3 py-1.5 bg-white rounded-lg border border-blue-200">Edit Details</button>
             </div>
           )}
-
           <div className="bg-white rounded-xl border p-6">
             <h3 className="font-bold text-gray-900 mb-2 flex items-center gap-2">
               <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
               Upload Room Photos
             </h3>
             <p className="text-sm text-gray-500 mb-5">Take photos of each room or upload from gallery. Our AI will detect all items and calculate volumes.</p>
-
             {analyzeError && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4 flex items-center gap-2">
                 <svg className="w-5 h-5 text-red-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>
                 <p className="text-sm text-red-700">{analyzeError}</p>
               </div>
             )}
-
             <div className="grid grid-cols-2 gap-4 mb-5">
               <label className="block cursor-pointer">
                 <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:border-blue-400 hover:bg-blue-50/50 transition-all">
                   <div className="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <svg className="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
+                    <svg className="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                   </div>
-                  <p className="font-medium text-gray-800">Take Photo</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Use your camera</p>
+                  <p className="font-medium text-gray-800">Take Photo</p><p className="text-xs text-gray-500 mt-0.5">Use your camera</p>
                 </div>
                 <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleCameraChange} className="hidden" />
               </label>
-
               <label className="block cursor-pointer">
                 <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:border-green-400 hover:bg-green-50/50 transition-all">
                   <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <svg className="w-7 h-7 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
+                    <svg className="w-7 h-7 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                   </div>
-                  <p className="font-medium text-gray-800">Upload Photos</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Choose from gallery</p>
+                  <p className="font-medium text-gray-800">Upload Photos</p><p className="text-xs text-gray-500 mt-0.5">Choose from gallery</p>
                 </div>
                 <input ref={galleryInputRef} type="file" accept="image/*" multiple onChange={handleGalleryChange} className="hidden" />
               </label>
             </div>
-
             {files.length > 0 && (
               <div>
                 <p className="text-sm font-medium text-gray-700 mb-3">{files.length} photo{files.length !== 1 ? 's' : ''} ready</p>
@@ -1354,10 +1280,7 @@ const [showAddItemModal, setShowAddItemModal] = useState(false);
                   {files.map((file, idx) => (
                     <div key={idx} className="relative group aspect-square rounded-xl overflow-hidden border border-gray-200 shadow-sm bg-gray-100">
                       <img src={URL.createObjectURL(file)} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
-                      <button
-                        onClick={() => removeFile(idx)}
-                        className="absolute top-1.5 right-1.5 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-red-600 shadow"
-                      >
+                      <button onClick={() => removeFile(idx)} className="absolute top-1.5 right-1.5 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-red-600 shadow">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                       </button>
                     </div>
@@ -1366,20 +1289,9 @@ const [showAddItemModal, setShowAddItemModal] = useState(false);
               </div>
             )}
           </div>
-
           <div className="flex gap-3">
-            <button onClick={() => setStep('details')} className="px-6 py-3.5 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200 transition">
-              ← Back
-            </button>
-            <button
-              onClick={uploadAndAnalyze}
-              disabled={files.length === 0}
-              className={`flex-1 font-semibold py-3.5 rounded-xl transition text-lg ${
-                files.length === 0
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-lg'
-              }`}
-            >
+            <button onClick={() => setStep('details')} className="px-6 py-3.5 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200 transition">← Back</button>
+            <button onClick={uploadAndAnalyze} disabled={files.length === 0} className={`flex-1 font-semibold py-3.5 rounded-xl transition text-lg ${files.length === 0 ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-lg'}`}>
               <span className="flex items-center justify-center gap-2">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                 Analyze with AI ({files.length} photo{files.length !== 1 ? 's' : ''})
@@ -1389,7 +1301,7 @@ const [showAddItemModal, setShowAddItemModal] = useState(false);
         </div>
       )}
 
-      {/* ===== ANALYZING STATE ===== */}
+      {/* ANALYZING STATE */}
       {step === 'analyzing' && (
         <div className="flex flex-col items-center justify-center py-20">
           <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center mb-6 animate-pulse shadow-2xl">
@@ -1398,28 +1310,19 @@ const [showAddItemModal, setShowAddItemModal] = useState(false);
           <h3 className="text-xl font-bold text-gray-900 mb-2">Analyzing Photos...</h3>
           <p className="text-gray-500 text-sm mb-6">Our AI is detecting items and calculating volumes</p>
           <div className="flex items-center gap-2">
-            <svg className="animate-spin h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-            </svg>
+            <svg className="animate-spin h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg>
             <span className="text-blue-600 font-medium text-sm">This usually takes 30-60 seconds...</span>
           </div>
         </div>
       )}
 
-      {/* ===== STEP 3: Results ===== */}
+      {/* STEP 3: Results with editable inventory */}
       {step === 'results' && aiResult && (
         <div className="space-y-6">
           <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-6 text-white">
             <div className="flex items-center justify-between mb-3">
-              <div>
-                <p className="text-sm text-blue-200">AI Estimated Cost</p>
-                <p className="text-4xl font-bold">£{parseFloat(editPrice || '0').toFixed(2)}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-sm text-blue-200">Customer</p>
-                <p className="text-lg font-semibold">{customerName}</p>
-              </div>
+              <div><p className="text-sm text-blue-200">AI Estimated Cost</p><p className="text-4xl font-bold">£{parseFloat(editPrice || '0').toFixed(2)}</p></div>
+              <div className="text-right"><p className="text-sm text-blue-200">Customer</p><p className="text-lg font-semibold">{customerName}</p></div>
             </div>
             <p className="text-sm text-blue-200">{movingFrom} → {movingTo}</p>
           </div>
@@ -1427,26 +1330,15 @@ const [showAddItemModal, setShowAddItemModal] = useState(false);
           <div className="bg-white rounded-xl border p-6">
             <h3 className="font-bold text-gray-900 mb-4">Adjust Pricing & Logistics</h3>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Volume (m³)</label>
-                <input type="number" value={editVolume} onChange={(e) => setEditVolume(e.target.value)} className="w-full px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Vans</label>
-                <input type="number" value={editVans} onChange={(e) => setEditVans(e.target.value)} className="w-full px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none" min="1" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Movers</label>
-                <input type="number" value={editMovers} onChange={(e) => setEditMovers(e.target.value)} className="w-full px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none" min="1" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Your Price (£)</label>
-                <input type="number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-full px-3 py-2.5 border rounded-lg text-sm font-bold text-green-600 focus:ring-2 focus:ring-blue-500 outline-none" />
-              </div>
+              <div><label className="text-xs text-gray-500 mb-1 block">Volume (m³)</label><input type="number" value={editVolume} onChange={(e) => setEditVolume(e.target.value)} className="w-full px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none" /></div>
+              <div><label className="text-xs text-gray-500 mb-1 block">Vans</label><input type="number" value={editVans} onChange={(e) => setEditVans(e.target.value)} className="w-full px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none" min="1" /></div>
+              <div><label className="text-xs text-gray-500 mb-1 block">Movers</label><input type="number" value={editMovers} onChange={(e) => setEditMovers(e.target.value)} className="w-full px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none" min="1" /></div>
+              <div><label className="text-xs text-gray-500 mb-1 block">Your Price (£)</label><input type="number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-full px-3 py-2.5 border rounded-lg text-sm font-bold text-green-600 focus:ring-2 focus:ring-blue-500 outline-none" /></div>
             </div>
           </div>
 
-<div className="bg-white rounded-xl border">
+          {/* EDITABLE ITEMS LIST */}
+          <div className="bg-white rounded-xl border">
             <div className="px-6 py-4 border-b flex items-center justify-between">
               <div>
                 <h3 className="font-bold text-gray-900">Items ({editItems.reduce((s: number, i: any) => s + i.quantity, 0)})</h3>
@@ -1478,6 +1370,7 @@ const [showAddItemModal, setShowAddItemModal] = useState(false);
             </div>
           </div>
 
+          {/* Add Item Modal */}
           {showAddItemModal && (
             <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => { setShowAddItemModal(false); setItemSearch(''); }}>
               <div className="bg-white rounded-2xl w-full max-w-md max-h-[80vh] flex flex-col" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
@@ -1513,49 +1406,28 @@ const [showAddItemModal, setShowAddItemModal] = useState(false);
               <h3 className="font-bold text-gray-900 mb-4">Photos ({uploadedUrls.length})</h3>
               <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
                 {uploadedUrls.map((url, idx) => (
-                  <div key={idx} className="aspect-square rounded-lg overflow-hidden border">
-                    <img src={url} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
-                  </div>
+                  <div key={idx} className="aspect-square rounded-lg overflow-hidden border"><img src={url} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" /></div>
                 ))}
               </div>
             </div>
           )}
 
           <div className="flex gap-3">
-            <button onClick={() => setStep('photos')} className="px-6 py-3.5 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200 transition">
-              ← Back
-            </button>
-            <button
-              onClick={async () => {
-                await downloadQuotePdf({
-                  companyName: company?.name || 'Moving Company',
-                  companyEmail: company?.email || undefined,
-                  companyPhone: company?.phone || undefined,
-                  quoteDate: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
-                  status: 'draft',
-                  customerName,
-                  customerEmail: customerEmail || undefined,
-                  customerPhone: customerPhone || undefined,
-                  movingFrom: movingFrom || undefined,
-                  movingTo: movingTo || undefined,
-                  movingDate: movingDate || undefined,
-                  items: editItems || [],
-                  totalVolume: editVolume ? parseFloat(editVolume) : undefined,
-                  vanCount: editVans ? parseInt(editVans) : undefined,
-                  movers: editMovers ? parseInt(editMovers) : undefined,
-                  estimatedPrice: editPrice ? parseFloat(editPrice) : undefined,
-                  notes: notes || undefined,
-                });
-              }}
-              className="px-6 py-3.5 bg-blue-50 text-blue-600 font-semibold rounded-xl hover:bg-blue-100 transition flex items-center gap-2"
-            >
+            <button onClick={() => setStep('photos')} className="px-6 py-3.5 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200 transition">← Back</button>
+            <button onClick={async () => {
+              await downloadQuotePdf({
+                companyName: company?.name || 'Moving Company', companyEmail: company?.email || undefined, companyPhone: company?.phone || undefined,
+                quoteDate: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }), status: 'draft',
+                customerName, customerEmail: customerEmail || undefined, customerPhone: customerPhone || undefined,
+                movingFrom: movingFrom || undefined, movingTo: movingTo || undefined, movingDate: movingDate || undefined,
+                items: editItems || [], totalVolume: editVolume ? parseFloat(editVolume) : undefined, vanCount: editVans ? parseInt(editVans) : undefined,
+                movers: editMovers ? parseInt(editMovers) : undefined, estimatedPrice: editPrice ? parseFloat(editPrice) : undefined, notes: notes || undefined,
+              });
+            }} className="px-6 py-3.5 bg-blue-50 text-blue-600 font-semibold rounded-xl hover:bg-blue-100 transition flex items-center gap-2">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
               PDF
             </button>
-            <button
-              onClick={handleSaveQuote}
-              className="flex-1 bg-green-600 text-white font-semibold py-3.5 rounded-xl hover:bg-green-700 transition text-lg shadow-lg"
-            >
+            <button onClick={handleSaveQuote} className="flex-1 bg-green-600 text-white font-semibold py-3.5 rounded-xl hover:bg-green-700 transition text-lg shadow-lg">
               Save Quote — £{parseFloat(editPrice || '0').toFixed(2)}
             </button>
           </div>
@@ -1573,21 +1445,12 @@ function LeadsTab({ leads, company }: { leads: Lead[]; company: Company }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Leads</h2>
-          <p className="text-sm text-gray-500 mt-1">{leads.length} total leads • Balance: £{company.balance?.toFixed(2) || '0.00'}</p>
-        </div>
-        <Link href="/company-dashboard/topup" className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-          Top Up Balance
-        </Link>
+        <div><h2 className="text-2xl font-bold text-gray-900">Leads</h2><p className="text-sm text-gray-500 mt-1">{leads.length} total leads • Balance: £{company.balance?.toFixed(2) || '0.00'}</p></div>
+        <Link href="/company-dashboard/topup" className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>Top Up Balance</Link>
       </div>
-
       {leads.length === 0 ? (
         <div className="bg-white rounded-xl border p-12 text-center">
-          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
-          </div>
+          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4"><svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg></div>
           <h3 className="text-lg font-bold text-gray-800 mb-2">No leads yet</h3>
           <p className="text-gray-500 text-sm">Leads will appear here when customers in your postcode areas request quotes.</p>
         </div>
@@ -1613,77 +1476,45 @@ function LeadsTab({ leads, company }: { leads: Lead[]; company: Company }) {
 }
 
 // ============================================
-// QUOTES TAB (list view)
+// QUOTES TAB — with clickable cards
 // ============================================
 
-function QuotesTab({ quotes, company, onAddQuote, onDeleteQuote, onUpdateStatus, onConvertToDeal }: {
+function QuotesTab({ quotes, company, onAddQuote, onDeleteQuote, onUpdateStatus, onConvertToDeal, onClickQuote }: {
   quotes: CrmQuote[];
   company: Company;
   onAddQuote: () => void;
   onDeleteQuote: (id: string) => void;
   onUpdateStatus: (id: string, status: string) => void;
   onConvertToDeal: (q: CrmQuote) => void;
+  onClickQuote: (q: CrmQuote) => void;
 }) {
   const [filterStatus, setFilterStatus] = useState<string>('all');
 
   const handleDownloadPdf = async (quote: CrmQuote) => {
     await downloadQuotePdf({
-      companyName: company?.name || 'Moving Company',
-      companyEmail: company?.email || undefined,
-      companyPhone: company?.phone || undefined,
+      companyName: company?.name || 'Moving Company', companyEmail: company?.email || undefined, companyPhone: company?.phone || undefined,
       quoteRef: quote.id.slice(0, 8).toUpperCase(),
       quoteDate: new Date(quote.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
       validUntil: quote.valid_until ? new Date(quote.valid_until).toLocaleDateString('en-GB') : undefined,
-      status: quote.status,
-      customerName: quote.customer_name,
-      customerEmail: quote.customer_email || undefined,
-      customerPhone: quote.customer_phone || undefined,
-      movingFrom: quote.moving_from || undefined,
-      movingTo: quote.moving_to || undefined,
-      movingDate: quote.moving_date || undefined,
-      items: quote.items || [],
-      totalVolume: quote.total_volume_m3 || undefined,
-      vanCount: quote.van_count || undefined,
-      movers: quote.movers || undefined,
-      estimatedPrice: quote.estimated_price || undefined,
-      notes: quote.notes || undefined,
+      status: quote.status, customerName: quote.customer_name, customerEmail: quote.customer_email || undefined,
+      customerPhone: quote.customer_phone || undefined, movingFrom: quote.moving_from || undefined, movingTo: quote.moving_to || undefined,
+      movingDate: quote.moving_date || undefined, items: quote.items || [], totalVolume: quote.total_volume_m3 || undefined,
+      vanCount: quote.van_count || undefined, movers: quote.movers || undefined, estimatedPrice: quote.estimated_price || undefined, notes: quote.notes || undefined,
     });
   };
 
   const filtered = filterStatus === 'all' ? quotes : quotes.filter((q) => q.status === filterStatus);
-
-  const statusCounts: Record<string, number> = {
-    all: quotes.length,
-    draft: quotes.filter((q) => q.status === 'draft').length,
-    sent: quotes.filter((q) => q.status === 'sent').length,
-    accepted: quotes.filter((q) => q.status === 'accepted').length,
-    declined: quotes.filter((q) => q.status === 'declined').length,
-  };
-
+  const statusCounts: Record<string, number> = { all: quotes.length, draft: quotes.filter((q) => q.status === 'draft').length, sent: quotes.filter((q) => q.status === 'sent').length, accepted: quotes.filter((q) => q.status === 'accepted').length, declined: quotes.filter((q) => q.status === 'declined').length };
   const totalQuoteValue = quotes.reduce((s, q) => s + (q.estimated_price || 0), 0);
   const acceptedValue = quotes.filter((q) => q.status === 'accepted').reduce((s, q) => s + (q.estimated_price || 0), 0);
-
-  const statusStyles: Record<string, string> = {
-    draft: 'bg-gray-100 text-gray-700',
-    sent: 'bg-blue-100 text-blue-700',
-    accepted: 'bg-green-100 text-green-700',
-    declined: 'bg-red-100 text-red-700',
-    expired: 'bg-yellow-100 text-yellow-700',
-  };
+  const statusStyles: Record<string, string> = { draft: 'bg-gray-100 text-gray-700', sent: 'bg-blue-100 text-blue-700', accepted: 'bg-green-100 text-green-700', declined: 'bg-red-100 text-red-700', expired: 'bg-yellow-100 text-yellow-700' };
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Quotes</h2>
-          <p className="text-sm text-gray-500 mt-1">{quotes.length} quotes • £{totalQuoteValue.toLocaleString()} total value • £{acceptedValue.toLocaleString()} accepted</p>
-        </div>
-        <button onClick={onAddQuote} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-          + New AI Quote
-        </button>
+        <div><h2 className="text-2xl font-bold text-gray-900">Quotes</h2><p className="text-sm text-gray-500 mt-1">{quotes.length} quotes • £{totalQuoteValue.toLocaleString()} total value • £{acceptedValue.toLocaleString()} accepted</p></div>
+        <button onClick={onAddQuote} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>+ New AI Quote</button>
       </div>
-
       <div className="flex gap-2 mb-6 flex-wrap">
         {['all', 'draft', 'sent', 'accepted', 'declined'].map((status) => (
           <button key={status} onClick={() => setFilterStatus(status)} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${filterStatus === status ? 'bg-blue-600 text-white' : 'bg-white border text-gray-600 hover:bg-gray-50'}`}>
@@ -1691,32 +1522,24 @@ function QuotesTab({ quotes, company, onAddQuote, onDeleteQuote, onUpdateStatus,
           </button>
         ))}
       </div>
-
       {filtered.length === 0 ? (
         <div className="bg-white rounded-xl border p-12 text-center">
-          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-          </div>
+          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4"><svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg></div>
           <h3 className="text-lg font-bold text-gray-800 mb-2">{filterStatus === 'all' ? 'No quotes yet' : `No ${filterStatus} quotes`}</h3>
           <p className="text-gray-500 text-sm mb-4">Upload photos and let AI create accurate quotes for your customers.</p>
-          <button onClick={onAddQuote} className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-            Create Your First AI Quote
-          </button>
+          <button onClick={onAddQuote} className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>Create Your First AI Quote</button>
         </div>
       ) : (
         <div className="space-y-3">
           {filtered.map((quote) => (
-            <div key={quote.id} className="bg-white rounded-xl border p-5 hover:shadow-md transition-all">
+            <div key={quote.id} className="bg-white rounded-xl border p-5 hover:shadow-md transition-all cursor-pointer" onClick={() => onClickQuote(quote)}>
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-2">
                     <h3 className="font-semibold text-gray-900">{quote.customer_name}</h3>
                     <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusStyles[quote.status] || statusStyles.draft}`}>{quote.status}</span>
                   </div>
-                  {(quote.moving_from || quote.moving_to) && (
-                    <p className="text-sm text-gray-600 mb-1">{quote.moving_from || '—'} → {quote.moving_to || '—'}</p>
-                  )}
+                  {(quote.moving_from || quote.moving_to) && <p className="text-sm text-gray-600 mb-1">{quote.moving_from || '—'} → {quote.moving_to || '—'}</p>}
                   <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
                     {quote.moving_date && <span>📅 {new Date(quote.moving_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>}
                     {quote.total_volume_m3 > 0 && <span>📦 {quote.total_volume_m3} m³</span>}
@@ -1727,15 +1550,11 @@ function QuotesTab({ quotes, company, onAddQuote, onDeleteQuote, onUpdateStatus,
                   </div>
                 </div>
                 <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                  {quote.estimated_price && (
-                    <p className="text-xl font-bold text-green-600">£{quote.estimated_price.toLocaleString()}</p>
-                  )}
+                  {quote.estimated_price && <p className="text-xl font-bold text-green-600">£{quote.estimated_price.toLocaleString()}</p>}
                 </div>
               </div>
-              <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-100 flex-wrap">
-                {quote.status === 'draft' && (
-                  <button onClick={() => onUpdateStatus(quote.id, 'sent')} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 px-3 py-1.5 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition">Mark as Sent</button>
-                )}
+              <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-100 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                {quote.status === 'draft' && <button onClick={() => onUpdateStatus(quote.id, 'sent')} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 px-3 py-1.5 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition">Mark as Sent</button>}
                 {quote.status === 'sent' && (
                   <>
                     <button onClick={() => onConvertToDeal(quote)} className="text-xs font-medium text-green-600 hover:text-green-800 px-3 py-1.5 bg-green-50 rounded-lg hover:bg-green-100 transition">Accepted → Pipeline</button>
@@ -1743,8 +1562,7 @@ function QuotesTab({ quotes, company, onAddQuote, onDeleteQuote, onUpdateStatus,
                   </>
                 )}
                 <button onClick={() => handleDownloadPdf(quote)} className="text-xs font-medium text-blue-600 hover:text-blue-800 px-3 py-1.5 bg-blue-50 rounded-lg hover:bg-blue-100 transition flex items-center gap-1">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                  PDF
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>PDF
                 </button>
                 <button onClick={() => onDeleteQuote(quote.id)} className="text-xs font-medium text-red-500 hover:text-red-700 px-3 py-1.5 bg-red-50 rounded-lg hover:bg-red-100 transition ml-auto">Delete</button>
               </div>
@@ -1757,7 +1575,7 @@ function QuotesTab({ quotes, company, onAddQuote, onDeleteQuote, onUpdateStatus,
 }
 
 // ============================================
-// PIPELINE TAB — UPDATED: clickable deal cards
+// PIPELINE TAB
 // ============================================
 
 function PipelineTab({ stages, deals, events, onMoveDeal, onAddDeal, onEditDeal, onDeleteDeal, onClickDeal, dealHasBooking }: {
@@ -1774,9 +1592,7 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onAddDeal, onEditDeal,
     <div>
       <div className="flex items-center justify-between mb-6">
         <div><h2 className="text-2xl font-bold text-gray-900">Pipeline</h2><p className="text-sm text-gray-500 mt-1">{deals.length} deals in pipeline</p></div>
-        <button onClick={onAddDeal} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>Add Deal
-        </button>
+        <button onClick={onAddDeal} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>Add Deal</button>
       </div>
       {stages.length === 0 ? (
         <div className="bg-white rounded-xl border p-12 text-center"><p className="text-gray-500">Pipeline stages will be set up automatically. Add your first deal to get started.</p></div>
@@ -1803,9 +1619,7 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onAddDeal, onEditDeal,
                         className={`bg-white rounded-lg p-3 shadow-sm border cursor-pointer hover:shadow-md transition-all ${draggedDealId === deal.id ? 'opacity-50' : ''}`}>
                         <div className="flex items-start justify-between">
                           <p className="font-medium text-gray-900 text-sm truncate flex-1">{deal.customer_name}</p>
-                          {hasBooking && (
-                            <span className="ml-1 text-blue-500 flex-shrink-0" title="Appointment booked">📅</span>
-                          )}
+                          {hasBooking && <span className="ml-1 text-blue-500 flex-shrink-0" title="Appointment booked">📅</span>}
                         </div>
                         {deal.moving_from && <p className="text-xs text-gray-500 mt-1 truncate">{deal.moving_from} → {deal.moving_to}</p>}
                         {deal.estimated_value && <p className="text-sm font-bold text-green-600 mt-1">£{deal.estimated_value.toLocaleString()}</p>}
@@ -1824,7 +1638,7 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onAddDeal, onEditDeal,
 }
 
 // ============================================
-// DIARY TAB — UPDATED: clickable events open popup
+// DIARY TAB
 // ============================================
 
 function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEditEvent, onDeleteEvent, onToggleComplete, onClickEvent }: {
@@ -1854,22 +1668,9 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
     return d.getDate() === selectedDate.getDate() && d.getMonth() === selectedDate.getMonth() && d.getFullYear() === selectedDate.getFullYear();
   });
 
-  const handleDayClick = (day: number) => {
-    onSelectDate(new Date(year, month, day));
-    setViewMode('day');
-  };
-
-  const goToPrevDay = () => {
-    const prev = new Date(selectedDate);
-    prev.setDate(prev.getDate() - 1);
-    onSelectDate(prev);
-  };
-
-  const goToNextDay = () => {
-    const next = new Date(selectedDate);
-    next.setDate(next.getDate() + 1);
-    onSelectDate(next);
-  };
+  const handleDayClick = (day: number) => { onSelectDate(new Date(year, month, day)); setViewMode('day'); };
+  const goToPrevDay = () => { const prev = new Date(selectedDate); prev.setDate(prev.getDate() - 1); onSelectDate(prev); };
+  const goToNextDay = () => { const next = new Date(selectedDate); next.setDate(next.getDate() + 1); onSelectDate(next); };
 
   const eventTypeColors: Record<string, { bg: string; border: string; text: string }> = {
     job: { bg: 'bg-blue-100', border: 'border-blue-400', text: 'text-blue-800' },
@@ -1887,116 +1688,59 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
     const end = event.end_time ? new Date(event.end_time) : new Date(start.getTime() + 60 * 60 * 1000);
     const endHour = end.getHours() + end.getMinutes() / 60;
     const duration = Math.max(endHour - startHour, 0.5);
-
     const top = (startHour - 6) * 64;
     const height = Math.max(duration * 64, 28);
-
     return { top: `${top}px`, height: `${height}px` };
   };
 
-  const isEventVisible = (event: DiaryEvent) => {
-    const start = new Date(event.start_time);
-    const hour = start.getHours();
-    return hour >= 6 && hour <= 22;
-  };
+  const isEventVisible = (event: DiaryEvent) => { const start = new Date(event.start_time); const hour = start.getHours(); return hour >= 6 && hour <= 22; };
 
   const nowHour = today.getHours() + today.getMinutes() / 60;
   const isToday = selectedDate.getDate() === today.getDate() && selectedDate.getMonth() === today.getMonth() && selectedDate.getFullYear() === today.getFullYear();
   const currentTimeTop = (nowHour - 6) * 64;
 
-  const monthDeals = deals.filter((d) => {
-    if (!d.moving_date) return false;
-    const dd = new Date(d.moving_date);
-    return dd.getMonth() === month && dd.getFullYear() === year;
-  });
-
+  const monthDeals = deals.filter((d) => { if (!d.moving_date) return false; const dd = new Date(d.moving_date); return dd.getMonth() === month && dd.getFullYear() === year; });
   const monthlyRevenue = monthDeals.reduce((s, d) => s + (d.estimated_value || 0), 0);
 
   const weeklyRevenue: Record<number, { revenue: number; deals: number; startDate: Date; endDate: Date }> = {};
-  
   const firstOfMonth = new Date(year, month, 1);
   const lastOfMonth = new Date(year, month + 1, 0);
   let weekStart = new Date(firstOfMonth);
   const dow = weekStart.getDay();
   if (dow !== 1) weekStart.setDate(weekStart.getDate() - (dow === 0 ? 6 : dow - 1));
-  
   let weekNum = 1;
   while (weekStart <= lastOfMonth) {
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 6);
+    const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 6);
     weeklyRevenue[weekNum] = { revenue: 0, deals: 0, startDate: new Date(weekStart), endDate: new Date(weekEnd) };
-    
-    monthDeals.forEach((deal) => {
-      const dd = new Date(deal.moving_date!);
-      if (dd >= weekStart && dd <= weekEnd) {
-        weeklyRevenue[weekNum].revenue += deal.estimated_value || 0;
-        weeklyRevenue[weekNum].deals += 1;
-      }
-    });
-    
-    weekStart.setDate(weekStart.getDate() + 7);
-    weekNum++;
+    monthDeals.forEach((deal) => { const dd = new Date(deal.moving_date!); if (dd >= weekStart && dd <= weekEnd) { weeklyRevenue[weekNum].revenue += deal.estimated_value || 0; weeklyRevenue[weekNum].deals += 1; } });
+    weekStart.setDate(weekStart.getDate() + 7); weekNum++;
   }
 
-  const completedJobsThisMonth = events.filter((e) => {
-    if (!e.completed || e.event_type !== 'job') return false;
-    const d = new Date(e.start_time);
-    return d.getMonth() === month && d.getFullYear() === year;
-  }).length;
+  const completedJobsThisMonth = events.filter((e) => { if (!e.completed || e.event_type !== 'job') return false; const d = new Date(e.start_time); return d.getMonth() === month && d.getFullYear() === year; }).length;
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Diary</h2>
-          <p className="text-sm text-gray-500 mt-1">{events.length} scheduled events</p>
-        </div>
+        <div><h2 className="text-2xl font-bold text-gray-900">Diary</h2><p className="text-sm text-gray-500 mt-1">{events.length} scheduled events</p></div>
         <div className="flex items-center gap-3">
           <div className="flex bg-gray-100 rounded-lg p-0.5">
-            <button
-              onClick={() => setViewMode('month')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${viewMode === 'month' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              Month
-            </button>
-            <button
-              onClick={() => setViewMode('day')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${viewMode === 'day' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              Day
-            </button>
+            <button onClick={() => setViewMode('month')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${viewMode === 'month' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Month</button>
+            <button onClick={() => setViewMode('day')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${viewMode === 'day' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Day</button>
           </div>
-          <button
-            onClick={() => { onSelectDate(new Date()); setViewMode('day'); }}
-            className="px-3 py-2 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition"
-          >
-            Today
-          </button>
-          <button onClick={onAddEvent} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-            Add Event
-          </button>
+          <button onClick={() => { onSelectDate(new Date()); setViewMode('day'); }} className="px-3 py-2 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition">Today</button>
+          <button onClick={onAddEvent} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>Add Event</button>
         </div>
       </div>
 
-      {/* ===== MONTH VIEW ===== */}
       {viewMode === 'month' && (
         <>
         <div className="bg-white rounded-xl border p-5">
           <div className="flex items-center justify-between mb-4">
-            <button onClick={() => onSelectDate(new Date(year, month - 1, 1))} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-            </button>
+            <button onClick={() => onSelectDate(new Date(year, month - 1, 1))} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
             <h3 className="font-bold text-gray-900 text-lg">{selectedDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</h3>
-            <button onClick={() => onSelectDate(new Date(year, month + 1, 1))} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-            </button>
+            <button onClick={() => onSelectDate(new Date(year, month + 1, 1))} className="p-2 hover:bg-gray-100 rounded-lg text-gray-600"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg></button>
           </div>
-          <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-gray-500 mb-2">
-            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
-              <div key={d} className="py-2">{d}</div>
-            ))}
-          </div>
+          <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-gray-500 mb-2">{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (<div key={d} className="py-2">{d}</div>))}</div>
           <div className="grid grid-cols-7 gap-1">
             {days.map((day, idx) => {
               if (day === null) return <div key={idx} />;
@@ -2004,117 +1748,57 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
               const isTodayCell = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
               const isSelected = day === selectedDate.getDate() && month === selectedDate.getMonth();
               return (
-                <button
-                  key={idx}
-                  onClick={() => handleDayClick(day)}
-                  className={`p-1.5 rounded-lg text-sm transition-all min-h-[72px] flex flex-col items-start ${
-                    isSelected ? 'bg-blue-600 text-white ring-2 ring-blue-300' : isTodayCell ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-700'
-                  }`}
-                >
+                <button key={idx} onClick={() => handleDayClick(day)} className={`p-1.5 rounded-lg text-sm transition-all min-h-[72px] flex flex-col items-start ${isSelected ? 'bg-blue-600 text-white ring-2 ring-blue-300' : isTodayCell ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-700'}`}>
                   <span className={`text-xs font-semibold mb-1 ${isTodayCell && !isSelected ? 'bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center' : ''}`}>{day}</span>
                   {dayEvents.slice(0, 2).map((evt, i) => {
                     const colors = eventTypeColors[evt.event_type] || eventTypeColors.other;
-                    return (
-                      <div key={i} className={`w-full text-left truncate text-[10px] px-1 py-0.5 rounded mb-0.5 ${isSelected ? 'bg-white/20 text-white' : `${colors.bg} ${colors.text}`}`}>
-                        {new Date(evt.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} {evt.title}
-                      </div>
-                    );
+                    return (<div key={i} className={`w-full text-left truncate text-[10px] px-1 py-0.5 rounded mb-0.5 ${isSelected ? 'bg-white/20 text-white' : `${colors.bg} ${colors.text}`}`}>{new Date(evt.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} {evt.title}</div>);
                   })}
-                  {dayEvents.length > 2 && (
-                    <span className={`text-[10px] ${isSelected ? 'text-white/80' : 'text-gray-400'}`}>+{dayEvents.length - 2} more</span>
-                  )}
+                  {dayEvents.length > 2 && <span className={`text-[10px] ${isSelected ? 'text-white/80' : 'text-gray-400'}`}>+{dayEvents.length - 2} more</span>}
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Weekly & Monthly Revenue */}
         <div className="bg-white rounded-xl border p-5 mt-4">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-gray-900 flex items-center gap-2">
-              <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              Revenue — {selectedDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}
-            </h3>
-            <div className="text-right">
-              <p className="text-2xl font-bold text-green-600">£{monthlyRevenue.toLocaleString()}</p>
-              <p className="text-xs text-gray-500">{monthDeals.length} deal{monthDeals.length !== 1 ? 's' : ''} • {completedJobsThisMonth} job{completedJobsThisMonth !== 1 ? 's' : ''} completed</p>
-            </div>
+            <h3 className="font-bold text-gray-900 flex items-center gap-2"><svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>Revenue — {selectedDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}</h3>
+            <div className="text-right"><p className="text-2xl font-bold text-green-600">£{monthlyRevenue.toLocaleString()}</p><p className="text-xs text-gray-500">{monthDeals.length} deal{monthDeals.length !== 1 ? 's' : ''} • {completedJobsThisMonth} job{completedJobsThisMonth !== 1 ? 's' : ''} completed</p></div>
           </div>
-          
           <div className="space-y-2">
             {Object.entries(weeklyRevenue).map(([week, data]) => {
               const weekLabel = `${data.startDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${data.endDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`;
               const percentage = monthlyRevenue > 0 ? (data.revenue / monthlyRevenue) * 100 : 0;
               return (
                 <div key={week} className="flex items-center gap-3">
-                  <div className="w-24 flex-shrink-0">
-                    <p className="text-xs font-semibold text-gray-700">Week {week}</p>
-                    <p className="text-[10px] text-gray-400">{weekLabel}</p>
-                  </div>
-                  <div className="flex-1">
-                    <div className="h-6 bg-gray-100 rounded-full overflow-hidden relative">
-                      <div 
-                        className="h-full bg-gradient-to-r from-green-400 to-green-600 rounded-full transition-all duration-500"
-                        style={{ width: `${Math.max(percentage, data.revenue > 0 ? 8 : 0)}%` }}
-                      />
-                      {data.revenue > 0 && (
-                        <span className="absolute inset-0 flex items-center justify-center text-[11px] font-bold text-gray-700">
-                          {data.deals} deal{data.deals !== 1 ? 's' : ''}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="w-20 text-right flex-shrink-0">
-                    <p className={`text-sm font-bold ${data.revenue > 0 ? 'text-green-600' : 'text-gray-300'}`}>
-                      £{data.revenue.toLocaleString()}
-                    </p>
-                  </div>
+                  <div className="w-24 flex-shrink-0"><p className="text-xs font-semibold text-gray-700">Week {week}</p><p className="text-[10px] text-gray-400">{weekLabel}</p></div>
+                  <div className="flex-1"><div className="h-6 bg-gray-100 rounded-full overflow-hidden relative"><div className="h-full bg-gradient-to-r from-green-400 to-green-600 rounded-full transition-all duration-500" style={{ width: `${Math.max(percentage, data.revenue > 0 ? 8 : 0)}%` }} />{data.revenue > 0 && <span className="absolute inset-0 flex items-center justify-center text-[11px] font-bold text-gray-700">{data.deals} deal{data.deals !== 1 ? 's' : ''}</span>}</div></div>
+                  <div className="w-20 text-right flex-shrink-0"><p className={`text-sm font-bold ${data.revenue > 0 ? 'text-green-600' : 'text-gray-300'}`}>£{data.revenue.toLocaleString()}</p></div>
                 </div>
               );
             })}
           </div>
-
           <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-green-500 rounded-full" />
-              <span className="text-sm font-semibold text-gray-800">Monthly Total</span>
-            </div>
+            <div className="flex items-center gap-2"><div className="w-3 h-3 bg-green-500 rounded-full" /><span className="text-sm font-semibold text-gray-800">Monthly Total</span></div>
             <p className="text-xl font-bold text-green-600">£{monthlyRevenue.toLocaleString()}</p>
           </div>
         </div>
         </>
       )}
 
-      {/* ===== DAY VIEW ===== */}
       {viewMode === 'day' && (
         <div className="bg-white rounded-xl border overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b bg-gray-50">
-            <button onClick={goToPrevDay} className="p-2 hover:bg-gray-200 rounded-lg text-gray-600 transition">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-            </button>
+            <button onClick={goToPrevDay} className="p-2 hover:bg-gray-200 rounded-lg text-gray-600 transition"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg></button>
             <div className="text-center">
-              <h3 className="font-bold text-gray-900 text-lg">
-                {selectedDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-              </h3>
+              <h3 className="font-bold text-gray-900 text-lg">{selectedDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</h3>
               <div className="flex items-center justify-center gap-3 mt-0.5">
                 <p className="text-xs text-gray-500">{selectedDayEvents.length} event{selectedDayEvents.length !== 1 ? 's' : ''}</p>
-                {(() => {
-                  const dayDeals = deals.filter((d) => {
-                    if (!d.moving_date) return false;
-                    const dd = new Date(d.moving_date);
-                    return dd.getDate() === selectedDate.getDate() && dd.getMonth() === selectedDate.getMonth() && dd.getFullYear() === selectedDate.getFullYear();
-                  });
-                  const dayRev = dayDeals.reduce((s, d) => s + (d.estimated_value || 0), 0);
-                  return dayRev > 0 ? (
-                    <span className="text-xs font-semibold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">£{dayRev.toLocaleString()} revenue</span>
-                  ) : null;
-                })()}
+                {(() => { const dayDeals = deals.filter((d) => { if (!d.moving_date) return false; const dd = new Date(d.moving_date); return dd.getDate() === selectedDate.getDate() && dd.getMonth() === selectedDate.getMonth() && dd.getFullYear() === selectedDate.getFullYear(); }); const dayRev = dayDeals.reduce((s, d) => s + (d.estimated_value || 0), 0); return dayRev > 0 ? <span className="text-xs font-semibold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">£{dayRev.toLocaleString()} revenue</span> : null; })()}
               </div>
             </div>
-            <button onClick={goToNextDay} className="p-2 hover:bg-gray-200 rounded-lg text-gray-600 transition">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-            </button>
+            <button onClick={goToNextDay} className="p-2 hover:bg-gray-200 rounded-lg text-gray-600 transition"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg></button>
           </div>
 
           {selectedDayEvents.filter(e => !isEventVisible(e)).length > 0 && (
@@ -2122,11 +1806,7 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
               <p className="text-xs font-semibold text-amber-700 mb-1">Other times</p>
               {selectedDayEvents.filter(e => !isEventVisible(e)).map((event) => {
                 const colors = eventTypeColors[event.event_type] || eventTypeColors.other;
-                return (
-                  <div key={event.id} onClick={() => onClickEvent(event)} className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium cursor-pointer mr-2 mb-1 ${colors.bg} ${colors.text}`}>
-                    {new Date(event.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} {event.title}
-                  </div>
-                );
+                return <div key={event.id} onClick={() => onClickEvent(event)} className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium cursor-pointer mr-2 mb-1 ${colors.bg} ${colors.text}`}>{new Date(event.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} {event.title}</div>;
               })}
             </div>
           )}
@@ -2135,27 +1815,16 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
             <div className="relative" style={{ height: `${hours.length * 64}px` }}>
               {hours.map((hour) => (
                 <div key={hour} className="absolute w-full flex" style={{ top: `${(hour - 6) * 64}px`, height: '64px' }}>
-                  <div className="w-16 sm:w-20 flex-shrink-0 pr-2 text-right">
-                    <span className="text-xs text-gray-400 font-medium -mt-2 block">
-                      {hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}
-                    </span>
-                  </div>
-                  <div className="flex-1 border-t border-gray-100 relative group cursor-pointer hover:bg-blue-50/30 transition"
-                    onClick={() => onAddEvent()}
-                  >
+                  <div className="w-16 sm:w-20 flex-shrink-0 pr-2 text-right"><span className="text-xs text-gray-400 font-medium -mt-2 block">{hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}</span></div>
+                  <div className="flex-1 border-t border-gray-100 relative group cursor-pointer hover:bg-blue-50/30 transition" onClick={() => onAddEvent()}>
                     <div className="absolute w-full border-t border-gray-50" style={{ top: '32px' }} />
-                    <div className="absolute right-2 top-1 opacity-0 group-hover:opacity-100 transition">
-                      <span className="text-[10px] text-blue-400 font-medium">+ Add</span>
-                    </div>
+                    <div className="absolute right-2 top-1 opacity-0 group-hover:opacity-100 transition"><span className="text-[10px] text-blue-400 font-medium">+ Add</span></div>
                   </div>
                 </div>
               ))}
 
               {isToday && nowHour >= 6 && nowHour <= 23 && (
-                <div className="absolute left-16 sm:left-20 right-0 z-20 flex items-center" style={{ top: `${currentTimeTop}px` }}>
-                  <div className="w-3 h-3 bg-red-500 rounded-full -ml-1.5" />
-                  <div className="flex-1 h-0.5 bg-red-500" />
-                </div>
+                <div className="absolute left-16 sm:left-20 right-0 z-20 flex items-center" style={{ top: `${currentTimeTop}px` }}><div className="w-3 h-3 bg-red-500 rounded-full -ml-1.5" /><div className="flex-1 h-0.5 bg-red-500" /></div>
               )}
 
               {selectedDayEvents.filter(isEventVisible).map((event) => {
@@ -2164,35 +1833,17 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
                 const startTime = new Date(event.start_time);
                 const endTime = event.end_time ? new Date(event.end_time) : null;
                 return (
-                  <div
-                    key={event.id}
-                    className={`absolute left-16 sm:left-20 right-2 z-10 rounded-lg border-l-4 px-3 py-1.5 cursor-pointer hover:shadow-md transition-all overflow-hidden ${colors.bg} ${colors.border} ${event.completed ? 'opacity-50' : ''}`}
-                    style={{ top: style.top, height: style.height, minHeight: '28px' }}
-                    onClick={() => onClickEvent(event)}
-                  >
+                  <div key={event.id} className={`absolute left-16 sm:left-20 right-2 z-10 rounded-lg border-l-4 px-3 py-1.5 cursor-pointer hover:shadow-md transition-all overflow-hidden ${colors.bg} ${colors.border} ${event.completed ? 'opacity-50' : ''}`} style={{ top: style.top, height: style.height, minHeight: '28px' }} onClick={() => onClickEvent(event)}>
                     <div className="flex items-start justify-between gap-1">
                       <div className="flex-1 min-w-0">
                         <p className={`text-sm font-semibold truncate ${colors.text}`}>{event.title}</p>
-                        <p className="text-[11px] text-gray-500">
-                          {startTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-                          {endTime && ` – ${endTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}
-                        </p>
+                        <p className="text-[11px] text-gray-500">{startTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}{endTime && ` – ${endTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}</p>
                         {event.customer_name && <p className="text-[11px] text-gray-500 truncate">{event.customer_name}</p>}
                         {event.location && <p className="text-[10px] text-gray-400 truncate">📍 {event.location}</p>}
                       </div>
                       <div className="flex gap-0.5 flex-shrink-0 mt-0.5">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); onToggleComplete(event.id, !event.completed); }}
-                          className={`w-5 h-5 rounded flex items-center justify-center transition ${event.completed ? 'bg-green-500 text-white' : 'border border-gray-300 hover:border-green-400'}`}
-                        >
-                          {event.completed && <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); onDeleteEvent(event.id); }}
-                          className="w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition"
-                        >
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); onToggleComplete(event.id, !event.completed); }} className={`w-5 h-5 rounded flex items-center justify-center transition ${event.completed ? 'bg-green-500 text-white' : 'border border-gray-300 hover:border-green-400'}`}>{event.completed && <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}</button>
+                        <button onClick={(e) => { e.stopPropagation(); onDeleteEvent(event.id); }} className="w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:text-red-500 hover:bg-red-50 transition"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
                       </div>
                     </div>
                   </div>
@@ -2257,9 +1908,7 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
 // REPORTS TAB
 // ============================================
 
-function ReportsTab({ leads, deals, customers, events, crmQuotes, company }: {
-  leads: Lead[]; deals: Deal[]; customers: Customer[]; events: DiaryEvent[]; crmQuotes: CrmQuote[]; company: Company;
-}) {
+function ReportsTab({ leads, deals, customers, events, crmQuotes, company }: { leads: Lead[]; deals: Deal[]; customers: Customer[]; events: DiaryEvent[]; crmQuotes: CrmQuote[]; company: Company; }) {
   const totalDealValue = deals.reduce((s, d) => s + (d.estimated_value || 0), 0);
   const totalQuoteValue = crmQuotes.reduce((s, q) => s + (q.estimated_price || 0), 0);
   const acceptedQuoteValue = crmQuotes.filter((q) => q.status === 'accepted').reduce((s, q) => s + (q.estimated_price || 0), 0);
@@ -2269,27 +1918,16 @@ function ReportsTab({ leads, deals, customers, events, crmQuotes, company }: {
   const quoteConversion = crmQuotes.length > 0 ? ((crmQuotes.filter(q => q.status === 'accepted').length / crmQuotes.length) * 100).toFixed(1) : '0';
 
   const stats = [
-    { label: 'Total Leads', value: leads.length, color: 'text-blue-700' },
-    { label: 'Won Leads', value: wonLeads, color: 'text-green-700' },
-    { label: 'Lead Conversion', value: `${conversionRate}%`, color: 'text-purple-700' },
-    { label: 'Pipeline Value', value: `£${totalDealValue.toLocaleString()}`, color: 'text-yellow-700' },
-    { label: 'Quotes Sent', value: crmQuotes.length, color: 'text-indigo-700' },
-    { label: 'Quote Conversion', value: `${quoteConversion}%`, color: 'text-teal-700' },
-    { label: 'Total Quote Value', value: `£${totalQuoteValue.toLocaleString()}`, color: 'text-orange-700' },
-    { label: 'Accepted Value', value: `£${acceptedQuoteValue.toLocaleString()}`, color: 'text-emerald-700' },
-    { label: 'Total Customers', value: customers.length, color: 'text-indigo-700' },
-    { label: 'Pipeline Deals', value: deals.length, color: 'text-orange-700' },
-    { label: 'Jobs Completed', value: completedEvents, color: 'text-teal-700' },
-    { label: 'Account Balance', value: `£${company.balance?.toFixed(2) || '0.00'}`, color: 'text-emerald-700' },
+    { label: 'Total Leads', value: leads.length, color: 'text-blue-700' }, { label: 'Won Leads', value: wonLeads, color: 'text-green-700' }, { label: 'Lead Conversion', value: `${conversionRate}%`, color: 'text-purple-700' }, { label: 'Pipeline Value', value: `£${totalDealValue.toLocaleString()}`, color: 'text-yellow-700' },
+    { label: 'Quotes Sent', value: crmQuotes.length, color: 'text-indigo-700' }, { label: 'Quote Conversion', value: `${quoteConversion}%`, color: 'text-teal-700' }, { label: 'Total Quote Value', value: `£${totalQuoteValue.toLocaleString()}`, color: 'text-orange-700' }, { label: 'Accepted Value', value: `£${acceptedQuoteValue.toLocaleString()}`, color: 'text-emerald-700' },
+    { label: 'Total Customers', value: customers.length, color: 'text-indigo-700' }, { label: 'Pipeline Deals', value: deals.length, color: 'text-orange-700' }, { label: 'Jobs Completed', value: completedEvents, color: 'text-teal-700' }, { label: 'Account Balance', value: `£${company.balance?.toFixed(2) || '0.00'}`, color: 'text-emerald-700' },
   ];
 
   return (
     <div>
       <div className="mb-6"><h2 className="text-2xl font-bold text-gray-900">Reports</h2><p className="text-sm text-gray-500 mt-1">Overview of your business performance</p></div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        {stats.map((stat, i) => (
-          <div key={i} className="bg-white rounded-xl border p-5"><p className="text-xs font-medium text-gray-500 mb-1">{stat.label}</p><p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p></div>
-        ))}
+        {stats.map((stat, i) => (<div key={i} className="bg-white rounded-xl border p-5"><p className="text-xs font-medium text-gray-500 mb-1">{stat.label}</p><p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p></div>))}
       </div>
       <div className="bg-white rounded-xl border p-5">
         <h3 className="font-bold text-gray-900 mb-4">Recent Leads</h3>
@@ -2329,15 +1967,9 @@ function SettingsTab({ company, crmActive, onSubscribe }: { company: Company; cr
       <div className="bg-white rounded-xl border p-6">
         <h3 className="font-bold text-gray-900 mb-4">CRM Subscription</h3>
         {crmActive ? (
-          <div className="flex items-center gap-3">
-            <div className="w-3 h-3 bg-green-500 rounded-full" />
-            <div><p className="font-semibold text-green-700">CRM Pro — Active</p><p className="text-sm text-gray-500">£129.99/month • Quotes, Pipeline, Diary, Customers & Reports</p></div>
-          </div>
+          <div className="flex items-center gap-3"><div className="w-3 h-3 bg-green-500 rounded-full" /><div><p className="font-semibold text-green-700">CRM Pro — Active</p><p className="text-sm text-gray-500">£129.99/month • Quotes, Pipeline, Diary, Customers & Reports</p></div></div>
         ) : (
-          <div>
-            <p className="text-gray-500 mb-4">Unlock the full CRM suite to manage your removal business.</p>
-            <button onClick={onSubscribe} className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white font-bold px-6 py-3 rounded-xl hover:from-yellow-600 hover:to-orange-600 transition-all">Start CRM Pro — £129.99/month</button>
-          </div>
+          <div><p className="text-gray-500 mb-4">Unlock the full CRM suite to manage your removal business.</p><button onClick={onSubscribe} className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white font-bold px-6 py-3 rounded-xl hover:from-yellow-600 hover:to-orange-600 transition-all">Start CRM Pro — £129.99/month</button></div>
         )}
       </div>
     </div>
@@ -2349,11 +1981,7 @@ function SettingsTab({ company, crmActive, onSubscribe }: { company: Company; cr
 // ============================================
 
 function DealModal({ deal, stages, onSave, onClose }: { deal: Deal | null; stages: PipelineStage[]; onSave: (deal: Partial<Deal>) => void; onClose: () => void; }) {
-  const [form, setForm] = useState({
-    customer_name: deal?.customer_name || '', customer_email: deal?.customer_email || '', customer_phone: deal?.customer_phone || '',
-    moving_from: deal?.moving_from || '', moving_to: deal?.moving_to || '', moving_date: deal?.moving_date || '',
-    estimated_value: deal?.estimated_value?.toString() || '', notes: deal?.notes || '', stage_id: deal?.stage_id || stages[0]?.id || '',
-  });
+  const [form, setForm] = useState({ customer_name: deal?.customer_name || '', customer_email: deal?.customer_email || '', customer_phone: deal?.customer_phone || '', moving_from: deal?.moving_from || '', moving_to: deal?.moving_to || '', moving_date: deal?.moving_date || '', estimated_value: deal?.estimated_value?.toString() || '', notes: deal?.notes || '', stage_id: deal?.stage_id || stages[0]?.id || '' });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -2371,9 +1999,7 @@ function DealModal({ deal, stages, onSave, onClose }: { deal: Deal | null; stage
             <input type="date" value={form.moving_date} onChange={(e) => setForm({ ...form, moving_date: e.target.value })} className="px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
             <input type="number" value={form.estimated_value} onChange={(e) => setForm({ ...form, estimated_value: e.target.value })} placeholder="Value (£)" className="px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
           </div>
-          <select value={form.stage_id} onChange={(e) => setForm({ ...form, stage_id: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-            {stages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+          <select value={form.stage_id} onChange={(e) => setForm({ ...form, stage_id: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">{stages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
           <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Notes" rows={3} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
         </div>
         <div className="flex gap-3 mt-5">
@@ -2390,10 +2016,7 @@ function DealModal({ deal, stages, onSave, onClose }: { deal: Deal | null; stage
 // ============================================
 
 function EventModal({ event, onSave, onClose }: { event: DiaryEvent | null; onSave: (e: Partial<DiaryEvent>) => void; onClose: () => void; }) {
-  const [form, setForm] = useState({
-    title: event?.title || '', description: event?.description || '', start_time: event?.start_time ? event.start_time.slice(0, 16) : '',
-    end_time: event?.end_time ? event.end_time.slice(0, 16) : '', event_type: event?.event_type || 'job', customer_name: event?.customer_name || '', location: event?.location || '',
-  });
+  const [form, setForm] = useState({ title: event?.title || '', description: event?.description || '', start_time: event?.start_time ? event.start_time.slice(0, 16) : '', end_time: event?.end_time ? event.end_time.slice(0, 16) : '', event_type: event?.event_type || 'job', customer_name: event?.customer_name || '', location: event?.location || '' });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -2401,9 +2024,7 @@ function EventModal({ event, onSave, onClose }: { event: DiaryEvent | null; onSa
         <h2 className="text-xl font-bold text-gray-900 mb-4">{event ? 'Edit Event' : 'New Event'}</h2>
         <div className="space-y-3">
           <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Event title *" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-          <select value={form.event_type} onChange={(e) => setForm({ ...form, event_type: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-            <option value="job">Job</option><option value="survey">Survey</option><option value="callback">Callback</option><option value="delivery">Delivery</option><option value="other">Other</option>
-          </select>
+          <select value={form.event_type} onChange={(e) => setForm({ ...form, event_type: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"><option value="job">Job</option><option value="survey">Survey</option><option value="callback">Callback</option><option value="delivery">Delivery</option><option value="other">Other</option></select>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="text-xs text-gray-500 mb-1 block">Start time *</label><input type="datetime-local" value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" /></div>
             <div><label className="text-xs text-gray-500 mb-1 block">End time</label><input type="datetime-local" value={form.end_time} onChange={(e) => setForm({ ...form, end_time: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" /></div>
@@ -2422,26 +2043,11 @@ function EventModal({ event, onSave, onClose }: { event: DiaryEvent | null; onSa
 }
 
 // ============================================
-// CUSTOMER MODAL — ENHANCED with source, move details, pipeline stage
+// CUSTOMER MODAL
 // ============================================
 
-function CustomerModal({ customer, stages, onSave, onClose }: {
-  customer: Customer | null;
-  stages: PipelineStage[];
-  onSave: (c: Partial<Customer>, stageId?: string) => void;
-  onClose: () => void;
-}) {
-  const [form, setForm] = useState({
-    name: customer?.name || '',
-    email: customer?.email || '',
-    phone: customer?.phone || '',
-    address: customer?.address || '',
-    notes: customer?.notes || '',
-    source: customer?.source || '',
-    moving_from: customer?.moving_from || '',
-    moving_to: customer?.moving_to || '',
-    moving_date: customer?.moving_date || '',
-  });
+function CustomerModal({ customer, stages, onSave, onClose }: { customer: Customer | null; stages: PipelineStage[]; onSave: (c: Partial<Customer>, stageId?: string) => void; onClose: () => void; }) {
+  const [form, setForm] = useState({ name: customer?.name || '', email: customer?.email || '', phone: customer?.phone || '', address: customer?.address || '', notes: customer?.notes || '', source: customer?.source || '', moving_from: customer?.moving_from || '', moving_to: customer?.moving_to || '', moving_date: customer?.moving_date || '' });
   const [selectedStage, setSelectedStage] = useState('');
 
   return (
@@ -2449,84 +2055,30 @@ function CustomerModal({ customer, stages, onSave, onClose }: {
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
         <h2 className="text-xl font-bold text-gray-900 mb-4">{customer ? 'Edit Customer' : 'New Customer'}</h2>
         <div className="space-y-4">
-          {/* Customer Details Section */}
-          <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Customer Details</p>
+          <div><p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Customer Details</p>
             <div className="space-y-3">
               <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Full name *" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-              <div className="grid grid-cols-2 gap-3">
-                <input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Email" type="email" className="px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-                <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone number" type="tel" className="px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-              </div>
-              <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none text-gray-700">
-                <option value="">Source (how did they find you?)</option>
-                <option value="Website">Website</option>
-                <option value="Phone Call">Phone Call</option>
-                <option value="Referral">Referral</option>
-                <option value="Social Media">Social Media</option>
-                <option value="Walk-in">Walk-in</option>
-                <option value="Other">Other</option>
-              </select>
+              <div className="grid grid-cols-2 gap-3"><input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="Email" type="email" className="px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" /><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone number" type="tel" className="px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" /></div>
+              <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none text-gray-700"><option value="">Source (how did they find you?)</option><option value="Website">Website</option><option value="Phone Call">Phone Call</option><option value="Referral">Referral</option><option value="Social Media">Social Media</option><option value="Walk-in">Walk-in</option><option value="Other">Other</option></select>
             </div>
           </div>
-
-          {/* Move Details Section */}
-          <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Move Details</p>
+          <div><p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Move Details</p>
             <div className="space-y-3">
               <input value={form.moving_from} onChange={(e) => setForm({ ...form, moving_from: e.target.value })} placeholder="Moving from address" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
               <input value={form.moving_to} onChange={(e) => setForm({ ...form, moving_to: e.target.value })} placeholder="Moving to address" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Preferred moving date</label>
-                <input type="date" value={form.moving_date} onChange={(e) => setForm({ ...form, moving_date: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-              </div>
+              <div><label className="text-xs text-gray-500 mb-1 block">Preferred moving date</label><input type="date" value={form.moving_date} onChange={(e) => setForm({ ...form, moving_date: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" /></div>
             </div>
           </div>
-
-          {/* Pipeline Stage — only show when creating new */}
           {!customer && stages.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Pipeline</p>
-              <select value={selectedStage} onChange={(e) => setSelectedStage(e.target.value)} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none text-gray-700">
-                <option value="">No pipeline stage (customer only)</option>
-                {stages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-              {selectedStage && (
-                <p className="text-xs text-blue-600 mt-1.5">A deal will be automatically created in the selected pipeline stage.</p>
-              )}
+            <div><p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Pipeline</p>
+              <select value={selectedStage} onChange={(e) => setSelectedStage(e.target.value)} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none text-gray-700"><option value="">No pipeline stage (customer only)</option>{stages.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+              {selectedStage && <p className="text-xs text-blue-600 mt-1.5">A deal will be automatically created in the selected pipeline stage.</p>}
             </div>
           )}
-
-          {/* Notes */}
-          <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Notes</p>
-            <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Any additional notes..." rows={3} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
-          </div>
+          <div><p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Notes</p><textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Any additional notes..." rows={3} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" /></div>
         </div>
-
         <div className="flex gap-3 mt-5">
-          <button
-            onClick={() => {
-              if (!form.name.trim()) return alert('Name is required');
-              onSave(
-                {
-                  name: form.name,
-                  email: form.email || null,
-                  phone: form.phone || null,
-                  address: form.address || form.moving_from || null,
-                  notes: form.notes || null,
-                  source: form.source || null,
-                  moving_from: form.moving_from || null,
-                  moving_to: form.moving_to || null,
-                  moving_date: form.moving_date || null,
-                } as any,
-                selectedStage || undefined
-              );
-            }}
-            className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition"
-          >
-            {customer ? 'Update' : 'Create'} Customer{selectedStage ? ' + Deal' : ''}
-          </button>
+          <button onClick={() => { if (!form.name.trim()) return alert('Name is required'); onSave({ name: form.name, email: form.email || null, phone: form.phone || null, address: form.address || form.moving_from || null, notes: form.notes || null, source: form.source || null, moving_from: form.moving_from || null, moving_to: form.moving_to || null, moving_date: form.moving_date || null } as any, selectedStage || undefined); }} className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition">{customer ? 'Update' : 'Create'} Customer{selectedStage ? ' + Deal' : ''}</button>
           <button onClick={onClose} className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">Cancel</button>
         </div>
       </div>
@@ -2535,97 +2087,30 @@ function CustomerModal({ customer, stages, onSave, onClose }: {
 }
 
 // ============================================
-// NEW: DEAL DETAIL POPUP
+// DEAL DETAIL POPUP
 // ============================================
 
-function DealDetailPopup({ deal, stages, events, onClose, onBookAppointment, onEditDeal, onDeleteDeal, onCreateQuote }: {
-  deal: Deal;
-  stages: PipelineStage[];
-  events: DiaryEvent[];
-  onClose: () => void;
-  onBookAppointment: () => void;
-  onEditDeal: () => void;
-  onDeleteDeal: () => void;
-  onCreateQuote: () => void;
-}) {
+function DealDetailPopup({ deal, stages, events, onClose, onBookAppointment, onEditDeal, onDeleteDeal, onCreateQuote }: { deal: Deal; stages: PipelineStage[]; events: DiaryEvent[]; onClose: () => void; onBookAppointment: () => void; onEditDeal: () => void; onDeleteDeal: () => void; onCreateQuote: () => void; }) {
   const stage = stages.find((s) => s.id === deal.stage_id);
   const linkedEvents = events.filter((e) => e.deal_id === deal.id);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b">
-          <h2 className="text-lg font-bold text-gray-900">{deal.customer_name}</h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
-        </div>
-
-        {/* Customer Info */}
+        <div className="flex items-center justify-between p-5 border-b"><h2 className="text-lg font-bold text-gray-900">{deal.customer_name}</h2><button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button></div>
         <div className="p-5 space-y-3">
-          <div className="flex flex-wrap gap-3 text-sm">
-            {deal.customer_email && (
-              <span className="flex items-center gap-1.5 text-gray-600">📧 {deal.customer_email}</span>
-            )}
-            {deal.customer_phone && (
-              <span className="flex items-center gap-1.5 text-gray-600">📱 {deal.customer_phone}</span>
-            )}
-          </div>
-          {(deal.moving_from || deal.moving_to) && (
-            <p className="text-sm text-gray-700">📍 {deal.moving_from || '—'} → {deal.moving_to || '—'}</p>
-          )}
-          <div className="flex flex-wrap items-center gap-3">
-            {deal.moving_date && (
-              <span className="text-sm text-gray-600">📅 {new Date(deal.moving_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-            )}
-            {deal.estimated_value && (
-              <span className="text-sm font-bold text-green-600">💰 £{deal.estimated_value.toLocaleString()}</span>
-            )}
-          </div>
-          {stage && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">Stage:</span>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">
-                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: stage.color }} />
-                {stage.name}
-              </span>
-            </div>
-          )}
-          {deal.notes && (
-            <p className="text-sm text-gray-500 bg-gray-50 rounded-lg p-3">{deal.notes}</p>
-          )}
-
-          {/* Linked diary events */}
-          {linkedEvents.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Booked Appointments</p>
-              {linkedEvents.map((evt) => (
-                <div key={evt.id} className="flex items-center gap-2 text-sm text-gray-600 mb-1">
-                  <span>📅</span>
-                  <span>{new Date(evt.start_time).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} at {new Date(evt.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{evt.event_type}</span>
-                  {evt.completed && <span className="text-green-500">✓</span>}
-                </div>
-              ))}
-            </div>
-          )}
+          <div className="flex flex-wrap gap-3 text-sm">{deal.customer_email && <span className="flex items-center gap-1.5 text-gray-600">📧 {deal.customer_email}</span>}{deal.customer_phone && <span className="flex items-center gap-1.5 text-gray-600">📱 {deal.customer_phone}</span>}</div>
+          {(deal.moving_from || deal.moving_to) && <p className="text-sm text-gray-700">📍 {deal.moving_from || '—'} → {deal.moving_to || '—'}</p>}
+          <div className="flex flex-wrap items-center gap-3">{deal.moving_date && <span className="text-sm text-gray-600">📅 {new Date(deal.moving_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>}{deal.estimated_value && <span className="text-sm font-bold text-green-600">💰 £{deal.estimated_value.toLocaleString()}</span>}</div>
+          {stage && <div className="flex items-center gap-2"><span className="text-xs text-gray-500">Stage:</span><span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700"><div className="w-2 h-2 rounded-full" style={{ backgroundColor: stage.color }} />{stage.name}</span></div>}
+          {deal.notes && <p className="text-sm text-gray-500 bg-gray-50 rounded-lg p-3">{deal.notes}</p>}
+          {linkedEvents.length > 0 && (<div><p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Booked Appointments</p>{linkedEvents.map((evt) => (<div key={evt.id} className="flex items-center gap-2 text-sm text-gray-600 mb-1"><span>📅</span><span>{new Date(evt.start_time).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} at {new Date(evt.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span><span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{evt.event_type}</span>{evt.completed && <span className="text-green-500">✓</span>}</div>))}</div>)}
         </div>
-
-        {/* Actions */}
         <div className="p-5 pt-0 flex flex-wrap gap-2">
-          <button onClick={onBookAppointment} className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">
-            📅 Book Appointment
-          </button>
-          <button onClick={onCreateQuote} className="flex items-center gap-1.5 px-4 py-2.5 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition">
-            📸 Create Quote
-          </button>
-          <button onClick={onEditDeal} className="flex items-center gap-1.5 px-4 py-2.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition">
-            ✏️ Edit
-          </button>
-          <button onClick={onDeleteDeal} className="flex items-center gap-1.5 px-4 py-2.5 bg-red-50 text-red-600 text-sm font-medium rounded-lg hover:bg-red-100 transition">
-            🗑️ Delete
-          </button>
+          <button onClick={onBookAppointment} className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">📅 Book Appointment</button>
+          <button onClick={onCreateQuote} className="flex items-center gap-1.5 px-4 py-2.5 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition">📸 Create Quote</button>
+          <button onClick={onEditDeal} className="flex items-center gap-1.5 px-4 py-2.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition">✏️ Edit</button>
+          <button onClick={onDeleteDeal} className="flex items-center gap-1.5 px-4 py-2.5 bg-red-50 text-red-600 text-sm font-medium rounded-lg hover:bg-red-100 transition">🗑️ Delete</button>
         </div>
       </div>
     </div>
@@ -2633,20 +2118,11 @@ function DealDetailPopup({ deal, stages, events, onClose, onBookAppointment, onE
 }
 
 // ============================================
-// NEW: QUICK BOOK EVENT MODAL (from pipeline deal)
+// QUICK BOOK EVENT MODAL
 // ============================================
 
-function QuickBookEventModal({ deal, onSave, onClose }: {
-  deal: Deal;
-  onSave: (event: Partial<DiaryEvent>) => void;
-  onClose: () => void;
-}) {
-  const [form, setForm] = useState({
-    event_type: 'survey',
-    start_time: '',
-    end_time: '',
-  });
-
+function QuickBookEventModal({ deal, onSave, onClose }: { deal: Deal; onSave: (event: Partial<DiaryEvent>) => void; onClose: () => void; }) {
+  const [form, setForm] = useState({ event_type: 'survey', start_time: '', end_time: '' });
   const title = `${form.event_type.charAt(0).toUpperCase() + form.event_type.slice(1)} — ${deal.customer_name}`;
 
   return (
@@ -2654,66 +2130,17 @@ function QuickBookEventModal({ deal, onSave, onClose }: {
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
         <h2 className="text-xl font-bold text-gray-900 mb-1">Book Appointment</h2>
         <p className="text-sm text-gray-500 mb-5">For {deal.customer_name}</p>
-
         <div className="space-y-3">
-          {/* Event type */}
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Type</label>
-            <select value={form.event_type} onChange={(e) => setForm({ ...form, event_type: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-              <option value="survey">Survey</option>
-              <option value="job">Job</option>
-              <option value="callback">Callback</option>
-              <option value="delivery">Delivery</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-
-          {/* Auto-generated title preview */}
-          <div className="bg-gray-50 rounded-lg px-4 py-2.5">
-            <p className="text-xs text-gray-500 mb-0.5">Event title</p>
-            <p className="text-sm font-medium text-gray-800">{title}</p>
-          </div>
-
-          {/* Auto-filled location */}
-          {deal.moving_from && (
-            <div className="bg-gray-50 rounded-lg px-4 py-2.5">
-              <p className="text-xs text-gray-500 mb-0.5">Location</p>
-              <p className="text-sm font-medium text-gray-800">📍 {deal.moving_from}</p>
-            </div>
-          )}
-
-          {/* Date/time */}
+          <div><label className="text-xs text-gray-500 mb-1 block">Type</label><select value={form.event_type} onChange={(e) => setForm({ ...form, event_type: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"><option value="survey">Survey</option><option value="job">Job</option><option value="callback">Callback</option><option value="delivery">Delivery</option><option value="other">Other</option></select></div>
+          <div className="bg-gray-50 rounded-lg px-4 py-2.5"><p className="text-xs text-gray-500 mb-0.5">Event title</p><p className="text-sm font-medium text-gray-800">{title}</p></div>
+          {deal.moving_from && <div className="bg-gray-50 rounded-lg px-4 py-2.5"><p className="text-xs text-gray-500 mb-0.5">Location</p><p className="text-sm font-medium text-gray-800">📍 {deal.moving_from}</p></div>}
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Start time *</label>
-              <input type="datetime-local" value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-            </div>
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">End time</label>
-              <input type="datetime-local" value={form.end_time} onChange={(e) => setForm({ ...form, end_time: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-            </div>
+            <div><label className="text-xs text-gray-500 mb-1 block">Start time *</label><input type="datetime-local" value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" /></div>
+            <div><label className="text-xs text-gray-500 mb-1 block">End time</label><input type="datetime-local" value={form.end_time} onChange={(e) => setForm({ ...form, end_time: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" /></div>
           </div>
         </div>
-
         <div className="flex gap-3 mt-5">
-          <button
-            onClick={() => {
-              if (!form.start_time) return alert('Start time is required');
-              onSave({
-                title,
-                event_type: form.event_type,
-                start_time: new Date(form.start_time).toISOString(),
-                end_time: form.end_time ? new Date(form.end_time).toISOString() : null,
-                customer_name: deal.customer_name,
-                location: deal.moving_from || null,
-                deal_id: deal.id,
-                description: deal.notes || null,
-              });
-            }}
-            className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition"
-          >
-            Book Appointment
-          </button>
+          <button onClick={() => { if (!form.start_time) return alert('Start time is required'); onSave({ title, event_type: form.event_type, start_time: new Date(form.start_time).toISOString(), end_time: form.end_time ? new Date(form.end_time).toISOString() : null, customer_name: deal.customer_name, location: deal.moving_from || null, deal_id: deal.id, description: deal.notes || null }); }} className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition">Book Appointment</button>
           <button onClick={onClose} className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">Cancel</button>
         </div>
       </div>
@@ -2722,18 +2149,10 @@ function QuickBookEventModal({ deal, onSave, onClose }: {
 }
 
 // ============================================
-// NEW: EVENT DETAIL POPUP
+// EVENT DETAIL POPUP
 // ============================================
 
-function EventDetailPopup({ event, deals, onClose, onCreateQuote, onComplete, onEditEvent, onDeleteEvent }: {
-  event: DiaryEvent;
-  deals: Deal[];
-  onClose: () => void;
-  onCreateQuote: () => void;
-  onComplete: () => void;
-  onEditEvent: () => void;
-  onDeleteEvent: () => void;
-}) {
+function EventDetailPopup({ event, deals, onClose, onCreateQuote, onComplete, onEditEvent, onDeleteEvent }: { event: DiaryEvent; deals: Deal[]; onClose: () => void; onCreateQuote: () => void; onComplete: () => void; onEditEvent: () => void; onDeleteEvent: () => void; }) {
   const linkedDeal = event.deal_id ? deals.find((d) => d.id === event.deal_id) : null;
   const startTime = new Date(event.start_time);
   const endTime = event.end_time ? new Date(event.end_time) : null;
@@ -2741,86 +2160,134 @@ function EventDetailPopup({ event, deals, onClose, onCreateQuote, onComplete, on
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b">
-          <h2 className="text-lg font-bold text-gray-900">{event.title}</h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
+        <div className="flex items-center justify-between p-5 border-b"><h2 className="text-lg font-bold text-gray-900">{event.title}</h2><button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button></div>
+        <div className="p-5 space-y-3">
+          {linkedDeal && <div className="flex flex-wrap gap-3 text-sm">{linkedDeal.customer_email && <span className="flex items-center gap-1.5 text-gray-600">📧 {linkedDeal.customer_email}</span>}{linkedDeal.customer_phone && <span className="flex items-center gap-1.5 text-gray-600">📱 {linkedDeal.customer_phone}</span>}</div>}
+          {(event.location || linkedDeal?.moving_from) && <p className="text-sm text-gray-700">📍 {event.location || linkedDeal?.moving_from || '—'}{linkedDeal?.moving_to && ` → ${linkedDeal.moving_to}`}</p>}
+          <p className="text-sm text-gray-600">🕐 {startTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}{endTime && ` – ${endTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}</p>
+          <p className="text-sm text-gray-600">📅 {startTime.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
+          <div className="flex items-center gap-2"><span className="text-xs text-gray-500">Status:</span><span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${event.completed ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{event.completed ? '✅ Completed' : '○ Not completed'}</span></div>
+          <div className="flex items-center gap-2"><span className="text-xs text-gray-500">Type:</span><span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 capitalize">{event.event_type}</span></div>
+          {(event.description || linkedDeal?.notes) && <p className="text-sm text-gray-500 bg-gray-50 rounded-lg p-3">{event.description || linkedDeal?.notes}</p>}
+          {linkedDeal?.estimated_value && <p className="text-sm font-bold text-green-600">💰 Deal value: £{linkedDeal.estimated_value.toLocaleString()}</p>}
+        </div>
+        <div className="p-5 pt-0 flex flex-wrap gap-2">
+          <button onClick={onCreateQuote} className="flex items-center gap-1.5 px-4 py-2.5 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition">📸 Create Quote</button>
+          <button onClick={onComplete} className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold rounded-lg transition ${event.completed ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>{event.completed ? '↩️ Undo Complete' : '✅ Complete'}</button>
+          <button onClick={onEditEvent} className="flex items-center gap-1.5 px-4 py-2.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition">✏️ Edit</button>
+          <button onClick={onDeleteEvent} className="flex items-center gap-1.5 px-4 py-2.5 bg-red-50 text-red-600 text-sm font-medium rounded-lg hover:bg-red-100 transition">🗑️ Delete</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================
+// QUOTE DETAIL POPUP — NEW
+// ============================================
+
+function QuoteDetailPopup({ quote, company, onClose, onUpdateStatus, onDelete, onConvertToDeal }: {
+  quote: CrmQuote; company: Company; onClose: () => void; onUpdateStatus: (status: string) => void; onDelete: () => void; onConvertToDeal: () => void;
+}) {
+  const statusStyles: Record<string, string> = { draft: 'bg-gray-100 text-gray-700', sent: 'bg-blue-100 text-blue-700', accepted: 'bg-green-100 text-green-700', declined: 'bg-red-100 text-red-700' };
+
+  const parseVol = (note: string) => { const m = note?.match(/~?(\d+(?:\.\d+)?)\s*ft/); return m ? parseFloat(m[1]) : 0; };
+  const totalVol = (quote.items || []).reduce((s: number, i: any) => s + parseVol(i.note || '') * (i.quantity || 1), 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 bg-white z-10 flex items-center justify-between p-5 border-b">
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-bold text-gray-900">{quote.customer_name}</h2>
+            <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusStyles[quote.status] || statusStyles.draft}`}>{quote.status}</span>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
         </div>
 
-        {/* Event Info */}
-        <div className="p-5 space-y-3">
-          {/* Contact info from linked deal */}
-          {linkedDeal && (
-            <div className="flex flex-wrap gap-3 text-sm">
-              {linkedDeal.customer_email && (
-                <span className="flex items-center gap-1.5 text-gray-600">📧 {linkedDeal.customer_email}</span>
-              )}
-              {linkedDeal.customer_phone && (
-                <span className="flex items-center gap-1.5 text-gray-600">📱 {linkedDeal.customer_phone}</span>
-              )}
+        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-5 text-white">
+          <div className="flex items-center justify-between">
+            <div><p className="text-sm text-blue-200">Quote Total</p><p className="text-3xl font-bold">£{(quote.estimated_price || 0).toLocaleString()}</p></div>
+            <div className="text-right text-sm"><p className="text-blue-200">Created</p><p className="font-medium">{new Date(quote.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</p></div>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-5">
+          <div className="bg-gray-50 rounded-xl p-4">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Customer Details</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <div className="flex items-center gap-2"><span className="text-gray-400">👤</span><span className="font-medium text-gray-900">{quote.customer_name}</span></div>
+              {quote.customer_email && <div className="flex items-center gap-2"><span className="text-gray-400">📧</span><span className="text-gray-700">{quote.customer_email}</span></div>}
+              {quote.customer_phone && <div className="flex items-center gap-2"><span className="text-gray-400">📱</span><span className="text-gray-700">{quote.customer_phone}</span></div>}
+              {quote.moving_date && <div className="flex items-center gap-2"><span className="text-gray-400">📅</span><span className="text-gray-700">{new Date(quote.moving_date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span></div>}
+            </div>
+          </div>
+
+          {(quote.moving_from || quote.moving_to) && (
+            <div className="bg-gray-50 rounded-xl p-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Move Details</p>
+              <div className="flex items-center gap-3">
+                <div className="flex-1"><p className="text-xs text-gray-500 mb-0.5">From</p><p className="text-sm font-medium text-gray-900">{quote.moving_from || '—'}</p></div>
+                <svg className="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+                <div className="flex-1"><p className="text-xs text-gray-500 mb-0.5">To</p><p className="text-sm font-medium text-gray-900">{quote.moving_to || '—'}</p></div>
+              </div>
             </div>
           )}
 
-          {/* Addresses */}
-          {(event.location || linkedDeal?.moving_from) && (
-            <p className="text-sm text-gray-700">
-              📍 {event.location || linkedDeal?.moving_from || '—'}
-              {linkedDeal?.moving_to && ` → ${linkedDeal.moving_to}`}
-            </p>
-          )}
-
-          {/* Time */}
-          <p className="text-sm text-gray-600">
-            🕐 {startTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
-            {endTime && ` – ${endTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}
-          </p>
-
-          {/* Date */}
-          <p className="text-sm text-gray-600">
-            📅 {startTime.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-          </p>
-
-          {/* Status */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500">Status:</span>
-            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${event.completed ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-              {event.completed ? '✅ Completed' : '○ Not completed'}
-            </span>
+          <div className="grid grid-cols-4 gap-3">
+            <div className="bg-gray-50 rounded-xl p-3 text-center"><p className="text-xs text-gray-500">Volume</p><p className="text-lg font-bold text-gray-900">{quote.total_volume_m3 || 0}</p><p className="text-xs text-gray-400">m³</p></div>
+            <div className="bg-gray-50 rounded-xl p-3 text-center"><p className="text-xs text-gray-500">Vans</p><p className="text-lg font-bold text-gray-900">{quote.van_count || 0}</p></div>
+            <div className="bg-gray-50 rounded-xl p-3 text-center"><p className="text-xs text-gray-500">Movers</p><p className="text-lg font-bold text-gray-900">{quote.movers || 0}</p></div>
+            <div className="bg-gray-50 rounded-xl p-3 text-center"><p className="text-xs text-gray-500">Items</p><p className="text-lg font-bold text-gray-900">{(quote.items || []).reduce((s: number, i: any) => s + (i.quantity || 1), 0)}</p></div>
           </div>
 
-          {/* Event type badge */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500">Type:</span>
-            <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700 capitalize">{event.event_type}</span>
-          </div>
-
-          {/* Notes */}
-          {(event.description || linkedDeal?.notes) && (
-            <p className="text-sm text-gray-500 bg-gray-50 rounded-lg p-3">{event.description || linkedDeal?.notes}</p>
+          {quote.notes && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+              <p className="text-xs font-semibold text-yellow-700 uppercase tracking-wider mb-1">Notes</p>
+              <p className="text-sm text-yellow-900">{quote.notes}</p>
+            </div>
           )}
 
-          {/* Linked deal value */}
-          {linkedDeal?.estimated_value && (
-            <p className="text-sm font-bold text-green-600">💰 Deal value: £{linkedDeal.estimated_value.toLocaleString()}</p>
+          {quote.items && quote.items.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-3"><p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Inventory ({quote.items.length} types • ~{totalVol.toFixed(0)} ft³)</p></div>
+              <div className="bg-gray-50 rounded-xl divide-y divide-gray-200 max-h-64 overflow-y-auto">
+                {quote.items.map((item: any, idx: number) => (
+                  <div key={idx} className="px-4 py-2.5 flex items-center justify-between">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <div className="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0"><svg className="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg></div>
+                      <span className="text-sm text-gray-800 truncate">{item.name}</span>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <span className="text-sm font-semibold text-gray-700">×{item.quantity || 1}</span>
+                      <span className="text-xs text-gray-400 w-14 text-right">{(parseVol(item.note || '') * (item.quantity || 1)).toFixed(0)} ft³</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
 
-        {/* Actions */}
-        <div className="p-5 pt-0 flex flex-wrap gap-2">
-          <button onClick={onCreateQuote} className="flex items-center gap-1.5 px-4 py-2.5 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition">
-            📸 Create Quote
-          </button>
-          <button onClick={onComplete} className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold rounded-lg transition ${event.completed ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
-            {event.completed ? '↩️ Undo Complete' : '✅ Complete'}
-          </button>
-          <button onClick={onEditEvent} className="flex items-center gap-1.5 px-4 py-2.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition">
-            ✏️ Edit
-          </button>
-          <button onClick={onDeleteEvent} className="flex items-center gap-1.5 px-4 py-2.5 bg-red-50 text-red-600 text-sm font-medium rounded-lg hover:bg-red-100 transition">
-            🗑️ Delete
-          </button>
+        <div className="sticky bottom-0 bg-white border-t p-5 flex flex-wrap gap-2">
+          {quote.status === 'draft' && <button onClick={() => onUpdateStatus('sent')} className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition">📤 Mark as Sent</button>}
+          {quote.status === 'sent' && (
+            <>
+              <button onClick={onConvertToDeal} className="flex items-center gap-1.5 px-4 py-2.5 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition">✅ Accepted</button>
+              <button onClick={() => onUpdateStatus('declined')} className="flex items-center gap-1.5 px-4 py-2.5 bg-orange-100 text-orange-700 text-sm font-semibold rounded-lg hover:bg-orange-200 transition">✗ Declined</button>
+            </>
+          )}
+          <button onClick={async () => {
+            await downloadQuotePdf({
+              companyName: company?.name || 'Moving Company', companyEmail: company?.email || undefined, companyPhone: company?.phone || undefined,
+              quoteRef: quote.id.slice(0, 8).toUpperCase(), quoteDate: new Date(quote.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+              status: quote.status, customerName: quote.customer_name, customerEmail: quote.customer_email || undefined, customerPhone: quote.customer_phone || undefined,
+              movingFrom: quote.moving_from || undefined, movingTo: quote.moving_to || undefined, movingDate: quote.moving_date || undefined,
+              items: quote.items || [], totalVolume: quote.total_volume_m3 || undefined, vanCount: quote.van_count || undefined, movers: quote.movers || undefined,
+              estimatedPrice: quote.estimated_price || undefined, notes: quote.notes || undefined,
+            });
+          }} className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-50 text-blue-600 text-sm font-semibold rounded-lg hover:bg-blue-100 transition">📄 PDF</button>
+          <button onClick={onDelete} className="flex items-center gap-1.5 px-4 py-2.5 bg-red-50 text-red-600 text-sm font-medium rounded-lg hover:bg-red-100 transition ml-auto">🗑️ Delete</button>
         </div>
       </div>
     </div>
