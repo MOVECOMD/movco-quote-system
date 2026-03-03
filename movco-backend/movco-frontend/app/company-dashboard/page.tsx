@@ -1546,33 +1546,145 @@ function QuoteBuilder({ company, onSave, onCancel, prefill }: {
 // ============================================
 
 function LeadsTab({ leads, company }: { leads: Lead[]; company: Company }) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [viewMode, setViewMode] = useState<'cards' | 'list'>('cards');
+
+  const filtered = leads.filter(lead => {
+    if (statusFilter !== 'all' && lead.status !== statusFilter) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      return (lead.instant_quotes?.starting_address || '').toLowerCase().includes(q) || 
+             (lead.instant_quotes?.ending_address || '').toLowerCase().includes(q) ||
+             (lead.instant_quotes?.customer_name || '').toLowerCase().includes(q);
+    }
+    return true;
+  });
+
+  const statusCounts = { all: leads.length, new: leads.filter(l => l.status === 'new').length, won: leads.filter(l => l.status === 'won').length, lost: leads.filter(l => l.status === 'lost').length };
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div><h2 className="text-2xl font-bold text-gray-900">Leads</h2><p className="text-sm text-gray-500 mt-1">{leads.length} total leads • Balance: £{company.balance?.toFixed(2) || '0.00'}</p></div>
-        <Link href="/company-dashboard/topup" className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>Top Up Balance</Link>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Leads</h2>
+          <p className="text-sm text-gray-500 mt-0.5">{leads.length} total • Balance: <span className="font-semibold text-blue-600">£{company.balance?.toFixed(2) || '0.00'}</span></p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search leads..." 
+              className="pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm w-56 focus:ring-2 focus:ring-blue-500 outline-none bg-white" />
+          </div>
+          {/* View toggles */}
+          <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
+            <button onClick={() => setViewMode('cards')} className={`p-2 transition ${viewMode === 'cards' ? 'bg-blue-50 text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+            </button>
+            <button onClick={() => setViewMode('list')} className={`p-2 transition ${viewMode === 'list' ? 'bg-blue-50 text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
+            </button>
+          </div>
+          <Link href="/company-dashboard/topup" className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm shadow-sm">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            Top Up
+          </Link>
+        </div>
       </div>
-      {leads.length === 0 ? (
+
+      {/* Status Filter Tabs */}
+      <div className="flex items-center gap-1 mb-4 border-b border-gray-200">
+        {(['all', 'new', 'won', 'lost'] as const).map(status => (
+          <button key={status} onClick={() => setStatusFilter(status)}
+            className={`px-4 py-2.5 text-sm font-medium transition border-b-2 -mb-px ${
+              statusFilter === status ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}>
+            {status.charAt(0).toUpperCase() + status.slice(1)}
+            <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${statusFilter === status ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
+              {statusCounts[status]}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
         <div className="bg-white rounded-xl border p-12 text-center">
-          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4"><svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg></div>
-          <h3 className="text-lg font-bold text-gray-800 mb-2">No leads yet</h3>
+          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
+          </div>
+          <h3 className="text-lg font-bold text-gray-800 mb-2">{searchQuery ? 'No matching leads' : 'No leads yet'}</h3>
           <p className="text-gray-500 text-sm">Leads will appear here when customers in your postcode areas request quotes.</p>
         </div>
-      ) : (
-        <div className="space-y-3">
-          {leads.map((lead) => (
+      ) : viewMode === 'cards' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {filtered.map((lead) => (
             <Link key={lead.id} href={`/company-dashboard/lead/${lead.id}`} className="block">
-              <div className="bg-white rounded-xl border p-5 hover:shadow-md hover:border-blue-200 transition-all">
-                <div className="flex items-center justify-between">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-900 truncate">{lead.instant_quotes?.starting_address || 'Unknown'} → {lead.instant_quotes?.ending_address || 'Unknown'}</p>
-                    <p className="text-sm text-gray-500 mt-1">{new Date(lead.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} • £{lead.price?.toFixed(2)}</p>
+              <div className="bg-white rounded-xl border border-gray-100 p-4 hover:shadow-lg hover:border-gray-200 transition-all group">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                      lead.status === 'new' ? 'bg-green-100 text-green-700' : lead.status === 'won' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'
+                    }`}>
+                      {(lead.instant_quotes?.customer_name || 'L')[0].toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-900 text-sm truncate">{lead.instant_quotes?.customer_name || 'Lead'}</p>
+                      <p className="text-[11px] text-gray-400">{new Date(lead.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                    </div>
                   </div>
-                  <span className={`px-3 py-1 rounded-full text-xs font-semibold ${lead.status === 'new' ? 'bg-green-100 text-green-700' : lead.status === 'won' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>{lead.status}</span>
+                  <span className={`px-2.5 py-1 rounded-md text-[11px] font-bold uppercase tracking-wide ${
+                    lead.status === 'new' ? 'bg-green-50 text-green-700' : lead.status === 'won' ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'
+                  }`}>{lead.status}</span>
+                </div>
+                <div className="text-xs text-gray-500 mb-2 truncate">
+                  {lead.instant_quotes?.starting_address || 'Unknown'} → {lead.instant_quotes?.ending_address || 'Unknown'}
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold text-green-600">£{lead.price?.toFixed(2)}</span>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className="w-6 h-6 rounded flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                    </span>
+                  </div>
                 </div>
               </div>
             </Link>
           ))}
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b"><tr>
+              <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">Customer</th>
+              <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide hidden md:table-cell">Route</th>
+              <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">Value</th>
+              <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">Status</th>
+              <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide hidden lg:table-cell">Date</th>
+            </tr></thead>
+            <tbody className="divide-y divide-gray-50">
+              {filtered.map((lead) => (
+                <tr key={lead.id} className="hover:bg-gray-50 transition cursor-pointer" onClick={() => window.location.href = `/company-dashboard/lead/${lead.id}`}>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
+                        lead.status === 'new' ? 'bg-green-100 text-green-700' : lead.status === 'won' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'
+                      }`}>{(lead.instant_quotes?.customer_name || 'L')[0].toUpperCase()}</div>
+                      <span className="font-medium text-gray-900">{lead.instant_quotes?.customer_name || 'Lead'}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-gray-500 text-xs hidden md:table-cell truncate max-w-[200px]">{lead.instant_quotes?.starting_address} → {lead.instant_quotes?.ending_address}</td>
+                  <td className="px-4 py-3 font-bold text-green-600">£{lead.price?.toFixed(2)}</td>
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold uppercase ${
+                      lead.status === 'new' ? 'bg-green-50 text-green-700' : lead.status === 'won' ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'
+                    }`}>{lead.status}</span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-400 text-xs hidden lg:table-cell">{new Date(lead.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
@@ -1691,46 +1803,145 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onAddDeal, onEditDeal,
 }) {
   const [draggedDealId, setDraggedDealId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'newest' | 'value' | 'date'>('newest');
+
+  const totalValue = deals.reduce((s, d) => s + (d.estimated_value || 0), 0);
+
+  const filteredDeals = (stageId: string) => {
+    let stageDeals = deals.filter((d) => d.stage_id === stageId);
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      stageDeals = stageDeals.filter(d => 
+        d.customer_name.toLowerCase().includes(q) || 
+        (d.moving_from || '').toLowerCase().includes(q) || 
+        (d.moving_to || '').toLowerCase().includes(q) ||
+        (d.customer_email || '').toLowerCase().includes(q) ||
+        (d.customer_phone || '').includes(q)
+      );
+    }
+    if (sortBy === 'value') stageDeals.sort((a, b) => (b.estimated_value || 0) - (a.estimated_value || 0));
+    else if (sortBy === 'date') stageDeals.sort((a, b) => new Date(a.moving_date || '9999').getTime() - new Date(b.moving_date || '9999').getTime());
+    return stageDeals;
+  };
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <div><h2 className="text-2xl font-bold text-gray-900">Pipeline</h2><p className="text-sm text-gray-500 mt-1">{deals.length} deals in pipeline</p></div>
-        <button onClick={onAddDeal} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>Add Deal</button>
+    <div className="h-full flex flex-col">
+      {/* Header Bar */}
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+        <div className="flex items-center gap-4">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900">Pipeline</h2>
+            <p className="text-sm text-gray-500 mt-0.5">{deals.length} opportunities • <span className="text-green-600 font-semibold">£{totalValue.toLocaleString()}</span></p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search deals..." 
+              className="pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm w-56 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white" />
+          </div>
+          <select value={sortBy} onChange={e => setSortBy(e.target.value as any)} className="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+            <option value="newest">Newest first</option>
+            <option value="value">Highest value</option>
+            <option value="date">Move date</option>
+          </select>
+          <button onClick={onAddDeal} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm shadow-sm">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            Add Deal
+          </button>
+        </div>
       </div>
+
       {stages.length === 0 ? (
         <div className="bg-white rounded-xl border p-12 text-center"><p className="text-gray-500">Pipeline stages will be set up automatically. Add your first deal to get started.</p></div>
       ) : (
-        <div className="flex gap-4 overflow-x-auto pb-4">
+        <div className="flex gap-3 overflow-x-auto pb-4 flex-1">
           {stages.map((stage) => {
-            const stageDeals = deals.filter((d) => d.stage_id === stage.id);
+            const stageDeals = filteredDeals(stage.id);
+            const stageValue = stageDeals.reduce((s, d) => s + (d.estimated_value || 0), 0);
             return (
-              <div key={stage.id} className={`flex-shrink-0 w-72 bg-gray-100 rounded-xl p-3 transition-all ${dragOverStage === stage.id ? 'ring-2 ring-blue-400 bg-blue-50' : ''}`}
+              <div key={stage.id} className={`flex-shrink-0 w-[280px] flex flex-col rounded-xl transition-all ${dragOverStage === stage.id ? 'ring-2 ring-blue-400' : ''}`}
                 onDragOver={(e) => { e.preventDefault(); setDragOverStage(stage.id); }}
                 onDragLeave={() => setDragOverStage(null)}
                 onDrop={(e) => { e.preventDefault(); setDragOverStage(null); if (draggedDealId) { onMoveDeal(draggedDealId, stage.id); setDraggedDealId(null); } }}>
-                <div className="flex items-center gap-2 mb-3 px-1">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: stage.color }} />
-                  <h3 className="font-semibold text-gray-800 text-sm">{stage.name}</h3>
-                  <span className="ml-auto bg-white text-gray-600 text-xs font-bold px-2 py-0.5 rounded-full">{stageDeals.length}</span>
+                {/* Stage Header */}
+                <div className="px-3 py-2.5 rounded-t-xl" style={{ backgroundColor: stage.color + '15', borderBottom: `2px solid ${stage.color}` }}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold text-gray-800 text-[13px] truncate">{stage.name}</h3>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-semibold text-gray-500">{stageDeals.length}</span>
+                      <span className="text-[11px] text-gray-400">•</span>
+                      <span className="text-xs font-semibold text-green-600">£{stageValue.toLocaleString()}</span>
+                    </div>
+                  </div>
                 </div>
-                <div className="space-y-2 min-h-[60px]">
+
+                {/* Deal Cards */}
+                <div className={`flex-1 space-y-2 p-2 bg-gray-50/80 rounded-b-xl overflow-y-auto min-h-[100px] ${dragOverStage === stage.id ? 'bg-blue-50/50' : ''}`} style={{ maxHeight: 'calc(100vh - 250px)' }}>
                   {stageDeals.map((deal) => {
                     const hasBooking = dealHasBooking(deal.id);
                     return (
                       <div key={deal.id} draggable onDragStart={() => setDraggedDealId(deal.id)} onDragEnd={() => setDraggedDealId(null)}
                         onClick={() => onClickDeal(deal)}
-                        className={`bg-white rounded-lg p-3 shadow-sm border cursor-pointer hover:shadow-md transition-all ${draggedDealId === deal.id ? 'opacity-50' : ''}`}>
-                        <div className="flex items-start justify-between">
-                          <p className="font-medium text-gray-900 text-sm truncate flex-1">{deal.customer_name}</p>
-                          {hasBooking && <span className="ml-1 text-blue-500 flex-shrink-0" title="Appointment booked">📅</span>}
+                        className={`bg-white rounded-lg p-3 border border-gray-100 cursor-pointer hover:shadow-md hover:border-gray-200 transition-all group ${draggedDealId === deal.id ? 'opacity-40 scale-95' : ''}`}>
+                        
+                        {/* Customer name & icons */}
+                        <div className="flex items-start justify-between mb-1.5">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0" 
+                              style={{ backgroundColor: stage.color + '20', color: stage.color }}>
+                              {deal.customer_name.charAt(0).toUpperCase()}
+                            </div>
+                            <p className="font-semibold text-gray-900 text-[13px] truncate">{deal.customer_name}</p>
+                          </div>
+                          {deal.estimated_value ? (
+                            <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-md flex-shrink-0 ml-1">£{deal.estimated_value.toLocaleString()}</span>
+                          ) : null}
                         </div>
-                        {deal.moving_from && <p className="text-xs text-gray-500 mt-1 truncate">{deal.moving_from} → {deal.moving_to}</p>}
-                        {deal.estimated_value && <p className="text-sm font-bold text-green-600 mt-1">£{deal.estimated_value.toLocaleString()}</p>}
-                        {deal.moving_date && <p className="text-xs text-gray-400 mt-1">{new Date(deal.moving_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>}
+
+                        {/* Details */}
+                        {deal.moving_from && (
+                          <p className="text-[11px] text-gray-500 truncate mb-1 ml-9">{deal.moving_from} → {deal.moving_to}</p>
+                        )}
+
+                        {/* Meta row */}
+                        <div className="flex items-center gap-2 ml-9 mt-1.5">
+                          {deal.moving_date && (
+                            <span className="text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded font-medium">
+                              {new Date(deal.moving_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                            </span>
+                          )}
+                          {hasBooking && <span className="text-[10px] text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded font-medium">📅 Booked</span>}
+                        </div>
+
+                        {/* Action icons — show on hover */}
+                        <div className="flex items-center gap-1 mt-2 ml-9 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {deal.customer_phone && (
+                            <a href={`tel:${deal.customer_phone}`} onClick={e => e.stopPropagation()} className="w-6 h-6 rounded flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition" title="Call">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+                            </a>
+                          )}
+                          {deal.customer_email && (
+                            <a href={`mailto:${deal.customer_email}`} onClick={e => e.stopPropagation()} className="w-6 h-6 rounded flex items-center justify-center text-gray-400 hover:text-green-600 hover:bg-green-50 transition" title="Email">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                            </a>
+                          )}
+                          <button onClick={e => { e.stopPropagation(); onEditDeal(deal); }} className="w-6 h-6 rounded flex items-center justify-center text-gray-400 hover:text-orange-600 hover:bg-orange-50 transition" title="Edit">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                          </button>
+                          <button onClick={e => { e.stopPropagation(); if (confirm(`Delete ${deal.customer_name}?`)) onDeleteDeal(deal.id); }} className="w-6 h-6 rounded flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 transition" title="Delete">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
+                  {stageDeals.length === 0 && (
+                    <div className="text-center py-6 text-gray-300 text-xs">No deals</div>
+                  )}
                 </div>
               </div>
             );
@@ -1974,41 +2185,155 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
   crmQuotes: CrmQuote[];
   onClickQuote: (q: CrmQuote) => void;
 }) {
+  const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const filtered = customers.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()) || (c.email || '').toLowerCase().includes(search.toLowerCase()) || (c.phone || '').includes(search));
+  const totalRevenue = customers.reduce((s, c) => s + (c.total_revenue || 0), 0);
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div><h2 className="text-2xl font-bold text-gray-900">Customers</h2><p className="text-sm text-gray-500 mt-1">{customers.length} total customers</p></div>
-        <button onClick={onAddCustomer} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>Add Customer</button>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Contacts</h2>
+          <p className="text-sm text-gray-500 mt-0.5">{customers.length} customers • <span className="text-green-600 font-semibold">£{totalRevenue.toLocaleString()} revenue</span></p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            <input type="text" value={search} onChange={(e) => onSearchChange(e.target.value)} placeholder="Search contacts..."
+              className="pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm w-56 focus:ring-2 focus:ring-blue-500 outline-none bg-white" />
+          </div>
+          <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
+            <button onClick={() => setViewMode('table')} className={`p-2 transition ${viewMode === 'table' ? 'bg-blue-50 text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
+            </button>
+            <button onClick={() => setViewMode('cards')} className={`p-2 transition ${viewMode === 'cards' ? 'bg-blue-50 text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+            </button>
+          </div>
+          <button onClick={onAddCustomer} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm shadow-sm">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            Add Contact
+          </button>
+        </div>
       </div>
-      <div className="mb-4"><input type="text" value={search} onChange={(e) => onSearchChange(e.target.value)} placeholder="Search customers..." className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
+
       {filtered.length === 0 ? (
         <div className="bg-white rounded-xl border p-12 text-center"><p className="text-gray-500">{search ? 'No customers match your search' : 'Add your first customer to get started'}</p></div>
-      ) : (
+      ) : viewMode === 'table' ? (
         <div className="bg-white rounded-xl border overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50"><tr><th className="text-left px-5 py-3 font-semibold text-gray-700">Name</th><th className="text-left px-5 py-3 font-semibold text-gray-700 hidden md:table-cell">Email</th><th className="text-left px-5 py-3 font-semibold text-gray-700 hidden md:table-cell">Phone</th><th className="text-left px-5 py-3 font-semibold text-gray-700 hidden lg:table-cell">Source</th><th className="text-left px-5 py-3 font-semibold text-gray-700 hidden lg:table-cell">Revenue</th><th className="text-right px-5 py-3 font-semibold text-gray-700">Actions</th></tr></thead>
-            <tbody className="divide-y divide-gray-100">
-              {filtered.map((customer) => (
-                <tr key={customer.id} className="hover:bg-gray-50 transition">
-                  <td className="px-5 py-3"><p className="font-medium text-gray-900">{customer.name}</p>{customer.moving_from && <p className="text-xs text-gray-400 truncate max-w-[200px]">{customer.moving_from} → {customer.moving_to || '—'}</p>}</td>
-                  <td className="px-5 py-3 text-gray-600 hidden md:table-cell">{customer.email || '—'}</td>
-                  <td className="px-5 py-3 text-gray-600 hidden md:table-cell">{customer.phone || '—'}</td>
-                  <td className="px-5 py-3 text-gray-600 hidden lg:table-cell">{customer.source || '—'}</td>
-                  <td className="px-5 py-3 font-medium text-green-600 hidden lg:table-cell">£{customer.total_revenue?.toFixed(2) || '0.00'}</td>
-                  <td className="px-5 py-3 text-right whitespace-nowrap">
-                    {(() => { const customerQuotes = crmQuotes.filter((q) => q.customer_name.toLowerCase() === customer.name.toLowerCase()); return customerQuotes.length > 0 ? (
-                      <button onClick={() => onClickQuote(customerQuotes[0])} className="text-indigo-600 hover:text-indigo-800 text-xs font-medium mr-3" title="View quotes">📋 Quotes ({customerQuotes.length})</button>
-                    ) : null; })()}
-                    <button onClick={() => onSendQuoteLink(customer)} className="text-green-600 hover:text-green-800 text-xs font-medium mr-3" title="Generate shareable quote link">📎 Quote Link</button>
-                    <button onClick={() => onEditCustomer(customer)} className="text-blue-600 hover:text-blue-800 text-xs font-medium mr-3">Edit</button>
-                    <button onClick={() => onDeleteCustomer(customer.id)} className="text-red-500 hover:text-red-700 text-xs font-medium">Delete</button>
-                  </td>
-                </tr>
-              ))}
+            <thead className="bg-gray-50 border-b"><tr>
+              <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">Contact</th>
+              <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide hidden md:table-cell">Phone</th>
+              <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide hidden lg:table-cell">Source</th>
+              <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide hidden lg:table-cell">Revenue</th>
+              <th className="text-right px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">Actions</th>
+            </tr></thead>
+            <tbody className="divide-y divide-gray-50">
+              {filtered.map((customer) => {
+                const customerQuotes = crmQuotes.filter((q) => q.customer_name.toLowerCase() === customer.name.toLowerCase());
+                return (
+                  <tr key={customer.id} className="hover:bg-gray-50/80 transition group">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm flex-shrink-0">
+                          {customer.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-semibold text-gray-900 text-sm">{customer.name}</p>
+                          <p className="text-xs text-gray-400 truncate">{customer.email || 'No email'}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600 text-sm hidden md:table-cell">{customer.phone || '—'}</td>
+                    <td className="px-4 py-3 hidden lg:table-cell">
+                      {customer.source ? <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-md font-medium">{customer.source}</span> : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-4 py-3 font-semibold text-green-600 text-sm hidden lg:table-cell">£{customer.total_revenue?.toFixed(2) || '0.00'}</td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center gap-0.5 justify-end">
+                        {customer.phone && (
+                          <a href={`tel:${customer.phone}`} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition" title="Call">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+                          </a>
+                        )}
+                        {customer.email && (
+                          <a href={`mailto:${customer.email}`} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-green-600 hover:bg-green-50 transition" title="Email">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                          </a>
+                        )}
+                        <button onClick={() => onSendQuoteLink(customer)} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition" title="Send quote link">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                        </button>
+                        {customerQuotes.length > 0 && (
+                          <button onClick={() => onClickQuote(customerQuotes[0])} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition relative" title={`${customerQuotes.length} quote(s)`}>
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                            <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-purple-500 text-white text-[8px] rounded-full flex items-center justify-center font-bold">{customerQuotes.length}</span>
+                          </button>
+                        )}
+                        <button onClick={() => onEditCustomer(customer)} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-orange-600 hover:bg-orange-50 transition" title="Edit">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                        </button>
+                        <button onClick={() => { if (confirm(`Delete ${customer.name}?`)) onDeleteCustomer(customer.id); }} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 transition" title="Delete">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {filtered.map((customer) => {
+            const customerQuotes = crmQuotes.filter((q) => q.customer_name.toLowerCase() === customer.name.toLowerCase());
+            return (
+              <div key={customer.id} className="bg-white rounded-xl border border-gray-100 p-4 hover:shadow-lg hover:border-gray-200 transition-all group">
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm flex-shrink-0">
+                    {customer.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-gray-900 text-sm">{customer.name}</p>
+                    <p className="text-xs text-gray-400 truncate">{customer.email || 'No email'}</p>
+                    <p className="text-xs text-gray-400">{customer.phone || 'No phone'}</p>
+                  </div>
+                  {customer.total_revenue ? <span className="text-sm font-bold text-green-600">£{customer.total_revenue.toLocaleString()}</span> : null}
+                </div>
+                {customer.moving_from && (
+                  <p className="text-xs text-gray-500 mb-2 truncate">{customer.moving_from} → {customer.moving_to || '—'}</p>
+                )}
+                {customer.source && <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-md font-medium">{customer.source}</span>}
+                
+                {/* Action row */}
+                <div className="flex items-center gap-1 mt-3 pt-3 border-t border-gray-50">
+                  {customer.phone && (
+                    <a href={`tel:${customer.phone}`} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition" title="Call">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+                    </a>
+                  )}
+                  {customer.email && (
+                    <a href={`mailto:${customer.email}`} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-green-600 hover:bg-green-50 transition" title="Email">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                    </a>
+                  )}
+                  <button onClick={() => onSendQuoteLink(customer)} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition" title="Quote link">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                  </button>
+                  <div className="flex-1" />
+                  <button onClick={() => onEditCustomer(customer)} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-orange-600 hover:bg-orange-50 transition" title="Edit">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                  </button>
+                  <button onClick={() => { if (confirm(`Delete ${customer.name}?`)) onDeleteCustomer(customer.id); }} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-red-600 hover:bg-red-50 transition" title="Delete">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
