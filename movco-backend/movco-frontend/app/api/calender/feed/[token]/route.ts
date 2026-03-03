@@ -15,9 +15,9 @@ function formatIcalDate(date: Date): string {
 
 export async function GET(
   request: Request,
-  { params }: { params: { token: string } }
+  context: any
 ) {
-  const token = params.token;
+  const { token } = await context.params;
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
