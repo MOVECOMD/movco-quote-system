@@ -1556,7 +1556,7 @@ function LeadsTab({ leads, company }: { leads: Lead[]; company: Company }) {
       const q = searchQuery.toLowerCase();
       return (lead.instant_quotes?.starting_address || '').toLowerCase().includes(q) || 
              (lead.instant_quotes?.ending_address || '').toLowerCase().includes(q) ||
-             (lead.instant_quotes?.customer_name || '').toLowerCase().includes(q);
+             false;
     }
     return true;
   });
@@ -1626,10 +1626,10 @@ function LeadsTab({ leads, company }: { leads: Lead[]; company: Company }) {
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
                       lead.status === 'new' ? 'bg-green-100 text-green-700' : lead.status === 'won' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'
                     }`}>
-                      {(lead.instant_quotes?.customer_name || 'L')[0].toUpperCase()}
+                      {(lead.instant_quotes?.starting_address?.charAt(0) || 'L')[0].toUpperCase()}
                     </div>
                     <div className="min-w-0">
-                      <p className="font-semibold text-gray-900 text-sm truncate">{lead.instant_quotes?.customer_name || 'Lead'}</p>
+                      <p className="font-semibold text-gray-900 text-sm truncate">{lead.instant_quotes?.starting_address?.split(',')[0] || 'Lead'}</p>
                       <p className="text-[11px] text-gray-400">{new Date(lead.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
                     </div>
                   </div>
@@ -1669,8 +1669,8 @@ function LeadsTab({ leads, company }: { leads: Lead[]; company: Company }) {
                     <div className="flex items-center gap-2.5">
                       <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
                         lead.status === 'new' ? 'bg-green-100 text-green-700' : lead.status === 'won' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'
-                      }`}>{(lead.instant_quotes?.customer_name || 'L')[0].toUpperCase()}</div>
-                      <span className="font-medium text-gray-900">{lead.instant_quotes?.customer_name || 'Lead'}</span>
+                      }`}>{(lead.instant_quotes?.starting_address?.charAt(0) || 'L')[0].toUpperCase()}</div>
+                      <span className="font-medium text-gray-900">{lead.instant_quotes?.starting_address?.split(',')[0] || 'Lead'}</span>
                     </div>
                   </td>
                   <td className="px-4 py-3 text-gray-500 text-xs hidden md:table-cell truncate max-w-[200px]">{lead.instant_quotes?.starting_address} → {lead.instant_quotes?.ending_address}</td>
