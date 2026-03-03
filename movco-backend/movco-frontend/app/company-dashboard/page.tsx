@@ -162,6 +162,11 @@ export default function CompanyDashboardPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerSearch, setCustomerSearch] = useState('');
 
+  // Email connection state
+  const [emailConnected, setEmailConnected] = useState(false);
+  const [emailAddress, setEmailAddress] = useState<string | null>(null);
+  const [emailLoading, setEmailLoading] = useState(true);
+
   // Modal states
   const [showDealModal, setShowDealModal] = useState(false);
   const [showEventModal, setShowEventModal] = useState(false);
@@ -191,6 +196,38 @@ export default function CompanyDashboardPage() {
       setCrmActive(true);
     }
   }, []);
+
+  // Check email connection status on settings page load
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('email') === 'connected') {
+      const addr = params.get('address');
+      alert(`✅ Gmail connected! Emails will be sent from ${addr || 'your Gmail'}`);
+      setEmailConnected(true);
+      setEmailAddress(addr || null);
+      window.history.replaceState({}, '', '/company-dashboard/settings');
+    } else if (params.get('email') === 'error') {
+      alert(`❌ Gmail connection failed: ${params.get('reason') || 'unknown error'}. Please try again.`);
+      window.history.replaceState({}, '', '/company-dashboard/settings');
+    }
+  }, []);
+
+  // Load email connection status
+  useEffect(() => {
+    async function checkEmailConnection() {
+      if (!company) return;
+      try {
+        const res = await fetch(`/api/email/status?company_id=${company.id}`);
+        const data = await res.json();
+        setEmailConnected(data.connected);
+        setEmailAddress(data.email_address);
+      } catch (err) {
+        console.error('Failed to check email status:', err);
+      }
+      setEmailLoading(false);
+    }
+    if (company) checkEmailConnection();
+  }, [company]);
 
   // Load company data
   useEffect(() => {
@@ -352,7 +389,7 @@ export default function CompanyDashboardPage() {
     }
   };
 
-  const saveEvent = async (event: Partial<DiaryEvent>) => {
+  const saveEvent = async (event: Partial<DiaryEvent>, recipientEmail?: string) => {
     if (!company) return;
     if (editingEvent) {
       const { error } = await supabase
@@ -370,6 +407,10 @@ export default function CompanyDashboardPage() {
         .single();
       if (!error && data) {
         setEvents((prev) => [...prev, data as DiaryEvent]);
+        // Auto-send confirmation email for new events
+        if (emailConnected && recipientEmail) {
+          await sendConfirmationEmail(event, recipientEmail, event.customer_name || undefined, data.id);
+        }
       }
     }
     setShowEventModal(false);
@@ -569,6 +610,48 @@ export default function CompanyDashboardPage() {
     }
   };
 
+  const sendConfirmationEmail = async (event: Partial<DiaryEvent>, recipientEmail: string, recipientName?: string, eventId?: string) => {
+    if (!company || !emailConnected) return;
+    try {
+      const res = await fetch('/api/email/send-confirmation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_id: company.id,
+          recipient_email: recipientEmail,
+          recipient_name: recipientName || event.customer_name || 'there',
+          event_type: event.event_type || 'other',
+          event_title: event.title || 'Appointment',
+          start_time: event.start_time,
+          end_time: event.end_time || null,
+          location: event.location || null,
+          description: event.description || null,
+          event_id: eventId || null,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`✅ Confirmation email sent to ${recipientEmail}`);
+      } else {
+        console.error('Email send failed:', data.error);
+      }
+    } catch (err) {
+      console.error('Failed to send confirmation email:', err);
+    }
+  };
+
+  const disconnectEmail = async () => {
+    if (!company) return;
+    if (!confirm('Disconnect Gmail? Confirmation emails will stop sending.')) return;
+    try {
+      await fetch(`/api/email/status?company_id=${company.id}`, { method: 'DELETE' });
+      setEmailConnected(false);
+      setEmailAddress(null);
+    } catch (err) {
+      console.error('Failed to disconnect email:', err);
+    }
+  };
+
   const quickBookEvent = async (event: Partial<DiaryEvent>) => {
     if (!company) return;
     const { data, error } = await supabase
@@ -578,6 +661,14 @@ export default function CompanyDashboardPage() {
       .single();
     if (!error && data) {
       setEvents((prev) => [...prev, data as DiaryEvent]);
+      // Auto-send confirmation email if connected
+      if (emailConnected) {
+        const linkedDeal = event.deal_id ? deals.find((d) => d.id === event.deal_id) : null;
+        const recipientEmail = linkedDeal?.customer_email;
+        if (recipientEmail) {
+          await sendConfirmationEmail(event, recipientEmail, event.customer_name || linkedDeal?.customer_name, data.id);
+        }
+      }
     }
     setShowQuickBookModal(false);
   };
@@ -839,7 +930,7 @@ export default function CompanyDashboardPage() {
               <ReportsTab leads={leads} deals={deals} customers={customers} events={events} crmQuotes={crmQuotes} company={company} />
             )}
             {activeTab === 'settings' && (
-              <SettingsTab company={company} crmActive={crmActive} onSubscribe={startCrmSubscription} />
+              <SettingsTab company={company} crmActive={crmActive} onSubscribe={startCrmSubscription} emailConnected={emailConnected} emailAddress={emailAddress} emailLoading={emailLoading} onDisconnectEmail={disconnectEmail} />
             )}
           </div>
         </div>
@@ -859,6 +950,7 @@ export default function CompanyDashboardPage() {
           event={editingEvent}
           onSave={saveEvent}
           onClose={() => { setShowEventModal(false); setEditingEvent(null); }}
+          emailConnected={emailConnected}
         />
       )}
       {showCustomerModal && (
@@ -1954,7 +2046,7 @@ function ReportsTab({ leads, deals, customers, events, crmQuotes, company }: { l
 // SETTINGS TAB
 // ============================================
 
-function SettingsTab({ company, crmActive, onSubscribe }: { company: Company; crmActive: boolean; onSubscribe: () => void }) {
+function SettingsTab({ company, crmActive, onSubscribe, emailConnected, emailAddress, emailLoading, onDisconnectEmail }: { company: Company; crmActive: boolean; onSubscribe: () => void; emailConnected: boolean; emailAddress: string | null; emailLoading: boolean; onDisconnectEmail: () => void; }) {
   return (
     <div>
       <div className="mb-6"><h2 className="text-2xl font-bold text-gray-900">Settings & Billing</h2></div>
@@ -1967,6 +2059,50 @@ function SettingsTab({ company, crmActive, onSubscribe }: { company: Company; cr
           <div><p className="text-gray-500">Coverage Postcodes</p><p className="font-medium text-gray-900">{company.coverage_postcodes?.join(', ') || 'None set'}</p></div>
         </div>
       </div>
+
+      {/* EMAIL CONNECTION */}
+      <div className="bg-white rounded-xl border p-6 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-gray-900">Email Integration</h3>
+          {emailConnected && <span className="flex items-center gap-1.5 text-xs font-semibold text-green-600 bg-green-50 px-2.5 py-1 rounded-full"><div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />Connected</span>}
+        </div>
+        {emailLoading ? (
+          <div className="flex items-center gap-2 text-gray-400 text-sm"><svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>Checking email connection...</div>
+        ) : emailConnected ? (
+          <div>
+            <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl p-4 mb-4">
+              <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm">
+                <svg className="w-6 h-6" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-green-800 text-sm">Gmail Connected</p>
+                <p className="text-green-600 text-xs">{emailAddress}</p>
+              </div>
+            </div>
+            <div className="space-y-2 text-sm text-gray-600 mb-4">
+              <p className="flex items-center gap-2">✅ Confirmation emails auto-sent when booking appointments</p>
+              <p className="flex items-center gap-2">✅ Emails sent from your Gmail address</p>
+              <p className="flex items-center gap-2">✅ Professional branded email template</p>
+            </div>
+            <button onClick={onDisconnectEmail} className="text-sm text-red-500 hover:text-red-700 font-medium px-4 py-2 bg-red-50 rounded-lg hover:bg-red-100 transition">Disconnect Gmail</button>
+          </div>
+        ) : (
+          <div>
+            <p className="text-gray-500 text-sm mb-4">Connect your Gmail to automatically send confirmation emails to customers when you book appointments. Emails will be sent from your own email address.</p>
+            <div className="space-y-2 text-sm text-gray-500 mb-5">
+              <p className="flex items-center gap-2">📧 Send from your real email address</p>
+              <p className="flex items-center gap-2">📅 Auto-send on appointment booking</p>
+              <p className="flex items-center gap-2">🎨 Professional branded email template</p>
+              <p className="flex items-center gap-2">🔒 Secure OAuth — we never see your password</p>
+            </div>
+            <a href={`/api/auth/gmail/connect?company_id=${company.id}`} className="inline-flex items-center gap-3 px-5 py-3 bg-white border-2 border-gray-200 rounded-xl hover:border-blue-400 hover:shadow-md transition-all">
+              <svg className="w-5 h-5" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+              <span className="font-semibold text-gray-700">Connect Gmail</span>
+            </a>
+          </div>
+        )}
+      </div>
+
       <div className="bg-white rounded-xl border p-6 mb-6">
         <h3 className="font-bold text-gray-900 mb-4">Lead Balance</h3>
         <p className="text-3xl font-bold text-blue-600">£{company.balance?.toFixed(2) || '0.00'}</p>
@@ -2023,8 +2159,9 @@ function DealModal({ deal, stages, onSave, onClose }: { deal: Deal | null; stage
 // EVENT MODAL
 // ============================================
 
-function EventModal({ event, onSave, onClose }: { event: DiaryEvent | null; onSave: (e: Partial<DiaryEvent>) => void; onClose: () => void; }) {
-  const [form, setForm] = useState({ title: event?.title || '', description: event?.description || '', start_time: event?.start_time ? event.start_time.slice(0, 16) : '', end_time: event?.end_time ? event.end_time.slice(0, 16) : '', event_type: event?.event_type || 'job', customer_name: event?.customer_name || '', location: event?.location || '' });
+function EventModal({ event, onSave, onClose, emailConnected }: { event: DiaryEvent | null; onSave: (e: Partial<DiaryEvent>, recipientEmail?: string) => void; onClose: () => void; emailConnected?: boolean; }) {
+  const [form, setForm] = useState({ title: event?.title || '', description: event?.description || '', start_time: event?.start_time ? event.start_time.slice(0, 16) : '', end_time: event?.end_time ? event.end_time.slice(0, 16) : '', event_type: event?.event_type || 'job', customer_name: event?.customer_name || '', location: event?.location || '', customer_email: '' });
+  const [sendEmail, setSendEmail] = useState(!!emailConnected);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -2038,11 +2175,23 @@ function EventModal({ event, onSave, onClose }: { event: DiaryEvent | null; onSa
             <div><label className="text-xs text-gray-500 mb-1 block">End time</label><input type="datetime-local" value={form.end_time} onChange={(e) => setForm({ ...form, end_time: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" /></div>
           </div>
           <input value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} placeholder="Customer name" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+          <input value={form.customer_email} onChange={(e) => setForm({ ...form, customer_email: e.target.value })} placeholder="Customer email (for confirmation)" type="email" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
           <input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Location" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
           <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Description" rows={2} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+          {emailConnected && form.customer_email && !event && (
+            <label className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-4 py-3 cursor-pointer">
+              <input type="checkbox" checked={sendEmail} onChange={(e) => setSendEmail(e.target.checked)} className="w-4 h-4 text-green-600 rounded" />
+              <div><p className="text-sm font-medium text-green-800">Send confirmation email</p><p className="text-xs text-green-600">Email will be sent to {form.customer_email}</p></div>
+            </label>
+          )}
+          {!emailConnected && !event && form.customer_email && (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+              <p className="text-xs text-gray-500">💡 Connect Gmail in Settings to auto-send confirmation emails</p>
+            </div>
+          )}
         </div>
         <div className="flex gap-3 mt-5">
-          <button onClick={() => { if (!form.title.trim()) return alert('Title is required'); if (!form.start_time) return alert('Start time is required'); onSave({ ...form, start_time: new Date(form.start_time).toISOString(), end_time: form.end_time ? new Date(form.end_time).toISOString() : null, description: form.description || null, customer_name: form.customer_name || null, location: form.location || null }); }} className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition">{event ? 'Update' : 'Create'} Event</button>
+          <button onClick={() => { if (!form.title.trim()) return alert('Title is required'); if (!form.start_time) return alert('Start time is required'); onSave({ ...form, start_time: new Date(form.start_time).toISOString(), end_time: form.end_time ? new Date(form.end_time).toISOString() : null, description: form.description || null, customer_name: form.customer_name || null, location: form.location || null }, sendEmail && form.customer_email ? form.customer_email : undefined); }} className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition">{event ? 'Update' : 'Create'} Event</button>
           <button onClick={onClose} className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">Cancel</button>
         </div>
       </div>
