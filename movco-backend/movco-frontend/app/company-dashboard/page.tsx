@@ -710,7 +710,19 @@ export default function CompanyDashboardPage() {
                 </svg>
               )}
             </button>
-          ))}
+         ))}
+
+          <div className="pt-3 mt-3 border-t border-white/10">
+            <button
+              onClick={() => { router.push('/company-dashboard/import'); setSidebarOpen(false); }}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-300 hover:bg-white/10 hover:text-white transition-all duration-150"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>
+              <span className="flex-1 text-left">Import Data</span>
+            </button>
+          </div>
         </nav>
 
         <div className="p-4 border-t border-white/10">
