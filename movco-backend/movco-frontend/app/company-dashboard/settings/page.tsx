@@ -51,7 +51,14 @@ export default function SettingsPage() {
     footer_text: 'This email was sent by {company_name} via MOVCO',
     show_phone: true,
     show_email: true,
+    logo_url: '',
+    social_facebook: '',
+    social_instagram: '',
+    social_twitter: '',
+    social_website: '',
+    social_tiktok: '',
   });
+  const [logoUploading, setLogoUploading] = useState(false);
 
   // Team state
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -198,6 +205,48 @@ export default function SettingsPage() {
     } catch (err) {
       console.error('Failed to disconnect email:', err);
     }
+  };
+
+  const uploadLogo = async (file: File) => {
+    if (!companyId) return;
+    if (file.size > 2 * 1024 * 1024) { alert('Logo must be under 2MB'); return; }
+    if (!file.type.startsWith('image/')) { alert('Please upload an image file'); return; }
+    
+    setLogoUploading(true);
+    try {
+      const ext = file.name.split('.').pop() || 'png';
+      const path = `${companyId}/logo-${Date.now()}.${ext}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from('company-assets')
+        .upload(path, file, { upsert: true });
+      
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+        alert('Failed to upload logo: ' + uploadError.message);
+        setLogoUploading(false);
+        return;
+      }
+      
+      const { data: urlData } = supabase.storage
+        .from('company-assets')
+        .getPublicUrl(path);
+      
+      const logoUrl = urlData.publicUrl;
+      setEmailTemplate(prev => ({ ...prev, logo_url: logoUrl }));
+      
+      // Auto-save
+      await saveConfig('email_template', { ...emailTemplate, logo_url: logoUrl });
+    } catch (err) {
+      console.error('Logo upload failed:', err);
+      alert('Failed to upload logo');
+    }
+    setLogoUploading(false);
+  };
+
+  const removeLogo = async () => {
+    setEmailTemplate(prev => ({ ...prev, logo_url: '' }));
+    await saveConfig('email_template', { ...emailTemplate, logo_url: '' });
   };
 
   const inviteTeamMember = async () => {
@@ -778,6 +827,47 @@ export default function SettingsPage() {
                     <p className="text-sm text-gray-500">Personalise the confirmation emails your customers receive</p>
                   </div>
 
+                  {/* Company Logo */}
+                  <div className="bg-white rounded-xl border p-6 space-y-4">
+                    <h4 className="font-semibold text-gray-800 text-sm">Company Logo</h4>
+                    <p className="text-xs text-gray-500">Upload your logo to appear at the top of confirmation emails (recommended: 200x60px, PNG or JPG, under 2MB)</p>
+                    
+                    {emailTemplate.logo_url ? (
+                      <div className="flex items-center gap-4">
+                        <div className="bg-gray-50 border rounded-xl p-4 flex items-center justify-center" style={{ minWidth: '160px', minHeight: '60px' }}>
+                          <img src={emailTemplate.logo_url} alt="Logo" style={{ maxWidth: '160px', maxHeight: '60px', objectFit: 'contain' }} />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="block">
+                            <input type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files?.[0]) uploadLogo(e.target.files[0]); }} />
+                            <span className="inline-block px-4 py-2 bg-gray-100 text-gray-700 text-xs font-semibold rounded-lg hover:bg-gray-200 transition cursor-pointer">Change logo</span>
+                          </label>
+                          <button onClick={removeLogo} className="block text-xs text-red-500 hover:text-red-700 font-medium">Remove logo</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <label className="block cursor-pointer">
+                        <input type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files?.[0]) uploadLogo(e.target.files[0]); }} />
+                        <div className="border-2 border-dashed border-gray-200 rounded-xl p-8 text-center hover:border-blue-400 transition">
+                          {logoUploading ? (
+                            <div className="flex items-center justify-center gap-2 text-gray-400">
+                              <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                              Uploading...
+                            </div>
+                          ) : (
+                            <>
+                              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                                <span className="text-xl">🖼️</span>
+                              </div>
+                              <p className="text-sm font-medium text-gray-600">Click to upload your logo</p>
+                              <p className="text-xs text-gray-400 mt-1">PNG, JPG or SVG • Max 2MB</p>
+                            </>
+                          )}
+                        </div>
+                      </label>
+                    )}
+                  </div>
+
                   {/* Header Colors */}
                   <div className="bg-white rounded-xl border p-6 space-y-5">
                     <h4 className="font-semibold text-gray-800 text-sm">Header Colours</h4>
@@ -859,11 +949,57 @@ export default function SettingsPage() {
                     </label>
                   </div>
 
+                  {/* Social Media Links */}
+                  <div className="bg-white rounded-xl border p-6 space-y-4">
+                    <h4 className="font-semibold text-gray-800 text-sm">Social Media Links</h4>
+                    <p className="text-xs text-gray-500">Add links to show social media icons in the email footer</p>
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg w-8 text-center">🌐</span>
+                        <input value={emailTemplate.social_website}
+                          onChange={e => setEmailTemplate(prev => ({ ...prev, social_website: e.target.value }))}
+                          placeholder="https://yourwebsite.com"
+                          className="flex-1 px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg w-8 text-center">📘</span>
+                        <input value={emailTemplate.social_facebook}
+                          onChange={e => setEmailTemplate(prev => ({ ...prev, social_facebook: e.target.value }))}
+                          placeholder="https://facebook.com/yourpage"
+                          className="flex-1 px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg w-8 text-center">📸</span>
+                        <input value={emailTemplate.social_instagram}
+                          onChange={e => setEmailTemplate(prev => ({ ...prev, social_instagram: e.target.value }))}
+                          placeholder="https://instagram.com/yourhandle"
+                          className="flex-1 px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg w-8 text-center">🐦</span>
+                        <input value={emailTemplate.social_twitter}
+                          onChange={e => setEmailTemplate(prev => ({ ...prev, social_twitter: e.target.value }))}
+                          placeholder="https://twitter.com/yourhandle"
+                          className="flex-1 px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg w-8 text-center">🎵</span>
+                        <input value={emailTemplate.social_tiktok}
+                          onChange={e => setEmailTemplate(prev => ({ ...prev, social_tiktok: e.target.value }))}
+                          placeholder="https://tiktok.com/@yourhandle"
+                          className="flex-1 px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Live Preview */}
                   <div className="bg-white rounded-xl border p-6">
                     <h4 className="font-semibold text-gray-800 text-sm mb-4">Live Preview</h4>
-                    <div className="border rounded-xl overflow-hidden" style={{ maxWidth: '400px' }}>
-                      <div style={{ background: `linear-gradient(135deg, ${emailTemplate.header_color_from}, ${emailTemplate.header_color_to})`, padding: '20px', textAlign: 'center' }}>
+                    <div className="border rounded-xl overflow-hidden" style={{ maxWidth: '420px' }}>
+                      <div style={{ background: `linear-gradient(135deg, ${emailTemplate.header_color_from}, ${emailTemplate.header_color_to})`, padding: '24px', textAlign: 'center' }}>
+                        {emailTemplate.logo_url && (
+                          <img src={emailTemplate.logo_url} alt="Logo" style={{ maxWidth: '140px', maxHeight: '50px', objectFit: 'contain', margin: '0 auto 10px', display: 'block' }} />
+                        )}
                         <p style={{ color: 'white', fontWeight: 700, fontSize: '16px', margin: 0 }}>{company?.name || company?.company_name || 'Your Company'}</p>
                         <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '11px', margin: '4px 0 0' }}>Home Survey Confirmed ✓</p>
                       </div>
@@ -880,6 +1016,15 @@ export default function SettingsPage() {
                           <p style={{ fontWeight: 600, fontSize: '13px', marginBottom: '4px' }}>{company?.name || company?.company_name || 'Your Company'}</p>
                           {emailTemplate.show_phone && <p style={{ color: '#6b7280', fontSize: '11px' }}>📱 {company?.phone || '07123 456789'}</p>}
                           {emailTemplate.show_email && <p style={{ color: '#6b7280', fontSize: '11px' }}>✉️ {company?.email || 'info@example.com'}</p>}
+                          {(emailTemplate.social_website || emailTemplate.social_facebook || emailTemplate.social_instagram || emailTemplate.social_twitter || emailTemplate.social_tiktok) && (
+                            <div style={{ marginTop: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                              {emailTemplate.social_website && <span style={{ fontSize: '11px', color: '#6b7280', background: '#f3f4f6', padding: '3px 8px', borderRadius: '6px' }}>🌐 Website</span>}
+                              {emailTemplate.social_facebook && <span style={{ fontSize: '11px', color: '#6b7280', background: '#f3f4f6', padding: '3px 8px', borderRadius: '6px' }}>📘 Facebook</span>}
+                              {emailTemplate.social_instagram && <span style={{ fontSize: '11px', color: '#6b7280', background: '#f3f4f6', padding: '3px 8px', borderRadius: '6px' }}>📸 Instagram</span>}
+                              {emailTemplate.social_twitter && <span style={{ fontSize: '11px', color: '#6b7280', background: '#f3f4f6', padding: '3px 8px', borderRadius: '6px' }}>🐦 Twitter</span>}
+                              {emailTemplate.social_tiktok && <span style={{ fontSize: '11px', color: '#6b7280', background: '#f3f4f6', padding: '3px 8px', borderRadius: '6px' }}>🎵 TikTok</span>}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div style={{ textAlign: 'center', padding: '10px', background: '#f9fafb' }}>

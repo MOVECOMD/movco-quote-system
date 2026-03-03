@@ -34,6 +34,12 @@ type EmailTemplate = {
   footer_text: string;
   show_phone: boolean;
   show_email: boolean;
+  logo_url: string;
+  social_facebook: string;
+  social_instagram: string;
+  social_twitter: string;
+  social_website: string;
+  social_tiktok: string;
 };
 
 const defaultTemplate: EmailTemplate = {
@@ -45,6 +51,12 @@ const defaultTemplate: EmailTemplate = {
   footer_text: 'This email was sent by {company_name} via MOVCO',
   show_phone: true,
   show_email: true,
+  logo_url: '',
+  social_facebook: '',
+  social_instagram: '',
+  social_twitter: '',
+  social_website: '',
+  social_tiktok: '',
 };
 
 function replacePlaceholders(text: string, vars: Record<string, string>): string {
@@ -86,6 +98,7 @@ function buildConfirmationEmail({
 <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background-color:#f3f4f6;">
 <div style="max-width:600px;margin:0 auto;padding:20px;">
 <div style="background:linear-gradient(135deg,${template.header_color_from},${template.header_color_to});border-radius:16px 16px 0 0;padding:32px;text-align:center;">
+${template.logo_url ? `<img src="${template.logo_url}" alt="${companyName}" style="max-width:180px;max-height:60px;object-fit:contain;margin:0 auto 12px;display:block;" />` : ''}
 <h1 style="color:white;margin:0;font-size:24px;font-weight:700;">${companyName}</h1>
 <p style="color:rgba(255,255,255,0.8);margin:8px 0 0;font-size:14px;">${typeLabel} Confirmed ✓</p>
 </div>
@@ -111,7 +124,15 @@ ${description ? `<div style="display:flex;"><div style="width:40px;height:40px;b
 <div style="border-top:1px solid #e5e7eb;padding-top:20px;">
 <p style="color:#111827;font-size:15px;font-weight:600;margin:0 0 8px;">${companyName}</p>
 ${template.show_phone && companyPhone ? `<p style="color:#6b7280;font-size:14px;margin:0 0 4px;">📱 ${companyPhone}</p>` : ''}
-${template.show_email && companyEmail ? `<p style="color:#6b7280;font-size:14px;margin:0;">✉️ ${companyEmail}</p>` : ''}
+${template.show_email && companyEmail ? `<p style="color:#6b7280;font-size:14px;margin:0 0 4px;">✉️ ${companyEmail}</p>` : ''}
+${(template.social_website || template.social_facebook || template.social_instagram || template.social_twitter || template.social_tiktok) ? `
+<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+${template.social_website ? `<a href="${template.social_website}" style="display:inline-block;padding:6px 12px;background:#f3f4f6;border-radius:8px;color:#374151;font-size:12px;text-decoration:none;font-weight:500;">🌐 Website</a>` : ''}
+${template.social_facebook ? `<a href="${template.social_facebook}" style="display:inline-block;padding:6px 12px;background:#f3f4f6;border-radius:8px;color:#374151;font-size:12px;text-decoration:none;font-weight:500;">📘 Facebook</a>` : ''}
+${template.social_instagram ? `<a href="${template.social_instagram}" style="display:inline-block;padding:6px 12px;background:#f3f4f6;border-radius:8px;color:#374151;font-size:12px;text-decoration:none;font-weight:500;">📸 Instagram</a>` : ''}
+${template.social_twitter ? `<a href="${template.social_twitter}" style="display:inline-block;padding:6px 12px;background:#f3f4f6;border-radius:8px;color:#374151;font-size:12px;text-decoration:none;font-weight:500;">🐦 Twitter</a>` : ''}
+${template.social_tiktok ? `<a href="${template.social_tiktok}" style="display:inline-block;padding:6px 12px;background:#f3f4f6;border-radius:8px;color:#374151;font-size:12px;text-decoration:none;font-weight:500;">🎵 TikTok</a>` : ''}
+</div>` : ''}
 </div>
 </div>
 <div style="text-align:center;padding:20px;"><p style="color:#9ca3af;font-size:12px;margin:0;">${footerText}</p></div>
