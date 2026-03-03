@@ -397,7 +397,10 @@ export default function CompanyDashboardPage() {
         .from('crm_diary_events')
         .update(event)
         .eq('id', editingEvent.id);
-      if (!error) {
+      if (error) {
+        console.error('Update event error:', error);
+        alert('Failed to update event: ' + error.message);
+      } else {
         setEvents((prev) => prev.map((e) => (e.id === editingEvent.id ? { ...e, ...event } as DiaryEvent : e)));
       }
     } else {
@@ -406,6 +409,10 @@ export default function CompanyDashboardPage() {
         .insert({ ...event, company_id: company.id })
         .select()
         .single();
+      if (error) {
+        console.error('Insert event error:', error);
+        alert('Failed to create event: ' + error.message);
+      }
       if (!error && data) {
         setEvents((prev) => [...prev, data as DiaryEvent]);
         // Auto-send confirmation email for new events
@@ -2205,7 +2212,7 @@ function EventModal({ event, onSave, onClose, emailConnected, prefillDate }: { e
           )}
         </div>
         <div className="flex gap-3 mt-5">
-          <button onClick={() => { if (!form.title.trim()) return alert('Title is required'); if (!form.start_time) return alert('Start time is required'); onSave({ ...form, start_time: new Date(form.start_time).toISOString(), end_time: form.end_time ? new Date(form.end_time).toISOString() : null, description: form.description || null, customer_name: form.customer_name || null, location: form.location || null }, sendEmail && form.customer_email ? form.customer_email : undefined); }} className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition">{event ? 'Update' : 'Create'} Event</button>
+          <button onClick={() => { if (!form.title.trim()) return alert('Title is required'); if (!form.start_time) return alert('Start time is required'); const eventData: any = { title: form.title, event_type: form.event_type, start_time: new Date(form.start_time).toISOString(), end_time: form.end_time ? new Date(form.end_time).toISOString() : null, description: form.description || null, customer_name: form.customer_name || null, location: form.location || null }; onSave(eventData, sendEmail && form.customer_email ? form.customer_email : undefined); }} className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition">{event ? 'Update' : 'Create'} Event</button>
           <button onClick={onClose} className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">Cancel</button>
         </div>
       </div>
