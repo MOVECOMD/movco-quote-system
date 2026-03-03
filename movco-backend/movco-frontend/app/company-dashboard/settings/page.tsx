@@ -42,6 +42,16 @@ export default function SettingsPage() {
   const [emailConnected, setEmailConnected] = useState(false);
   const [emailAddress, setEmailAddress] = useState<string | null>(null);
   const [emailLoading, setEmailLoading] = useState(true);
+  const [emailTemplate, setEmailTemplate] = useState({
+    header_color_from: '#1e40af',
+    header_color_to: '#4f46e5',
+    greeting: 'Hi {customer_name},',
+    body_text: 'Your {event_type} has been confirmed. Here are the details:',
+    closing_text: "If you need to reschedule or have any questions, please don't hesitate to get in touch.",
+    footer_text: 'This email was sent by {company_name} via MOVCO',
+    show_phone: true,
+    show_email: true,
+  });
 
   // Team state
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -103,6 +113,7 @@ export default function SettingsPage() {
         setAreas(config.service_areas || { base_postcode: '', max_radius_miles: 50, excluded_postcodes: [] });
         setPricing(config.pricing_rules || { hourly_rate: 45, minimum_hours: 2, fuel_surcharge_pct: 5, congestion_charge: 15, stair_charge_per_flight: 25, packing_rate_per_hour: 35 });
         setBooking(config.booking_settings || { min_notice_hours: 24, max_advance_days: 90, deposit_required: true, deposit_pct: 25 });
+        if (config.email_template) setEmailTemplate(prev => ({ ...prev, ...config.email_template }));
       } else {
         await supabase.from('company_config').insert({ company_id: co.id });
       }
@@ -721,9 +732,10 @@ export default function SettingsPage() {
             <div className="space-y-4">
               <div>
                 <h2 className="text-lg font-bold text-gray-900">Gmail Integration</h2>
-                <p className="text-sm text-gray-500">Connect your Gmail to auto-send confirmation emails to customers</p>
+                <p className="text-sm text-gray-500">Connect your Gmail and customise confirmation emails</p>
               </div>
 
+              {/* Connection Status */}
               <div className="bg-white rounded-xl border p-6">
                 {emailLoading ? (
                   <div className="flex items-center gap-2 text-gray-400 text-sm py-8 justify-center">
@@ -731,7 +743,7 @@ export default function SettingsPage() {
                     Checking connection...
                   </div>
                 ) : emailConnected ? (
-                  <div className="space-y-5">
+                  <div className="space-y-4">
                     <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl p-4">
                       <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm">
                         <svg className="w-6 h-6" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
@@ -740,28 +752,15 @@ export default function SettingsPage() {
                         <p className="font-semibold text-green-800 text-sm">Gmail Connected</p>
                         <p className="text-green-600 text-xs">{emailAddress}</p>
                       </div>
+                      <button onClick={disconnectEmail}
+                        className="text-xs text-red-500 hover:text-red-700 font-medium px-3 py-1.5 bg-red-50 rounded-lg hover:bg-red-100 transition">
+                        Disconnect
+                      </button>
                     </div>
-
-                    <div className="space-y-2 text-sm text-gray-600">
-                      <p className="flex items-center gap-2">✅ Confirmation emails auto-sent when booking appointments</p>
-                      <p className="flex items-center gap-2">✅ Emails sent from your Gmail address</p>
-                      <p className="flex items-center gap-2">✅ Professional branded email template</p>
-                    </div>
-
-                    <button onClick={disconnectEmail}
-                      className="text-sm text-red-500 hover:text-red-700 font-medium px-4 py-2 bg-red-50 rounded-lg hover:bg-red-100 transition">
-                      Disconnect Gmail
-                    </button>
                   </div>
                 ) : (
                   <div className="text-center py-4">
-                    <p className="text-gray-500 text-sm mb-5">Connect your Gmail to automatically send confirmation emails to customers when you book appointments. Emails will be sent from your own email address.</p>
-                    <div className="space-y-2 text-sm text-gray-500 mb-6 text-left max-w-sm mx-auto">
-                      <p className="flex items-center gap-2">📧 Send from your real email address</p>
-                      <p className="flex items-center gap-2">📅 Auto-send on appointment booking</p>
-                      <p className="flex items-center gap-2">🎨 Professional branded email template</p>
-                      <p className="flex items-center gap-2">🔒 Secure OAuth — we never see your password</p>
-                    </div>
+                    <p className="text-gray-500 text-sm mb-5">Connect your Gmail to automatically send confirmation emails when you book appointments.</p>
                     <a href={`/api/auth/gmail/connect?company_id=${companyId}`}
                       className="inline-flex items-center gap-3 px-6 py-3 bg-white border-2 border-gray-200 rounded-xl hover:border-blue-400 hover:shadow-md transition-all">
                       <svg className="w-5 h-5" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
@@ -770,6 +769,132 @@ export default function SettingsPage() {
                   </div>
                 )}
               </div>
+
+              {/* Email Template Customiser */}
+              {emailConnected && (
+                <>
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900">Customise Email Template</h3>
+                    <p className="text-sm text-gray-500">Personalise the confirmation emails your customers receive</p>
+                  </div>
+
+                  {/* Header Colors */}
+                  <div className="bg-white rounded-xl border p-6 space-y-5">
+                    <h4 className="font-semibold text-gray-800 text-sm">Header Colours</h4>
+                    <div className="flex items-center gap-4">
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Left colour</label>
+                        <div className="flex items-center gap-2">
+                          <input type="color" value={emailTemplate.header_color_from}
+                            onChange={e => setEmailTemplate(prev => ({ ...prev, header_color_from: e.target.value }))}
+                            className="w-10 h-10 rounded-lg border cursor-pointer" />
+                          <input value={emailTemplate.header_color_from}
+                            onChange={e => setEmailTemplate(prev => ({ ...prev, header_color_from: e.target.value }))}
+                            className="w-24 px-2 py-1.5 border rounded-lg text-xs font-mono" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Right colour</label>
+                        <div className="flex items-center gap-2">
+                          <input type="color" value={emailTemplate.header_color_to}
+                            onChange={e => setEmailTemplate(prev => ({ ...prev, header_color_to: e.target.value }))}
+                            className="w-10 h-10 rounded-lg border cursor-pointer" />
+                          <input value={emailTemplate.header_color_to}
+                            onChange={e => setEmailTemplate(prev => ({ ...prev, header_color_to: e.target.value }))}
+                            className="w-24 px-2 py-1.5 border rounded-lg text-xs font-mono" />
+                        </div>
+                      </div>
+                      <div className="flex-1 h-12 rounded-xl" style={{ background: `linear-gradient(135deg, ${emailTemplate.header_color_from}, ${emailTemplate.header_color_to})` }} />
+                    </div>
+                  </div>
+
+                  {/* Message Content */}
+                  <div className="bg-white rounded-xl border p-6 space-y-4">
+                    <h4 className="font-semibold text-gray-800 text-sm">Message Content</h4>
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                      <p className="text-xs text-blue-700">Available placeholders: <code className="bg-blue-100 px-1 rounded">{'{customer_name}'}</code> <code className="bg-blue-100 px-1 rounded">{'{company_name}'}</code> <code className="bg-blue-100 px-1 rounded">{'{event_type}'}</code> <code className="bg-blue-100 px-1 rounded">{'{date}'}</code> <code className="bg-blue-100 px-1 rounded">{'{time}'}</code> <code className="bg-blue-100 px-1 rounded">{'{location}'}</code></p>
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-600 mb-1 block">Greeting</label>
+                      <input value={emailTemplate.greeting}
+                        onChange={e => setEmailTemplate(prev => ({ ...prev, greeting: e.target.value }))}
+                        className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-600 mb-1 block">Body text</label>
+                      <textarea value={emailTemplate.body_text}
+                        onChange={e => setEmailTemplate(prev => ({ ...prev, body_text: e.target.value }))}
+                        rows={2} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-600 mb-1 block">Closing text</label>
+                      <textarea value={emailTemplate.closing_text}
+                        onChange={e => setEmailTemplate(prev => ({ ...prev, closing_text: e.target.value }))}
+                        rows={2} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-600 mb-1 block">Footer text</label>
+                      <input value={emailTemplate.footer_text}
+                        onChange={e => setEmailTemplate(prev => ({ ...prev, footer_text: e.target.value }))}
+                        className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                    </div>
+                  </div>
+
+                  {/* Contact Info Toggles */}
+                  <div className="bg-white rounded-xl border p-6 space-y-4">
+                    <h4 className="font-semibold text-gray-800 text-sm">Contact Info in Footer</h4>
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <span className="text-sm text-gray-700">Show phone number</span>
+                      <button onClick={() => setEmailTemplate(prev => ({ ...prev, show_phone: !prev.show_phone }))}
+                        className={`w-12 h-6 rounded-full transition-all flex items-center ${emailTemplate.show_phone ? 'bg-blue-600 justify-end' : 'bg-gray-300 justify-start'}`}>
+                        <div className="w-5 h-5 bg-white rounded-full shadow mx-0.5" />
+                      </button>
+                    </label>
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <span className="text-sm text-gray-700">Show email address</span>
+                      <button onClick={() => setEmailTemplate(prev => ({ ...prev, show_email: !prev.show_email }))}
+                        className={`w-12 h-6 rounded-full transition-all flex items-center ${emailTemplate.show_email ? 'bg-blue-600 justify-end' : 'bg-gray-300 justify-start'}`}>
+                        <div className="w-5 h-5 bg-white rounded-full shadow mx-0.5" />
+                      </button>
+                    </label>
+                  </div>
+
+                  {/* Live Preview */}
+                  <div className="bg-white rounded-xl border p-6">
+                    <h4 className="font-semibold text-gray-800 text-sm mb-4">Live Preview</h4>
+                    <div className="border rounded-xl overflow-hidden" style={{ maxWidth: '400px' }}>
+                      <div style={{ background: `linear-gradient(135deg, ${emailTemplate.header_color_from}, ${emailTemplate.header_color_to})`, padding: '20px', textAlign: 'center' }}>
+                        <p style={{ color: 'white', fontWeight: 700, fontSize: '16px', margin: 0 }}>{company?.name || company?.company_name || 'Your Company'}</p>
+                        <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '11px', margin: '4px 0 0' }}>Home Survey Confirmed ✓</p>
+                      </div>
+                      <div style={{ padding: '20px', fontSize: '13px', color: '#374151' }}>
+                        <p style={{ marginBottom: '12px' }}>{emailTemplate.greeting.replace('{customer_name}', 'John Smith')}</p>
+                        <p style={{ marginBottom: '16px' }}>{emailTemplate.body_text.replace('{event_type}', 'home survey')}</p>
+                        <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
+                          <p style={{ fontSize: '12px', fontWeight: 600 }}>📅 Tuesday, 4 March 2026</p>
+                          <p style={{ fontSize: '12px', fontWeight: 600, marginTop: '6px' }}>🕐 10:00 – 11:00</p>
+                          <p style={{ fontSize: '12px', fontWeight: 600, marginTop: '6px' }}>📍 123 Example Street, London</p>
+                        </div>
+                        <p style={{ color: '#6b7280', fontSize: '12px', marginBottom: '14px' }}>{emailTemplate.closing_text}</p>
+                        <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '12px' }}>
+                          <p style={{ fontWeight: 600, fontSize: '13px', marginBottom: '4px' }}>{company?.name || company?.company_name || 'Your Company'}</p>
+                          {emailTemplate.show_phone && <p style={{ color: '#6b7280', fontSize: '11px' }}>📱 {company?.phone || '07123 456789'}</p>}
+                          {emailTemplate.show_email && <p style={{ color: '#6b7280', fontSize: '11px' }}>✉️ {company?.email || 'info@example.com'}</p>}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'center', padding: '10px', background: '#f9fafb' }}>
+                        <p style={{ color: '#9ca3af', fontSize: '10px' }}>{emailTemplate.footer_text.replace('{company_name}', company?.name || company?.company_name || 'Your Company')}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Save Button */}
+                  <button onClick={() => saveConfig('email_template', emailTemplate)}
+                    className="w-full bg-blue-600 text-white font-semibold py-3 rounded-xl hover:bg-blue-700 transition text-sm">
+                    💾 Save Email Template
+                  </button>
+                </>
+              )}
             </div>
           )}
 
