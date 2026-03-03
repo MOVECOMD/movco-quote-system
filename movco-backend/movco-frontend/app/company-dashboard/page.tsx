@@ -173,6 +173,7 @@ export default function CompanyDashboardPage() {
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [editingDeal, setEditingDeal] = useState<Deal | null>(null);
   const [editingEvent, setEditingEvent] = useState<DiaryEvent | null>(null);
+  const [eventPrefillDate, setEventPrefillDate] = useState<Date | null>(null);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
 
   // Detail popup states
@@ -906,7 +907,7 @@ export default function CompanyDashboardPage() {
                 deals={deals}
                 selectedDate={selectedDate}
                 onSelectDate={setSelectedDate}
-                onAddEvent={() => { setEditingEvent(null); setShowEventModal(true); }}
+                onAddEvent={(prefillDate) => { setEditingEvent(null); setEventPrefillDate(prefillDate || null); setShowEventModal(true); }}
                 onEditEvent={(event) => { setEditingEvent(event); setShowEventModal(true); }}
                 onDeleteEvent={deleteEvent}
                 onToggleComplete={toggleEventComplete}
@@ -949,8 +950,9 @@ export default function CompanyDashboardPage() {
         <EventModal
           event={editingEvent}
           onSave={saveEvent}
-          onClose={() => { setShowEventModal(false); setEditingEvent(null); }}
+          onClose={() => { setShowEventModal(false); setEditingEvent(null); setEventPrefillDate(null); }}
           emailConnected={emailConnected}
+          prefillDate={eventPrefillDate}
         />
       )}
       {showCustomerModal && (
@@ -1738,7 +1740,7 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onAddDeal, onEditDeal,
 
 function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEditEvent, onDeleteEvent, onToggleComplete, onClickEvent }: {
   events: DiaryEvent[]; deals: Deal[]; selectedDate: Date; onSelectDate: (d: Date) => void;
-  onAddEvent: () => void; onEditEvent: (e: DiaryEvent) => void; onDeleteEvent: (id: string) => void; onToggleComplete: (id: string, c: boolean) => void;
+  onAddEvent: (prefillDate?: Date) => void; onEditEvent: (e: DiaryEvent) => void; onDeleteEvent: (id: string) => void; onToggleComplete: (id: string, c: boolean) => void;
   onClickEvent: (e: DiaryEvent) => void;
 }) {
   const [viewMode, setViewMode] = useState<'month' | 'day'>('month');
@@ -1754,8 +1756,10 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
   for (let d = 1; d <= daysInMonth; d++) days.push(d);
 
   const getEventsForDay = (day: number) => {
-    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    return events.filter((e) => e.start_time.startsWith(dateStr));
+    return events.filter((e) => {
+      const d = new Date(e.start_time);
+      return d.getDate() === day && d.getMonth() === month && d.getFullYear() === year;
+    });
   };
 
   const selectedDayEvents = events.filter((e) => {
@@ -1823,7 +1827,7 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
             <button onClick={() => setViewMode('day')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${viewMode === 'day' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Day</button>
           </div>
           <button onClick={() => { onSelectDate(new Date()); setViewMode('day'); }} className="px-3 py-2 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition">Today</button>
-          <button onClick={onAddEvent} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>Add Event</button>
+          <button onClick={() => { const d = new Date(selectedDate); d.setHours(9, 0, 0, 0); onAddEvent(d); }} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>Add Event</button>
         </div>
       </div>
 
@@ -1911,7 +1915,7 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
               {hours.map((hour) => (
                 <div key={hour} className="absolute w-full flex" style={{ top: `${(hour - 6) * 64}px`, height: '64px' }}>
                   <div className="w-16 sm:w-20 flex-shrink-0 pr-2 text-right"><span className="text-xs text-gray-400 font-medium -mt-2 block">{hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}</span></div>
-                  <div className="flex-1 border-t border-gray-100 relative group cursor-pointer hover:bg-blue-50/30 transition" onClick={() => onAddEvent()}>
+                  <div className="flex-1 border-t border-gray-100 relative group cursor-pointer hover:bg-blue-50/30 transition" onClick={() => { const d = new Date(selectedDate); d.setHours(hour, 0, 0, 0); onAddEvent(d); }}>
                     <div className="absolute w-full border-t border-gray-50" style={{ top: '32px' }} />
                     <div className="absolute right-2 top-1 opacity-0 group-hover:opacity-100 transition"><span className="text-[10px] text-blue-400 font-medium">+ Add</span></div>
                   </div>
@@ -2159,8 +2163,18 @@ function DealModal({ deal, stages, onSave, onClose }: { deal: Deal | null; stage
 // EVENT MODAL
 // ============================================
 
-function EventModal({ event, onSave, onClose, emailConnected }: { event: DiaryEvent | null; onSave: (e: Partial<DiaryEvent>, recipientEmail?: string) => void; onClose: () => void; emailConnected?: boolean; }) {
-  const [form, setForm] = useState({ title: event?.title || '', description: event?.description || '', start_time: event?.start_time ? event.start_time.slice(0, 16) : '', end_time: event?.end_time ? event.end_time.slice(0, 16) : '', event_type: event?.event_type || 'job', customer_name: event?.customer_name || '', location: event?.location || '', customer_email: '' });
+function EventModal({ event, onSave, onClose, emailConnected, prefillDate }: { event: DiaryEvent | null; onSave: (e: Partial<DiaryEvent>, recipientEmail?: string) => void; onClose: () => void; emailConnected?: boolean; prefillDate?: Date | null; }) {
+  const formatForInput = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const h = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${y}-${m}-${day}T${h}:${min}`;
+  };
+  const defaultStart = event?.start_time ? event.start_time.slice(0, 16) : prefillDate ? formatForInput(prefillDate) : '';
+  const defaultEnd = event?.end_time ? event.end_time.slice(0, 16) : prefillDate ? formatForInput(new Date(prefillDate.getTime() + 60 * 60 * 1000)) : '';
+  const [form, setForm] = useState({ title: event?.title || '', description: event?.description || '', start_time: defaultStart, end_time: defaultEnd, event_type: event?.event_type || 'job', customer_name: event?.customer_name || '', location: event?.location || '', customer_email: '' });
   const [sendEmail, setSendEmail] = useState(!!emailConnected);
 
   return (
