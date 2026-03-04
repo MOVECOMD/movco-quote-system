@@ -783,10 +783,41 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
     }
   };
 
-  const openCustomerDetail = (customer: Customer) => {
+  const [detailDeal, setDetailDeal] = useState<Deal | null>(null);
+
+  const openCustomerDetail = (customer: Customer, deal?: Deal | null) => {
     setSelectedCustomer(customer);
+    setDetailDeal(deal || null);
     setShowCustomerDetail(true);
     fetchCustomerNotes(customer.id);
+  };
+
+  const openCustomerFromDeal = (deal: Deal) => {
+    const customer = customers.find(c => c.id === deal.customer_id);
+    if (customer) {
+      openCustomerDetail(customer, deal);
+    } else {
+      // No linked customer — create a temporary one from deal data
+      const tempCustomer: Customer = {
+        id: '',
+        name: deal.customer_name,
+        email: deal.customer_email,
+        phone: deal.customer_phone,
+        address: deal.moving_from,
+        notes: deal.notes,
+        source: null,
+        moving_from: deal.moving_from,
+        moving_to: deal.moving_to,
+        moving_date: deal.moving_date,
+        total_jobs: 0,
+        total_revenue: 0,
+        created_at: deal.created_at,
+      };
+      setSelectedCustomer(tempCustomer);
+      setDetailDeal(deal);
+      setShowCustomerDetail(true);
+      setCustomerNotes([]);
+    }
   };
   const disconnectEmail = async () => {
     if (!company) return;
@@ -1044,7 +1075,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
                 onAddDeal={() => { setEditingDeal(null); setShowDealModal(true); }}
                 onEditDeal={(deal) => { setEditingDeal(deal); setShowDealModal(true); }}
                 onDeleteDeal={deleteDeal}
-                onClickDeal={(deal) => { setSelectedDeal(deal); setShowDealDetail(true); }}
+                onClickDeal={(deal) => openCustomerFromDeal(deal)}
                 dealHasBooking={dealHasBooking}
                 onManageStages={() => setShowStageManager(true)}
               />
@@ -1152,12 +1183,18 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
         <CustomerDetailPopup
           customer={selectedCustomer}
           notes={customerNotes}
-          onClose={() => { setShowCustomerDetail(false); setSelectedCustomer(null); setCustomerNotes([]); }}
+          deal={detailDeal}
+          stages={stages}
+          onClose={() => { setShowCustomerDetail(false); setSelectedCustomer(null); setCustomerNotes([]); setDetailDeal(null); }}
           onAddNote={(text) => addCustomerNote(selectedCustomer.id, text)}
           onDeleteNote={deleteCustomerNote}
           onEditCustomer={() => { setShowCustomerDetail(false); setEditingCustomer(selectedCustomer); setShowCustomerModal(true); }}
           onComposeEmail={() => { setComposeEmailCustomer(selectedCustomer); setShowComposeEmail(true); }}
           emailConnected={emailConnected}
+          onSchedule={detailDeal ? () => { setSelectedDeal(detailDeal); setShowCustomerDetail(false); setShowQuickBookModal(true); } : undefined}
+          onCreateQuote={detailDeal ? () => { openQuoteFromDeal(detailDeal); setShowCustomerDetail(false); } : undefined}
+          onDeleteDeal={detailDeal ? () => { deleteDeal(detailDeal.id); setShowCustomerDetail(false); } : undefined}
+          events={events}
         />
       )}
       {showComposeEmail && composeEmailCustomer && (
@@ -3218,15 +3255,21 @@ function QuoteDetailPopup({ quote, company, onClose, onUpdateStatus, onDelete, o
 // CUSTOMER DETAIL POPUP
 // ============================================
 
-function CustomerDetailPopup({ customer, notes, onClose, onAddNote, onDeleteNote, onEditCustomer, onComposeEmail, emailConnected }: {
+function CustomerDetailPopup({ customer, notes, deal, stages, onClose, onAddNote, onDeleteNote, onEditCustomer, onComposeEmail, emailConnected, onSchedule, onCreateQuote, onDeleteDeal, events }: {
   customer: Customer;
   notes: CustomerNote[];
+  deal?: Deal | null;
+  stages?: PipelineStage[];
   onClose: () => void;
   onAddNote: (text: string) => Promise<any>;
   onDeleteNote: (noteId: string) => void;
   onEditCustomer: () => void;
   onComposeEmail: () => void;
   emailConnected: boolean;
+  onSchedule?: () => void;
+  onCreateQuote?: () => void;
+  onDeleteDeal?: () => void;
+  events?: DiaryEvent[];
 }) {
   const [newNote, setNewNote] = useState('');
   const [saving, setSaving] = useState(false);
@@ -3256,6 +3299,9 @@ function CustomerDetailPopup({ customer, notes, onClose, onAddNote, onDeleteNote
     return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
   };
 
+  const stage = deal && stages ? stages.find(s => s.id === deal.stage_id) : null;
+  const linkedEvents = deal && events ? events.filter(e => e.deal_id === deal.id) : [];
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
@@ -3277,92 +3323,138 @@ function CustomerDetailPopup({ customer, notes, onClose, onAddNote, onDeleteNote
           </button>
         </div>
 
-        {/* Customer Info */}
-        <div className="px-6 py-4 border-b bg-gray-50 space-y-2">
-          <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-            {customer.phone && <span className="text-gray-600">📱 {customer.phone}</span>}
-            {customer.source && <span className="text-gray-600">📣 {customer.source}</span>}
-            {customer.total_revenue ? <span className="text-green-600 font-semibold">💰 £{customer.total_revenue.toLocaleString()}</span> : null}
+        {/* Scrollable content */}
+        <div className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
+          {/* Contact & Move Info */}
+          <div className="px-6 py-4 border-b bg-gray-50 space-y-2">
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+              {customer.phone && <span className="text-gray-600">📱 {customer.phone}</span>}
+              {customer.source && <span className="text-gray-600">📣 {customer.source}</span>}
+              {(customer.total_revenue || (deal?.estimated_value)) ? <span className="text-green-600 font-semibold">💰 £{(customer.total_revenue || deal?.estimated_value || 0).toLocaleString()}</span> : null}
+            </div>
+            {(customer.moving_from || deal?.moving_from) && (
+              <p className="text-sm text-gray-600">🏠 {customer.moving_from || deal?.moving_from}{(customer.moving_to || deal?.moving_to) ? ` → ${customer.moving_to || deal?.moving_to}` : ''}</p>
+            )}
+            {(customer.moving_date || deal?.moving_date) && (
+              <p className="text-sm text-gray-600">📅 Moving: {new Date(customer.moving_date || deal?.moving_date!).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+            )}
+
+            {/* Deal stage badge */}
+            {stage && (
+              <div className="flex items-center gap-2 pt-1">
+                <span className="text-xs text-gray-500">Stage:</span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: stage.color }} />
+                  {stage.name}
+                </span>
+              </div>
+            )}
+
+            {/* Linked events */}
+            {linkedEvents.length > 0 && (
+              <div className="pt-1">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Booked Appointments</p>
+                {linkedEvents.map((evt) => (
+                  <div key={evt.id} className="flex items-center gap-2 text-sm text-gray-600 mb-0.5">
+                    <span>📅</span>
+                    <span>{new Date(evt.start_time).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} at {new Date(evt.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{evt.event_type}</span>
+                    {evt.completed && <span className="text-green-500">✓</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Deal notes (from deal.notes) */}
+            {deal?.notes && (
+              <p className="text-sm text-gray-500 bg-white rounded-lg p-3 border border-gray-200">{deal.notes}</p>
+            )}
           </div>
-          {customer.moving_from && (
-            <p className="text-sm text-gray-600">🏠 {customer.moving_from}{customer.moving_to ? ` → ${customer.moving_to}` : ''}</p>
-          )}
-          {customer.moving_date && (
-            <p className="text-sm text-gray-600">📅 Moving: {new Date(customer.moving_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
-          )}
+
           {/* Quick actions */}
-          <div className="flex gap-2 pt-1">
-            <button onClick={onEditCustomer} className="text-xs font-medium px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition">✏️ Edit</button>
+          <div className="px-6 py-3 border-b flex flex-wrap gap-2">
+            {onSchedule && (
+              <button onClick={onSchedule} className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">📅 Schedule</button>
+            )}
+            {onCreateQuote && (
+              <button onClick={onCreateQuote} className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition">📸 Create Quote</button>
+            )}
+            <button onClick={onEditCustomer} className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition">✏️ Edit</button>
             {customer.email && (
-              <button onClick={onComposeEmail} className="text-xs font-medium px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition">
+              <button onClick={onComposeEmail} className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition">
                 {emailConnected ? '✉️ Send Email' : '✉️ Email'}
               </button>
             )}
             {customer.phone && (
-              <a href={`tel:${customer.phone}`} className="text-xs font-medium px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition">📞 Call</a>
+              <a href={`tel:${customer.phone}`} className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition">📞 Call</a>
+            )}
+            {onDeleteDeal && (
+              <button onClick={onDeleteDeal} className="flex items-center gap-1.5 px-3 py-2 bg-red-50 text-red-600 text-sm font-medium rounded-lg hover:bg-red-100 transition ml-auto">🗑️ Delete</button>
             )}
           </div>
-        </div>
 
-        {/* Notes Section */}
-        <div className="flex-1 overflow-y-auto px-6 py-4" style={{ minHeight: 0 }}>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-gray-900">Notes</h3>
-            <span className="text-xs text-gray-400">{notes.length} note{notes.length !== 1 ? 's' : ''}</span>
-          </div>
-
-          {/* Add Note */}
-          <div className="mb-4">
-            <textarea
-              ref={noteInputRef}
-              value={newNote}
-              onChange={(e) => setNewNote(e.target.value)}
-              placeholder="Add a note..."
-              rows={2}
-              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddNote();
-              }}
-            />
-            <div className="flex items-center justify-between mt-2">
-              <p className="text-[10px] text-gray-400">Ctrl+Enter to save</p>
-              <button
-                onClick={handleAddNote}
-                disabled={!newNote.trim() || saving}
-                className="px-4 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {saving ? 'Saving...' : 'Add Note'}
-              </button>
+          {/* Notes Section */}
+          <div className="px-6 py-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-gray-900">Notes</h3>
+              <span className="text-xs text-gray-400">{notes.length} note{notes.length !== 1 ? 's' : ''}</span>
             </div>
-          </div>
 
-          {/* Notes Timeline */}
-          {notes.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-sm text-gray-400">No notes yet</p>
-              <p className="text-xs text-gray-300 mt-1">Add your first note above</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {notes.map((note) => (
-                <div key={note.id} className="group relative bg-gray-50 rounded-xl px-4 py-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm text-gray-700 whitespace-pre-wrap flex-1">{note.note_text}</p>
-                    <button
-                      onClick={() => { if (confirm('Delete this note?')) onDeleteNote(note.id); }}
-                      className="text-gray-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100 flex-shrink-0 mt-0.5"
-                      title="Delete note"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-gray-400 mt-1.5">{formatDate(note.created_at)}</p>
+            {/* Add Note */}
+            {customer.id && (
+              <div className="mb-4">
+                <textarea
+                  ref={noteInputRef}
+                  value={newNote}
+                  onChange={(e) => setNewNote(e.target.value)}
+                  placeholder="Add a note..."
+                  rows={2}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddNote();
+                  }}
+                />
+                <div className="flex items-center justify-between mt-2">
+                  <p className="text-[10px] text-gray-400">Ctrl+Enter to save</p>
+                  <button
+                    onClick={handleAddNote}
+                    disabled={!newNote.trim() || saving}
+                    className="px-4 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {saving ? 'Saving...' : 'Add Note'}
+                  </button>
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            )}
+
+            {/* Notes Timeline */}
+            {notes.length === 0 ? (
+              <div className="text-center py-6">
+                <p className="text-sm text-gray-400">No notes yet</p>
+                {customer.id && <p className="text-xs text-gray-300 mt-1">Add your first note above</p>}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {notes.map((note) => (
+                  <div key={note.id} className="group relative bg-gray-50 rounded-xl px-4 py-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm text-gray-700 whitespace-pre-wrap flex-1">{note.note_text}</p>
+                      <button
+                        onClick={() => { if (confirm('Delete this note?')) onDeleteNote(note.id); }}
+                        className="text-gray-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100 flex-shrink-0 mt-0.5"
+                        title="Delete note"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1.5">{formatDate(note.created_at)}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Footer */}
