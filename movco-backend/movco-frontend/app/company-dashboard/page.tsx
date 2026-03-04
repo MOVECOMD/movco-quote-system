@@ -183,6 +183,8 @@ export default function CompanyDashboardPage() {
   const [selectedEvent, setSelectedEvent] = useState<DiaryEvent | null>(null);
   const [showQuickBookModal, setShowQuickBookModal] = useState(false);
   const [showStageManager, setShowStageManager] = useState(false);
+  const [showComposeEmail, setShowComposeEmail] = useState(false);
+  const [composeEmailCustomer, setComposeEmailCustomer] = useState<Customer | null>(null);
 
   // Redirect if not logged in
   useEffect(() => {
@@ -951,7 +953,7 @@ export default function CompanyDashboardPage() {
                 onConvertToDeal={convertQuoteToDeal}
                 onClickQuote={(q) => { setSelectedQuote(q); setShowQuoteDetail(true); }}
               />
-            )}
+         )}
             {activeTab === 'quotes' && showQuoteBuilder && (
               <QuoteBuilder
                 company={company}
@@ -960,7 +962,7 @@ export default function CompanyDashboardPage() {
                 prefill={quotePrefill}
               />
             )}
-              {activeTab === 'pipeline' && (
+            {activeTab === 'pipeline' && (
               <PipelineTab
                 stages={stages}
                 deals={deals}
@@ -998,6 +1000,8 @@ export default function CompanyDashboardPage() {
                 onSendQuoteLink={sendQuoteLink}
                 crmQuotes={crmQuotes}
                 onClickQuote={(q) => { setSelectedQuote(q); setShowQuoteDetail(true); }}
+                emailConnected={emailConnected}
+                onComposeEmail={(customer) => { setComposeEmailCustomer(customer); setShowComposeEmail(true); }}
               />
             )}
             {activeTab === 'reports' && (
@@ -1067,6 +1071,14 @@ export default function CompanyDashboardPage() {
           onDelete={() => { deleteQuote(selectedQuote.id); setShowQuoteDetail(false); setSelectedQuote(null); }}
           onConvertToDeal={() => { convertQuoteToDeal(selectedQuote); setShowQuoteDetail(false); setSelectedQuote(null); }}
           onSave={async (fields) => { await updateQuoteFields(selectedQuote.id, fields); setSelectedQuote({ ...selectedQuote, ...fields } as CrmQuote); }}
+        />
+      )}
+      {showComposeEmail && composeEmailCustomer && (
+        <ComposeEmailModal
+          customer={composeEmailCustomer}
+          emailConnected={emailConnected}
+          companyId={company.id}
+          onClose={() => { setShowComposeEmail(false); setComposeEmailCustomer(null); }}
         />
       )}
 {showStageManager && (
@@ -2264,13 +2276,16 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
 // CUSTOMERS TAB
 // ============================================
 
-function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEditCustomer, onDeleteCustomer, onSendQuoteLink, crmQuotes, onClickQuote }: {
+function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEditCustomer, onDeleteCustomer, onSendQuoteLink, crmQuotes, onClickQuote, emailConnected, onComposeEmail }: {
   customers: Customer[]; search: string; onSearchChange: (s: string) => void;
   onAddCustomer: () => void; onEditCustomer: (c: Customer) => void; onDeleteCustomer: (id: string) => void;
   onSendQuoteLink: (c: Customer) => void;
   crmQuotes: CrmQuote[];
   onClickQuote: (q: CrmQuote) => void;
+  emailConnected: boolean;
+  onComposeEmail: (c: Customer) => void;
 }) {
+
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const filtered = customers.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()) || (c.email || '').toLowerCase().includes(search.toLowerCase()) || (c.phone || '').includes(search));
   const totalRevenue = customers.reduce((s, c) => s + (c.total_revenue || 0), 0);
@@ -2345,9 +2360,9 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
                           </a>
                         )}
                         {customer.email && (
-                          <a href={`mailto:${customer.email}`} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-green-600 hover:bg-green-50 transition" title="Email">
+                          <button onClick={() => onComposeEmail(customer)} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-green-600 hover:bg-green-50 transition" title={emailConnected ? 'Send email via Gmail' : 'Email'}>
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                          </a>
+                          </button>
                         )}
                         <button onClick={() => onSendQuoteLink(customer)} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition" title="Send quote link">
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
@@ -2402,9 +2417,9 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
                     </a>
                   )}
                   {customer.email && (
-                    <a href={`mailto:${customer.email}`} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-green-600 hover:bg-green-50 transition" title="Email">
+                    <button onClick={() => onComposeEmail(customer)} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-green-600 hover:bg-green-50 transition" title={emailConnected ? 'Send email via Gmail' : 'Email'}>
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                    </a>
+                    </button>
                   )}
                   <button onClick={() => onSendQuoteLink(customer)} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition" title="Quote link">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
@@ -3020,7 +3035,237 @@ function QuoteDetailPopup({ quote, company, onClose, onUpdateStatus, onDelete, o
 // ============================================
 // STAGE COLORS
 // ============================================
+// ============================================
+// COMPOSE EMAIL MODAL
+// ============================================
 
+const EMAIL_TEMPLATES = [
+  {
+    label: '📋 Survey reminder',
+    subject: 'Home Survey Reminder',
+    body: `Just a quick reminder about your upcoming home survey.\n\nWe'll be visiting to assess your items and provide an accurate quote for your move. Please make sure all rooms are accessible.\n\nIf you need to reschedule, just let us know.`,
+  },
+  {
+    label: '💬 Quote follow-up',
+    subject: 'Following Up on Your Moving Quote',
+    body: `I wanted to follow up on the quote we sent over recently.\n\nHave you had a chance to review it? If you have any questions or would like to discuss the details, I'm happy to help.\n\nWe'd love to help make your move as smooth as possible.`,
+  },
+  {
+    label: '🚛 Moving day confirmation',
+    subject: 'Moving Day Confirmation',
+    body: `This is to confirm everything is set for your moving day.\n\nOur team will arrive at the agreed time. Please ensure parking is available and any items you don't want moved are clearly marked.\n\nLooking forward to helping with your move!`,
+  },
+  {
+    label: '🙏 Thank you',
+    subject: 'Thank You for Choosing Us',
+    body: `Thank you for choosing us for your recent move. We hope everything went smoothly!\n\nIf you were happy with our service, we'd really appreciate a review — it helps other families find us.\n\nWishing you all the best in your new home!`,
+  },
+];
+
+function ComposeEmailModal({ customer, emailConnected, companyId, onClose }: {
+  customer: Customer;
+  emailConnected: boolean;
+  companyId: string;
+  onClose: () => void;
+}) {
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  const applyTemplate = (tpl: typeof EMAIL_TEMPLATES[0]) => {
+    setSubject(tpl.subject);
+    setBody(tpl.body);
+  };
+
+  const handleSend = async () => {
+    if (!subject.trim() || !body.trim()) {
+      alert('Please enter a subject and message');
+      return;
+    }
+    setSending(true);
+    try {
+      const res = await fetch('/api/email/send-custom', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_id: companyId,
+          recipient_email: customer.email,
+          recipient_name: customer.name,
+          subject,
+          body_text: body,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSent(true);
+        setTimeout(() => onClose(), 1500);
+      } else {
+        alert(data.error || 'Failed to send email. Please try again.');
+      }
+    } catch (err) {
+      console.error('Send email error:', err);
+      alert('Failed to send email. Please try again.');
+    }
+    setSending(false);
+  };
+
+  if (!emailConnected) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+        <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+          <h2 className="text-lg font-bold text-gray-900 mb-2">Send Email</h2>
+          <p className="text-gray-500 text-sm mb-4">
+            To send emails directly from the CRM, you need to connect your Gmail account first.
+          </p>
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-5">
+            <p className="text-sm text-blue-800 font-medium">💡 Connect Gmail in Settings</p>
+            <p className="text-xs text-blue-600 mt-1">
+              Go to Settings → Email Integration → Connect Gmail. Emails will then be sent from your own Gmail address.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <a
+              href={`mailto:${customer.email}`}
+              className="flex-1 text-center py-2.5 bg-gray-100 text-gray-700 font-medium text-sm rounded-lg hover:bg-gray-200 transition"
+            >
+              Open in Mail App
+            </a>
+            <button
+              onClick={onClose}
+              className="flex-1 py-2.5 bg-blue-600 text-white font-semibold text-sm rounded-lg hover:bg-blue-700 transition"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (sent) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+        <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8 text-center" onClick={(e) => e.stopPropagation()}>
+          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <h2 className="text-lg font-bold text-gray-900 mb-1">Email Sent!</h2>
+          <p className="text-sm text-gray-500">Your email to {customer.name} has been sent from your Gmail.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">Send Email</h2>
+            <p className="text-sm text-gray-500 mt-0.5">via connected Gmail</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          {/* To field (read-only) */}
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 block">To</label>
+            <div className="flex items-center gap-2.5 bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5">
+              <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xs flex-shrink-0">
+                {customer.name.charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-900">{customer.name}</p>
+                <p className="text-xs text-gray-500 truncate">{customer.email}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick templates */}
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Quick Templates</label>
+            <div className="flex flex-wrap gap-2">
+              {EMAIL_TEMPLATES.map((tpl, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => applyTemplate(tpl)}
+                  className="text-xs font-medium px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition"
+                >
+                  {tpl.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Subject */}
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 block">Subject</label>
+            <input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="Email subject…"
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            />
+          </div>
+
+          {/* Message */}
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1 block">Message</label>
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder="Write your message…"
+              rows={6}
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
+            />
+          </div>
+
+          <p className="text-xs text-gray-400">
+            Your company branding, logo, and social links will be included automatically.
+          </p>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t flex gap-3">
+          <button onClick={onClose} className="px-5 py-2.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition">
+            Cancel
+          </button>
+          <button
+            onClick={handleSend}
+            disabled={!subject.trim() || !body.trim() || sending}
+            className="flex-1 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {sending ? (
+              <>
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Sending...
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+                Send Email
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 const STAGE_COLORS = [
   { hex: '#22c55e', name: 'Green' },
   { hex: '#3b82f6', name: 'Blue' },
