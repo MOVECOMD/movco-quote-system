@@ -427,7 +427,27 @@ export default function CompanyDashboardPage() {
     setShowEventModal(false);
     setEditingEvent(null);
   };
-
+const rescheduleEvent = async (eventId: string, newDate: Date) => {
+    const event = events.find(e => e.id === eventId);
+    if (!event) return;
+    const oldStart = new Date(event.start_time);
+    const newStart = new Date(newDate);
+    if (newDate.getHours() === 0 && newDate.getMinutes() === 0) {
+      newStart.setHours(oldStart.getHours(), oldStart.getMinutes(), 0);
+    }
+    let newEnd: Date | null = null;
+    if (event.end_time) {
+      const oldEnd = new Date(event.end_time);
+      const diff = oldEnd.getTime() - oldStart.getTime();
+      newEnd = new Date(newStart.getTime() + diff);
+    }
+    const updates: any = { start_time: newStart.toISOString() };
+    if (newEnd) updates.end_time = newEnd.toISOString();
+    const { error } = await supabase.from('crm_diary_events').update(updates).eq('id', eventId);
+    if (!error) {
+      setEvents(prev => prev.map(e => e.id === eventId ? { ...e, start_time: newStart.toISOString(), end_time: newEnd ? newEnd.toISOString() : e.end_time } : e));
+    }
+  };
   const deleteEvent = async (eventId: string) => {
     if (!confirm('Delete this event?')) return;
     const { error } = await supabase.from('crm_diary_events').delete().eq('id', eventId);
@@ -987,6 +1007,7 @@ export default function CompanyDashboardPage() {
                 onDeleteEvent={deleteEvent}
                 onToggleComplete={toggleEventComplete}
                 onClickEvent={(event) => { setSelectedEvent(event); setShowEventDetail(true); }}
+                onRescheduleEvent={rescheduleEvent}
               />
             )}
             {activeTab === 'customers' && (
@@ -2054,12 +2075,16 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onAddDeal, onEditDeal,
 // DIARY TAB
 // ============================================
 
-function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEditEvent, onDeleteEvent, onToggleComplete, onClickEvent }: {
+function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEditEvent, onDeleteEvent, onToggleComplete, onClickEvent, onRescheduleEvent }: {
   events: DiaryEvent[]; deals: Deal[]; selectedDate: Date; onSelectDate: (d: Date) => void;
   onAddEvent: (prefillDate?: Date) => void; onEditEvent: (e: DiaryEvent) => void; onDeleteEvent: (id: string) => void; onToggleComplete: (id: string, c: boolean) => void;
   onClickEvent: (e: DiaryEvent) => void;
+  onRescheduleEvent: (eventId: string, newDate: Date) => void;
 }) {
   const [viewMode, setViewMode] = useState<'month' | 'day'>('month');
+  const [dragEventId, setDragEventId] = useState<string | null>(null);
+  const [dragOverDay, setDragOverDay] = useState<number | null>(null);
+  const [dragOverHour, setDragOverHour] = useState<number | null>(null);
 
   const year = selectedDate.getFullYear();
   const month = selectedDate.getMonth();
@@ -2162,15 +2187,54 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
               const dayEvents = getEventsForDay(day);
               const isTodayCell = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
               const isSelected = day === selectedDate.getDate() && month === selectedDate.getMonth();
+              const isDragOver = dragOverDay === day && dragEventId !== null;
               return (
-                <button key={idx} onClick={() => handleDayClick(day)} className={`p-1.5 rounded-lg text-sm transition-all min-h-[72px] flex flex-col items-start ${isSelected ? 'bg-blue-600 text-white ring-2 ring-blue-300' : isTodayCell ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-700'}`}>
+                <div
+                  key={idx}
+                  onClick={() => handleDayClick(day)}
+                  onDragOver={(e) => { e.preventDefault(); setDragOverDay(day); }}
+                  onDragLeave={() => setDragOverDay(null)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOverDay(null);
+                    const evtId = e.dataTransfer.getData('text/plain');
+                    if (evtId) {
+                      const targetDate = new Date(year, month, day);
+                      onRescheduleEvent(evtId, targetDate);
+                    }
+                    setDragEventId(null);
+                  }}
+                  className={`p-1.5 rounded-lg text-sm transition-all min-h-[72px] flex flex-col items-start cursor-pointer ${
+                    isDragOver ? 'bg-blue-100 ring-2 ring-blue-400 scale-[1.02]' :
+                    isSelected ? 'bg-blue-600 text-white ring-2 ring-blue-300' :
+                    isTodayCell ? 'bg-blue-50 text-blue-700' :
+                    'hover:bg-gray-50 text-gray-700'
+                  }`}
+                >
                   <span className={`text-xs font-semibold mb-1 ${isTodayCell && !isSelected ? 'bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center' : ''}`}>{day}</span>
                   {dayEvents.slice(0, 2).map((evt, i) => {
                     const colors = eventTypeColors[evt.event_type] || eventTypeColors.other;
-                    return (<div key={i} className={`w-full text-left truncate text-[10px] px-1 py-0.5 rounded mb-0.5 ${isSelected ? 'bg-white/20 text-white' : `${colors.bg} ${colors.text}`}`}>{new Date(evt.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} {evt.title}</div>);
+                    return (
+                      <div
+                        key={i}
+                        draggable
+                        onDragStart={(e) => {
+                          e.stopPropagation();
+                          e.dataTransfer.setData('text/plain', evt.id);
+                          e.dataTransfer.effectAllowed = 'move';
+                          setDragEventId(evt.id);
+                        }}
+                        onDragEnd={() => { setDragEventId(null); setDragOverDay(null); }}
+                        className={`w-full text-left truncate text-[10px] px-1 py-0.5 rounded mb-0.5 cursor-grab active:cursor-grabbing ${
+                          dragEventId === evt.id ? 'opacity-40' : ''
+                        } ${isSelected ? 'bg-white/20 text-white' : `${colors.bg} ${colors.text}`}`}
+                      >
+                        {new Date(evt.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} {evt.title}
+                      </div>
+                    );
                   })}
                   {dayEvents.length > 2 && <span className={`text-[10px] ${isSelected ? 'text-white/80' : 'text-gray-400'}`}>+{dayEvents.length - 2} more</span>}
-                </button>
+                </div>
               );
             })}
           </div>
@@ -2231,7 +2295,25 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
               {hours.map((hour) => (
                 <div key={hour} className="absolute w-full flex" style={{ top: `${(hour - 6) * 64}px`, height: '64px' }}>
                   <div className="w-16 sm:w-20 flex-shrink-0 pr-2 text-right"><span className="text-xs text-gray-400 font-medium -mt-2 block">{hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`}</span></div>
-                  <div className="flex-1 border-t border-gray-100 relative group cursor-pointer hover:bg-blue-50/30 transition" onClick={() => { const d = new Date(selectedDate); d.setHours(hour, 0, 0, 0); onAddEvent(d); }}>
+                  <div
+                    className={`flex-1 border-t border-gray-100 relative group cursor-pointer transition ${
+                      dragOverHour === hour && dragEventId ? 'bg-blue-100 ring-1 ring-blue-400' : 'hover:bg-blue-50/30'
+                    }`}
+                    onClick={() => { const d = new Date(selectedDate); d.setHours(hour, 0, 0, 0); onAddEvent(d); }}
+                    onDragOver={(e) => { e.preventDefault(); setDragOverHour(hour); }}
+                    onDragLeave={() => setDragOverHour(null)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setDragOverHour(null);
+                      const evtId = e.dataTransfer.getData('text/plain');
+                      if (evtId) {
+                        const targetDate = new Date(selectedDate);
+                        targetDate.setHours(hour, 0, 0, 0);
+                        onRescheduleEvent(evtId, targetDate);
+                      }
+                      setDragEventId(null);
+                    }}
+                  >
                     <div className="absolute w-full border-t border-gray-50" style={{ top: '32px' }} />
                     <div className="absolute right-2 top-1 opacity-0 group-hover:opacity-100 transition"><span className="text-[10px] text-blue-400 font-medium">+ Add</span></div>
                   </div>
@@ -2248,8 +2330,21 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
                 const startTime = new Date(event.start_time);
                 const endTime = event.end_time ? new Date(event.end_time) : null;
                 return (
-                  <div key={event.id} className={`absolute left-16 sm:left-20 right-2 z-10 rounded-lg border-l-4 px-3 py-1.5 cursor-pointer hover:shadow-md transition-all overflow-hidden ${colors.bg} ${colors.border} ${event.completed ? 'opacity-50' : ''}`} style={{ top: style.top, height: style.height, minHeight: '28px' }} onClick={() => onClickEvent(event)}>
-                    <div className="flex items-start justify-between gap-1">
+                  <div
+                    key={event.id}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('text/plain', event.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                      setDragEventId(event.id);
+                    }}
+                    onDragEnd={() => { setDragEventId(null); setDragOverHour(null); }}
+                    className={`absolute left-16 sm:left-20 right-2 z-10 rounded-lg border-l-4 px-3 py-1.5 cursor-grab active:cursor-grabbing hover:shadow-md transition-all overflow-hidden ${
+                      dragEventId === event.id ? 'opacity-40' : ''
+                    } ${colors.bg} ${colors.border} ${event.completed ? 'opacity-50' : ''}`}
+                    style={{ top: style.top, height: style.height, minHeight: '28px' }}
+                    onClick={() => onClickEvent(event)}
+                  >                    <div className="flex items-start justify-between gap-1">
                       <div className="flex-1 min-w-0">
                         <p className={`text-sm font-semibold truncate ${colors.text}`}>{event.title}</p>
                         <p className="text-[11px] text-gray-500">{startTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}{endTime && ` – ${endTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}</p>
@@ -2767,7 +2862,20 @@ function EventDetailPopup({ event, deals, onClose, onCreateQuote, onComplete, on
         <div className="flex items-center justify-between p-5 border-b"><h2 className="text-lg font-bold text-gray-900">{event.title}</h2><button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button></div>
         <div className="p-5 space-y-3">
           {linkedDeal && <div className="flex flex-wrap gap-3 text-sm">{linkedDeal.customer_email && <span className="flex items-center gap-1.5 text-gray-600">📧 {linkedDeal.customer_email}</span>}{linkedDeal.customer_phone && <span className="flex items-center gap-1.5 text-gray-600">📱 {linkedDeal.customer_phone}</span>}</div>}
-          {(event.location || linkedDeal?.moving_from) && <p className="text-sm text-gray-700">📍 {event.location || linkedDeal?.moving_from || '—'}{linkedDeal?.moving_to && ` → ${linkedDeal.moving_to}`}</p>}
+          {(event.location || linkedDeal?.moving_from) && (
+            <div className="flex items-center gap-2">
+              <p className="text-sm text-gray-700 flex-1">📍 {event.location || linkedDeal?.moving_from || '—'}{linkedDeal?.moving_to && ` → ${linkedDeal.moving_to}`}</p>
+              
+                <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(event.location || linkedDeal?.moving_from || '')}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-600 text-xs font-semibold rounded-lg hover:bg-blue-100 transition flex-shrink-0"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                Directions
+              </a>
+            </div>
+          )}
           <p className="text-sm text-gray-600">🕐 {startTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}{endTime && ` – ${endTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}</p>
           <p className="text-sm text-gray-600">📅 {startTime.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
           <div className="flex items-center gap-2"><span className="text-xs text-gray-500">Status:</span><span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${event.completed ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{event.completed ? '✅ Completed' : '○ Not completed'}</span></div>
