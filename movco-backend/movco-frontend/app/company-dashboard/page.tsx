@@ -182,6 +182,7 @@ export default function CompanyDashboardPage() {
   const [showEventDetail, setShowEventDetail] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<DiaryEvent | null>(null);
   const [showQuickBookModal, setShowQuickBookModal] = useState(false);
+  const [showStageManager, setShowStageManager] = useState(false);
 
   // Redirect if not logged in
   useEffect(() => {
@@ -647,7 +648,71 @@ export default function CompanyDashboardPage() {
       console.error('Failed to send confirmation email:', err);
     }
   };
+// ── Pipeline Stage Management ──
+  const addPipelineStage = async (name: string, color: string) => {
+    if (!company) return;
+    const maxPos = stages.length > 0 ? Math.max(...stages.map(s => s.position)) : 0;
+    const { data, error } = await supabase
+      .from('crm_pipeline_stages')
+      .insert({
+        company_id: company.id,
+        name,
+        color,
+        position: maxPos + 1,
+      })
+      .select()
+      .single();
+    if (!error && data) {
+      setStages(prev => [...prev, data as PipelineStage]);
+    }
+    return { data, error };
+  };
 
+  const updatePipelineStage = async (stageId: string, updates: Partial<PipelineStage>) => {
+    const { error } = await supabase
+      .from('crm_pipeline_stages')
+      .update(updates)
+      .eq('id', stageId);
+    if (!error) {
+      setStages(prev => prev.map(s => s.id === stageId ? { ...s, ...updates } as PipelineStage : s));
+    }
+    return { error };
+  };
+
+  const reorderPipelineStages = async (reorderedStages: PipelineStage[]) => {
+    for (const stage of reorderedStages) {
+      await supabase
+        .from('crm_pipeline_stages')
+        .update({ position: stage.position })
+        .eq('id', stage.id);
+    }
+    setStages(reorderedStages);
+  };
+
+  const deletePipelineStage = async (stageId: string, moveDealsToStageId: string | null) => {
+    if (!company) return;
+    if (moveDealsToStageId) {
+      const { error: moveError } = await supabase
+        .from('crm_deals')
+        .update({ stage_id: moveDealsToStageId })
+        .eq('stage_id', stageId);
+      if (moveError) {
+        alert('Failed to move deals: ' + moveError.message);
+        return;
+      }
+      setDeals(prev => prev.map(d => d.stage_id === stageId ? { ...d, stage_id: moveDealsToStageId } : d));
+    }
+    const { error } = await supabase
+      .from('crm_pipeline_stages')
+      .delete()
+      .eq('id', stageId);
+    if (!error) {
+      setStages(prev => {
+        const filtered = prev.filter(s => s.id !== stageId);
+        return filtered.map((s, i) => ({ ...s, position: i + 1 }));
+      });
+    }
+  };
   const disconnectEmail = async () => {
     if (!company) return;
     if (!confirm('Disconnect Gmail? Confirmation emails will stop sending.')) return;
@@ -895,7 +960,7 @@ export default function CompanyDashboardPage() {
                 prefill={quotePrefill}
               />
             )}
-            {activeTab === 'pipeline' && (
+              {activeTab === 'pipeline' && (
               <PipelineTab
                 stages={stages}
                 deals={deals}
@@ -906,6 +971,7 @@ export default function CompanyDashboardPage() {
                 onDeleteDeal={deleteDeal}
                 onClickDeal={(deal) => { setSelectedDeal(deal); setShowDealDetail(true); }}
                 dealHasBooking={dealHasBooking}
+                onManageStages={() => setShowStageManager(true)}
               />
             )}
             {activeTab === 'diary' && (
@@ -1003,7 +1069,17 @@ export default function CompanyDashboardPage() {
           onSave={async (fields) => { await updateQuoteFields(selectedQuote.id, fields); setSelectedQuote({ ...selectedQuote, ...fields } as CrmQuote); }}
         />
       )}
-
+{showStageManager && (
+        <StageManagerModal
+          stages={stages}
+          deals={deals}
+          onClose={() => setShowStageManager(false)}
+          onAddStage={addPipelineStage}
+          onUpdateStage={updatePipelineStage}
+          onReorderStages={reorderPipelineStages}
+          onDeleteStage={deletePipelineStage}
+        />
+      )}
       {showEventDetail && selectedEvent && (
         <EventDetailPopup
           event={selectedEvent}
@@ -1794,12 +1870,13 @@ function QuotesTab({ quotes, company, onAddQuote, onDeleteQuote, onUpdateStatus,
 // PIPELINE TAB
 // ============================================
 
-function PipelineTab({ stages, deals, events, onMoveDeal, onAddDeal, onEditDeal, onDeleteDeal, onClickDeal, dealHasBooking }: {
+function PipelineTab({ stages, deals, events, onMoveDeal, onAddDeal, onEditDeal, onDeleteDeal, onClickDeal, dealHasBooking, onManageStages }: {
   stages: PipelineStage[]; deals: Deal[]; events: DiaryEvent[];
   onMoveDeal: (dealId: string, stageId: string) => void;
   onAddDeal: () => void; onEditDeal: (deal: Deal) => void; onDeleteDeal: (dealId: string) => void;
   onClickDeal: (deal: Deal) => void;
   dealHasBooking: (dealId: string) => boolean;
+  onManageStages: () => void;
 }) {
   const [draggedDealId, setDraggedDealId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
@@ -1846,6 +1923,15 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onAddDeal, onEditDeal,
             <option value="value">Highest value</option>
             <option value="date">Move date</option>
           </select>
+          <button
+            onClick={onManageStages}
+            className="inline-flex items-center gap-2 px-3 py-2 border border-gray-200 text-gray-600 font-medium rounded-lg hover:bg-gray-50 hover:border-gray-300 transition text-sm"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+            </svg>
+            Manage Stages
+          </button>
           <button onClick={onAddDeal} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm shadow-sm">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
             Add Deal
@@ -2931,3 +3017,389 @@ function QuoteDetailPopup({ quote, company, onClose, onUpdateStatus, onDelete, o
     </div>
   );
 }
+// ============================================
+// STAGE COLORS
+// ============================================
+
+const STAGE_COLORS = [
+  { hex: '#22c55e', name: 'Green' },
+  { hex: '#3b82f6', name: 'Blue' },
+  { hex: '#8b5cf6', name: 'Purple' },
+  { hex: '#f59e0b', name: 'Amber' },
+  { hex: '#06b6d4', name: 'Cyan' },
+  { hex: '#10b981', name: 'Emerald' },
+  { hex: '#ef4444', name: 'Red' },
+  { hex: '#f97316', name: 'Orange' },
+  { hex: '#ec4899', name: 'Pink' },
+  { hex: '#6366f1', name: 'Indigo' },
+  { hex: '#14b8a6', name: 'Teal' },
+  { hex: '#84cc16', name: 'Lime' },
+];
+
+// ============================================
+// STAGE MANAGER MODAL
+// ============================================
+
+function StageManagerModal({ stages, deals, onClose, onAddStage, onUpdateStage, onReorderStages, onDeleteStage }: {
+  stages: PipelineStage[];
+  deals: Deal[];
+  onClose: () => void;
+  onAddStage: (name: string, color: string) => Promise<any>;
+  onUpdateStage: (stageId: string, updates: Partial<PipelineStage>) => Promise<any>;
+  onReorderStages: (stages: PipelineStage[]) => Promise<void>;
+  onDeleteStage: (stageId: string, moveToId: string | null) => Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [addingNew, setAddingNew] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newColor, setNewColor] = useState(STAGE_COLORS[0].hex);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [colorPickerId, setColorPickerId] = useState<string | null>(null);
+  const [deleteStageData, setDeleteStageData] = useState<PipelineStage | null>(null);
+  const [deleteTargetId, setDeleteTargetId] = useState('');
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const newNameRef = useRef<HTMLInputElement>(null);
+  const editNameRef = useRef<HTMLInputElement>(null);
+
+  const sortedStages = [...stages].sort((a, b) => a.position - b.position);
+  const dealCountFor = (stageId: string) => deals.filter(d => d.stage_id === stageId).length;
+
+  useEffect(() => {
+    if (addingNew && newNameRef.current) newNameRef.current.focus();
+  }, [addingNew]);
+
+  useEffect(() => {
+    if (editingId && editNameRef.current) {
+      editNameRef.current.focus();
+      editNameRef.current.select();
+    }
+  }, [editingId]);
+
+  const handleAdd = async () => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    await onAddStage(trimmed, newColor);
+    setNewName('');
+    setNewColor(STAGE_COLORS[Math.floor(Math.random() * STAGE_COLORS.length)].hex);
+    setAddingNew(false);
+    setSaving(false);
+  };
+
+  const handleRename = async (stageId: string) => {
+    const trimmed = editName.trim();
+    const stage = stages.find(s => s.id === stageId);
+    if (trimmed && stage && trimmed !== stage.name) {
+      setSaving(true);
+      await onUpdateStage(stageId, { name: trimmed });
+      setSaving(false);
+    }
+    setEditingId(null);
+  };
+
+  const handleColorChange = async (stageId: string, color: string) => {
+    await onUpdateStage(stageId, { color });
+    setColorPickerId(null);
+  };
+
+  const handleDragStart = (idx: number) => (e: React.DragEvent) => {
+    setDragIndex(idx);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  const handleDragOver = (idx: number) => (e: React.DragEvent) => {
+    e.preventDefault();
+    if (idx !== dragIndex) setDragOverIndex(idx);
+  };
+  const handleDrop = (dropIdx: number) => async (e: React.DragEvent) => {
+    e.preventDefault();
+    if (dragIndex === null || dragIndex === dropIdx) {
+      setDragIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+    const reordered = [...sortedStages];
+    const [moved] = reordered.splice(dragIndex, 1);
+    reordered.splice(dropIdx, 0, moved);
+    const withPositions = reordered.map((s, i) => ({ ...s, position: i + 1 }));
+    setDragIndex(null);
+    setDragOverIndex(null);
+    setSaving(true);
+    await onReorderStages(withPositions);
+    setSaving(false);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteStageData) return;
+    const count = dealCountFor(deleteStageData.id);
+    if (count > 0 && !deleteTargetId) return;
+    setSaving(true);
+    await onDeleteStage(deleteStageData.id, deleteTargetId || null);
+    setDeleteStageData(null);
+    setDeleteTargetId('');
+    setSaving(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[85vh] flex flex-col relative" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">Manage Pipeline Stages</h2>
+            <p className="text-sm text-gray-500 mt-0.5">{stages.length} stages · {deals.length} deals total</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Stage List */}
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1" style={{ minHeight: 0 }}>
+          {sortedStages.map((stage, idx) => {
+            const count = dealCountFor(stage.id);
+            const isEditing = editingId === stage.id;
+
+            return (
+              <div
+                key={stage.id}
+                className={`group flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
+                  dragIndex === idx ? 'opacity-40 scale-95' : ''
+                } ${dragOverIndex === idx ? 'ring-2 ring-blue-400 bg-blue-50' : 'hover:bg-gray-50'}`}
+                draggable
+                onDragStart={handleDragStart(idx)}
+                onDragOver={handleDragOver(idx)}
+                onDragLeave={() => setDragOverIndex(null)}
+                onDrop={handleDrop(idx)}
+                onDragEnd={() => { setDragIndex(null); setDragOverIndex(null); }}
+              >
+                {/* Drag handle */}
+                <div className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 transition flex-shrink-0">
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" />
+                    <circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />
+                    <circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" />
+                  </svg>
+                </div>
+
+                {/* Color dot */}
+                <div className="relative flex-shrink-0">
+                  <button
+                    onClick={() => setColorPickerId(colorPickerId === stage.id ? null : stage.id)}
+                    className="w-5 h-5 rounded-full ring-2 ring-white shadow-sm hover:scale-110 transition-transform"
+                    style={{ backgroundColor: stage.color }}
+                    title="Change colour"
+                  />
+                  {colorPickerId === stage.id && (
+                    <div className="absolute left-0 top-7 z-50 bg-white rounded-xl shadow-xl border p-2.5">
+                      <div className="grid grid-cols-6 gap-1.5">
+                        {STAGE_COLORS.map(c => (
+                          <button
+                            key={c.hex}
+                            onClick={() => handleColorChange(stage.id, c.hex)}
+                            className="w-7 h-7 rounded-lg transition hover:scale-110 flex items-center justify-center"
+                            style={{ backgroundColor: c.hex }}
+                            title={c.name}
+                          >
+                            {stage.color === c.hex && (
+                              <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Stage name — click to edit */}
+                <div className="flex-1 min-w-0">
+                  {isEditing ? (
+                    <input
+                      ref={editNameRef}
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      onBlur={() => handleRename(stage.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleRename(stage.id);
+                        if (e.key === 'Escape') setEditingId(null);
+                      }}
+                      className="w-full bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      maxLength={30}
+                    />
+                  ) : (
+                    <button
+                      onClick={() => { setEditingId(stage.id); setEditName(stage.name); }}
+                      className="text-sm text-gray-800 hover:text-gray-900 font-medium text-left truncate w-full flex items-center gap-1.5"
+                    >
+                      {stage.name}
+                      <svg className="w-3 h-3 text-gray-300 opacity-0 group-hover:opacity-100 transition flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+
+                {/* Deal count */}
+                <span
+                  className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: stage.color + '18', color: stage.color }}
+                >
+                  {count} deal{count !== 1 ? 's' : ''}
+                </span>
+
+                {/* Delete */}
+                <button
+                  onClick={() => { setDeleteStageData(stage); setDeleteTargetId(''); }}
+                  className="text-gray-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100 flex-shrink-0"
+                  title="Delete stage"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
+            );
+          })}
+
+          {/* Add New Stage */}
+          {addingNew ? (
+            <div className="mt-2 p-3 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/50">
+              <div className="flex items-center gap-2.5 mb-3">
+                <div className="relative">
+                  <button
+                    onClick={() => setColorPickerId(colorPickerId === '_new' ? null : '_new')}
+                    className="w-5 h-5 rounded-full ring-2 ring-white shadow-sm hover:scale-110 transition-transform"
+                    style={{ backgroundColor: newColor }}
+                  />
+                  {colorPickerId === '_new' && (
+                    <div className="absolute left-0 top-7 z-50 bg-white rounded-xl shadow-xl border p-2.5">
+                      <div className="grid grid-cols-6 gap-1.5">
+                        {STAGE_COLORS.map(c => (
+                          <button
+                            key={c.hex}
+                            onClick={() => { setNewColor(c.hex); setColorPickerId(null); }}
+                            className="w-7 h-7 rounded-lg transition hover:scale-110 flex items-center justify-center"
+                            style={{ backgroundColor: c.hex }}
+                          >
+                            {newColor === c.hex && (
+                              <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <input
+                  ref={newNameRef}
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleAdd();
+                    if (e.key === 'Escape') { setAddingNew(false); setNewName(''); }
+                  }}
+                  placeholder="Stage name…"
+                  className="flex-1 bg-white border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  maxLength={30}
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setAddingNew(false); setNewName(''); }}
+                  className="flex-1 text-xs py-1.5 bg-white border border-gray-200 text-gray-600 font-medium rounded-lg hover:bg-gray-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAdd}
+                  disabled={!newName.trim() || saving}
+                  className="flex-1 text-xs py-1.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {saving ? 'Adding...' : 'Add Stage'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setAddingNew(true)}
+              className="w-full mt-2 flex items-center justify-center gap-1.5 py-3 rounded-xl border-2 border-dashed border-gray-200 text-gray-400 text-sm font-medium hover:border-blue-300 hover:text-blue-500 hover:bg-blue-50/50 transition-all"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Add Stage
+            </button>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t bg-gray-50 rounded-b-2xl flex items-center justify-between">
+          <p className="text-xs text-gray-400">Drag to reorder · Click name to rename</p>
+          <button onClick={onClose} className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">
+            Done
+          </button>
+        </div>
+
+        {/* Delete Confirmation Overlay */}
+        {deleteStageData && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl" style={{ backgroundColor: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(2px)' }}>
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
+                  <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                </div>
+                <h3 className="font-bold text-gray-900 text-sm">Delete &ldquo;{deleteStageData.name}&rdquo;</h3>
+              </div>
+
+              {dealCountFor(deleteStageData.id) > 0 ? (
+                <>
+                  <p className="text-sm text-gray-600 mb-3">
+                    This stage has <strong>{dealCountFor(deleteStageData.id)} deal{dealCountFor(deleteStageData.id) !== 1 ? 's' : ''}</strong>. Move them to:
+                  </p>
+                  <select
+                    value={deleteTargetId}
+                    onChange={(e) => setDeleteTargetId(e.target.value)}
+                    className="w-full px-3 py-2.5 border rounded-lg text-sm mb-4 focus:ring-2 focus:ring-blue-500 outline-none"
+                  >
+                    <option value="">Select a stage…</option>
+                    {stages.filter(s => s.id !== deleteStageData.id).map(s => (
+                      <option key={s.id} value={s.id}>{s.name} ({dealCountFor(s.id)} deals)</option>
+                    ))}
+                  </select>
+                </>
+              ) : (
+                <p className="text-sm text-gray-600 mb-4">This stage has no deals. Delete it?</p>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setDeleteStageData(null); setDeleteTargetId(''); }}
+                  className="flex-1 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDelete}
+                  disabled={(dealCountFor(deleteStageData.id) > 0 && !deleteTargetId) || saving}
+                  className="flex-1 py-2 text-sm font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {saving ? 'Deleting...' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
