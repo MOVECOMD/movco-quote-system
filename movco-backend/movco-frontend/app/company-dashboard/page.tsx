@@ -75,7 +75,13 @@ type Customer = {
   total_revenue: number;
   created_at: string;
 };
-
+type CustomerNote = {
+  id: string;
+  company_id: string;
+  customer_id: string;
+  note_text: string;
+  created_at: string;
+};
 type DiaryEvent = {
   id: string;
   title: string;
@@ -185,6 +191,9 @@ export default function CompanyDashboardPage() {
   const [showStageManager, setShowStageManager] = useState(false);
   const [showComposeEmail, setShowComposeEmail] = useState(false);
   const [composeEmailCustomer, setComposeEmailCustomer] = useState<Customer | null>(null);
+  const [showCustomerDetail, setShowCustomerDetail] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [customerNotes, setCustomerNotes] = useState<CustomerNote[]>([]);
 
   // Redirect if not logged in
   useEffect(() => {
@@ -735,6 +744,50 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
       });
     }
   };
+  // ── Customer Notes ──
+  const fetchCustomerNotes = async (customerId: string) => {
+    if (!company) return;
+    const { data } = await supabase
+      .from('crm_customer_notes')
+      .select('*')
+      .eq('customer_id', customerId)
+      .eq('company_id', company.id)
+      .order('created_at', { ascending: false });
+    if (data) setCustomerNotes(data);
+  };
+
+  const addCustomerNote = async (customerId: string, noteText: string) => {
+    if (!company) return;
+    const { data, error } = await supabase
+      .from('crm_customer_notes')
+      .insert({
+        company_id: company.id,
+        customer_id: customerId,
+        note_text: noteText,
+      })
+      .select()
+      .single();
+    if (!error && data) {
+      setCustomerNotes(prev => [data, ...prev]);
+    }
+    return { error };
+  };
+
+  const deleteCustomerNote = async (noteId: string) => {
+    const { error } = await supabase
+      .from('crm_customer_notes')
+      .delete()
+      .eq('id', noteId);
+    if (!error) {
+      setCustomerNotes(prev => prev.filter(n => n.id !== noteId));
+    }
+  };
+
+  const openCustomerDetail = (customer: Customer) => {
+    setSelectedCustomer(customer);
+    setShowCustomerDetail(true);
+    fetchCustomerNotes(customer.id);
+  };
   const disconnectEmail = async () => {
     if (!company) return;
     if (!confirm('Disconnect Gmail? Confirmation emails will stop sending.')) return;
@@ -1023,6 +1076,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
                 onClickQuote={(q) => { setSelectedQuote(q); setShowQuoteDetail(true); }}
                 emailConnected={emailConnected}
                 onComposeEmail={(customer) => { setComposeEmailCustomer(customer); setShowComposeEmail(true); }}
+                onClickCustomer={openCustomerDetail}
               />
             )}
             {activeTab === 'reports' && (
@@ -1092,6 +1146,18 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
           onDelete={() => { deleteQuote(selectedQuote.id); setShowQuoteDetail(false); setSelectedQuote(null); }}
           onConvertToDeal={() => { convertQuoteToDeal(selectedQuote); setShowQuoteDetail(false); setSelectedQuote(null); }}
           onSave={async (fields) => { await updateQuoteFields(selectedQuote.id, fields); setSelectedQuote({ ...selectedQuote, ...fields } as CrmQuote); }}
+        />
+      )}
+      {showCustomerDetail && selectedCustomer && (
+        <CustomerDetailPopup
+          customer={selectedCustomer}
+          notes={customerNotes}
+          onClose={() => { setShowCustomerDetail(false); setSelectedCustomer(null); setCustomerNotes([]); }}
+          onAddNote={(text) => addCustomerNote(selectedCustomer.id, text)}
+          onDeleteNote={deleteCustomerNote}
+          onEditCustomer={() => { setShowCustomerDetail(false); setEditingCustomer(selectedCustomer); setShowCustomerModal(true); }}
+          onComposeEmail={() => { setComposeEmailCustomer(selectedCustomer); setShowComposeEmail(true); }}
+          emailConnected={emailConnected}
         />
       )}
       {showComposeEmail && composeEmailCustomer && (
@@ -2372,7 +2438,7 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
 // CUSTOMERS TAB
 // ============================================
 
-function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEditCustomer, onDeleteCustomer, onSendQuoteLink, crmQuotes, onClickQuote, emailConnected, onComposeEmail }: {
+function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEditCustomer, onDeleteCustomer, onSendQuoteLink, crmQuotes, onClickQuote, emailConnected, onComposeEmail, onClickCustomer }: {
   customers: Customer[]; search: string; onSearchChange: (s: string) => void;
   onAddCustomer: () => void; onEditCustomer: (c: Customer) => void; onDeleteCustomer: (id: string) => void;
   onSendQuoteLink: (c: Customer) => void;
@@ -2380,6 +2446,7 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
   onClickQuote: (q: CrmQuote) => void;
   emailConnected: boolean;
   onComposeEmail: (c: Customer) => void;
+  onClickCustomer: (c: Customer) => void;
 }) {
 
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
@@ -2438,7 +2505,7 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
                           {customer.name.charAt(0).toUpperCase()}
                         </div>
                         <div className="min-w-0">
-                          <p className="font-semibold text-gray-900 text-sm">{customer.name}</p>
+                          <button onClick={() => onClickCustomer(customer)} className="font-semibold text-gray-900 text-sm hover:text-blue-600 transition text-left">{customer.name}</button>
                           <p className="text-xs text-gray-400 truncate">{customer.email || 'No email'}</p>
                         </div>
                       </div>
@@ -2494,7 +2561,7 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
                     {customer.name.charAt(0).toUpperCase()}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-gray-900 text-sm">{customer.name}</p>
+                    <button onClick={() => onClickCustomer(customer)} className="font-semibold text-gray-900 text-sm hover:text-blue-600 transition text-left">{customer.name}</button>
                     <p className="text-xs text-gray-400 truncate">{customer.email || 'No email'}</p>
                     <p className="text-xs text-gray-400">{customer.phone || 'No phone'}</p>
                   </div>
@@ -3147,7 +3214,167 @@ function QuoteDetailPopup({ quote, company, onClose, onUpdateStatus, onDelete, o
 // ============================================
 // COMPOSE EMAIL MODAL
 // ============================================
+// ============================================
+// CUSTOMER DETAIL POPUP
+// ============================================
 
+function CustomerDetailPopup({ customer, notes, onClose, onAddNote, onDeleteNote, onEditCustomer, onComposeEmail, emailConnected }: {
+  customer: Customer;
+  notes: CustomerNote[];
+  onClose: () => void;
+  onAddNote: (text: string) => Promise<any>;
+  onDeleteNote: (noteId: string) => void;
+  onEditCustomer: () => void;
+  onComposeEmail: () => void;
+  emailConnected: boolean;
+}) {
+  const [newNote, setNewNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const noteInputRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleAddNote = async () => {
+    const trimmed = newNote.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    await onAddNote(trimmed);
+    setNewNote('');
+    setSaving(false);
+    noteInputRef.current?.focus();
+  };
+
+  const formatDate = (dateStr: string) => {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-lg flex-shrink-0">
+              {customer.name.charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">{customer.name}</h2>
+              <p className="text-sm text-gray-500">{customer.email || 'No email'}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Customer Info */}
+        <div className="px-6 py-4 border-b bg-gray-50 space-y-2">
+          <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+            {customer.phone && <span className="text-gray-600">📱 {customer.phone}</span>}
+            {customer.source && <span className="text-gray-600">📣 {customer.source}</span>}
+            {customer.total_revenue ? <span className="text-green-600 font-semibold">💰 £{customer.total_revenue.toLocaleString()}</span> : null}
+          </div>
+          {customer.moving_from && (
+            <p className="text-sm text-gray-600">🏠 {customer.moving_from}{customer.moving_to ? ` → ${customer.moving_to}` : ''}</p>
+          )}
+          {customer.moving_date && (
+            <p className="text-sm text-gray-600">📅 Moving: {new Date(customer.moving_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+          )}
+          {/* Quick actions */}
+          <div className="flex gap-2 pt-1">
+            <button onClick={onEditCustomer} className="text-xs font-medium px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition">✏️ Edit</button>
+            {customer.email && (
+              <button onClick={onComposeEmail} className="text-xs font-medium px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition">
+                {emailConnected ? '✉️ Send Email' : '✉️ Email'}
+              </button>
+            )}
+            {customer.phone && (
+              <a href={`tel:${customer.phone}`} className="text-xs font-medium px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition">📞 Call</a>
+            )}
+          </div>
+        </div>
+
+        {/* Notes Section */}
+        <div className="flex-1 overflow-y-auto px-6 py-4" style={{ minHeight: 0 }}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-bold text-gray-900">Notes</h3>
+            <span className="text-xs text-gray-400">{notes.length} note{notes.length !== 1 ? 's' : ''}</span>
+          </div>
+
+          {/* Add Note */}
+          <div className="mb-4">
+            <textarea
+              ref={noteInputRef}
+              value={newNote}
+              onChange={(e) => setNewNote(e.target.value)}
+              placeholder="Add a note..."
+              rows={2}
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddNote();
+              }}
+            />
+            <div className="flex items-center justify-between mt-2">
+              <p className="text-[10px] text-gray-400">Ctrl+Enter to save</p>
+              <button
+                onClick={handleAddNote}
+                disabled={!newNote.trim() || saving}
+                className="px-4 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {saving ? 'Saving...' : 'Add Note'}
+              </button>
+            </div>
+          </div>
+
+          {/* Notes Timeline */}
+          {notes.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-sm text-gray-400">No notes yet</p>
+              <p className="text-xs text-gray-300 mt-1">Add your first note above</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {notes.map((note) => (
+                <div key={note.id} className="group relative bg-gray-50 rounded-xl px-4 py-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm text-gray-700 whitespace-pre-wrap flex-1">{note.note_text}</p>
+                    <button
+                      onClick={() => { if (confirm('Delete this note?')) onDeleteNote(note.id); }}
+                      className="text-gray-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100 flex-shrink-0 mt-0.5"
+                      title="Delete note"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1.5">{formatDate(note.created_at)}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t">
+          <button onClick={onClose} className="w-full py-2.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 const EMAIL_TEMPLATES = [
   {
     label: '📋 Survey reminder',
