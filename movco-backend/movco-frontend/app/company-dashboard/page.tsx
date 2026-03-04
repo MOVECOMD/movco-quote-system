@@ -3060,6 +3060,26 @@ const EMAIL_TEMPLATES = [
     subject: 'Thank You for Choosing Us',
     body: `Thank you for choosing us for your recent move. We hope everything went smoothly!\n\nIf you were happy with our service, we'd really appreciate a review — it helps other families find us.\n\nWishing you all the best in your new home!`,
   },
+  {
+    label: '✅ Booking confirmation',
+    subject: 'Your Move is Booked!',
+    body: `Great news — your move is officially booked and confirmed!\n\nWe'll be in touch closer to the date with final details including arrival time and crew information. In the meantime, if anything changes or you have questions, just reply to this email.\n\nWe're looking forward to making your move day stress-free.`,
+  },
+  {
+    label: '⭐ Review request',
+    subject: 'How Did We Do?',
+    body: `We hope you're settling into your new home nicely!\n\nWe'd really appreciate it if you could take a moment to leave us a quick review. It only takes a minute and it makes a huge difference in helping other families find a trusted moving company.\n\nThank you so much for choosing us — it was a pleasure helping with your move.`,
+  },
+  {
+    label: '⏰ Quote expired',
+    subject: 'Your Moving Quote Has Expired — Want a Fresh One?',
+    body: `I noticed the quote we sent you recently has now expired.\n\nIf you're still planning your move, I'd be happy to put together an updated quote for you. Prices may vary depending on availability, so it's worth getting a fresh one.\n\nJust reply to this email or give us a call and we'll sort it out quickly.`,
+  },
+  {
+    label: '💷 Payment reminder',
+    subject: 'Friendly Payment Reminder',
+    body: `Just a friendly reminder that we have an outstanding balance on your account.\n\nIf you've already made the payment, please disregard this message. Otherwise, we'd appreciate if you could arrange payment at your earliest convenience.\n\nIf you have any questions about the invoice, just let us know and we'll be happy to help.`,
+  },
 ];
 
 function ComposeEmailModal({ customer, emailConnected, companyId, onClose }: {
