@@ -101,6 +101,16 @@ type CustomerFile = {
   file_type: string | null;
   created_at: string;
 };
+type CrmCost = {
+  id: string;
+  company_id: string;
+  deal_id: string | null;
+  category: string;
+  description: string | null;
+  amount: number;
+  cost_date: string;
+  created_at: string;
+};
 type DiaryEvent = {
   id: string;
   title: string;
@@ -362,6 +372,13 @@ export default function CompanyDashboardPage() {
       .eq('completed', false)
       .order('due_date', { ascending: true });
     if (tasksData) setAllCompanyTasks(tasksData);
+
+    const { data: costsData } = await supabase
+      .from('crm_costs')
+      .select('*')
+      .eq('company_id', companyId)
+      .order('cost_date', { ascending: false });
+    if (costsData) setCrmCosts(costsData);
 
     const { data: configData } = await supabase
       .from('company_config')
@@ -940,7 +957,50 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
   };
 
   const [allCompanyTasks, setAllCompanyTasks] = useState<CustomerTask[]>([]);
+  const [crmCosts, setCrmCosts] = useState<CrmCost[]>([]);
+// ── Costs ──
+  const fetchCosts = async () => {
+    if (!company) return;
+    const { data } = await supabase
+      .from('crm_costs')
+      .select('*')
+      .eq('company_id', company.id)
+      .order('cost_date', { ascending: false });
+    if (data) setCrmCosts(data);
+  };
 
+  const addCost = async (cost: Partial<CrmCost>) => {
+    if (!company) return;
+    const { data, error } = await supabase
+      .from('crm_costs')
+      .insert({ ...cost, company_id: company.id })
+      .select()
+      .single();
+    if (!error && data) {
+      setCrmCosts(prev => [data, ...prev]);
+    }
+    return { error };
+  };
+
+  const updateCost = async (costId: string, fields: Partial<CrmCost>) => {
+    const { error } = await supabase
+      .from('crm_costs')
+      .update(fields)
+      .eq('id', costId);
+    if (!error) {
+      setCrmCosts(prev => prev.map(c => c.id === costId ? { ...c, ...fields } as CrmCost : c));
+    }
+  };
+
+  const deleteCost = async (costId: string) => {
+    const { error } = await supabase
+      .from('crm_costs')
+      .delete()
+      .eq('id', costId);
+    if (!error) {
+      setCrmCosts(prev => prev.filter(c => c.id !== costId));
+    }
+  };
   const fetchAllCompanyTasks = async () => {
     if (!company) return;
     const { data } = await supabase
@@ -1289,7 +1349,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
               />
             )}
             {activeTab === 'reports' && (
-              <ReportsTab leads={leads} deals={deals} customers={customers} events={events} crmQuotes={crmQuotes} company={company} />
+              <ReportsTab leads={leads} deals={deals} customers={customers} events={events} crmQuotes={crmQuotes} company={company} costs={crmCosts} onAddCost={addCost} onUpdateCost={updateCost} onDeleteCost={deleteCost} />
             )}
             {activeTab === 'settings' && (
               <SettingsTab company={company} crmActive={crmActive} onSubscribe={startCrmSubscription} emailConnected={emailConnected} emailAddress={emailAddress} emailLoading={emailLoading} onDisconnectEmail={disconnectEmail} pdfBranding={pdfBranding} onSavePdfBranding={async (branding: any) => { const { error } = await supabase.from('company_config').upsert({ company_id: company.id, pdf_template: branding }, { onConflict: 'company_id' }); if (!error) setPdfBranding(branding); return { error }; }} />
@@ -2961,7 +3021,87 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
 // REPORTS TAB
 // ============================================
 
-function ReportsTab({ leads, deals, customers, events, crmQuotes, company }: { leads: Lead[]; deals: Deal[]; customers: Customer[]; events: DiaryEvent[]; crmQuotes: CrmQuote[]; company: Company; }) {
+function ReportsTab({ leads, deals, customers, events, crmQuotes, company, costs, onAddCost, onUpdateCost, onDeleteCost }: {
+  leads: Lead[]; deals: Deal[]; customers: Customer[]; events: DiaryEvent[]; crmQuotes: CrmQuote[]; company: Company;
+  costs: CrmCost[];
+  onAddCost: (cost: Partial<CrmCost>) => Promise<any>;
+  onUpdateCost: (costId: string, fields: Partial<CrmCost>) => void;
+  onDeleteCost: (costId: string) => void;
+}) {
+  const [subTab, setSubTab] = useState<'overview' | 'costs' | 'pnl'>('overview');
+  const [period, setPeriod] = useState<'month' | 'lastmonth' | 'quarter' | 'all'>('month');
+  const [showAddCost, setShowAddCost] = useState(false);
+  const [newCost, setNewCost] = useState({ category: 'fuel', description: '', amount: '', deal_id: '', cost_date: new Date().toISOString().split('T')[0] });
+  const [savingCost, setSavingCost] = useState(false);
+  const [costFilter, setCostFilter] = useState('all');
+
+  const CATEGORIES = [
+    { value: 'fuel', label: 'Fuel', icon: '⛽', color: 'bg-red-100 text-red-700' },
+    { value: 'labour', label: 'Labour', icon: '👷', color: 'bg-blue-100 text-blue-700' },
+    { value: 'materials', label: 'Materials', icon: '📦', color: 'bg-amber-100 text-amber-700' },
+    { value: 'packing', label: 'Packing Supplies', icon: '🎁', color: 'bg-purple-100 text-purple-700' },
+    { value: 'tolls', label: 'Tolls / Parking', icon: '🅿️', color: 'bg-cyan-100 text-cyan-700' },
+    { value: 'storage', label: 'Storage', icon: '🏪', color: 'bg-orange-100 text-orange-700' },
+    { value: 'subcontractor', label: 'Subcontractor', icon: '🤝', color: 'bg-indigo-100 text-indigo-700' },
+    { value: 'vehicle', label: 'Vehicle / Maintenance', icon: '🔧', color: 'bg-gray-100 text-gray-700' },
+    { value: 'insurance', label: 'Insurance', icon: '🛡️', color: 'bg-teal-100 text-teal-700' },
+    { value: 'other', label: 'Other', icon: '📋', color: 'bg-gray-100 text-gray-600' },
+  ];
+
+  const getCategoryInfo = (cat: string) => CATEGORIES.find(c => c.value === cat) || CATEGORIES[CATEGORIES.length - 1];
+
+  // Period filtering
+  const now = new Date();
+  const filterByPeriod = (dateStr: string) => {
+    const d = new Date(dateStr);
+    if (period === 'all') return true;
+    if (period === 'month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    if (period === 'lastmonth') {
+      const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      return d.getMonth() === lm.getMonth() && d.getFullYear() === lm.getFullYear();
+    }
+    if (period === 'quarter') {
+      const qStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+      return d >= qStart;
+    }
+    return true;
+  };
+
+  const periodCosts = costs.filter(c => filterByPeriod(c.cost_date));
+  const periodDeals = deals.filter(d => d.moving_date ? filterByPeriod(d.moving_date) : false);
+  const completedDeals = periodDeals.filter(d => {
+    const linkedEvents = events.filter(e => e.deal_id === d.id && e.completed);
+    return linkedEvents.length > 0;
+  });
+
+  const totalRevenue = completedDeals.reduce((s, d) => s + (d.estimated_value || 0), 0);
+  const totalCosts = periodCosts.reduce((s, c) => s + Number(c.amount), 0);
+  const profit = totalRevenue - totalCosts;
+  const margin = totalRevenue > 0 ? ((profit / totalRevenue) * 100).toFixed(1) : '0';
+
+  // Cost breakdown by category
+  const categoryBreakdown = CATEGORIES.map(cat => {
+    const catCosts = periodCosts.filter(c => c.category === cat.value);
+    const total = catCosts.reduce((s, c) => s + Number(c.amount), 0);
+    return { ...cat, total, count: catCosts.length };
+  }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
+
+  const maxCategoryTotal = Math.max(...categoryBreakdown.map(c => c.total), 1);
+
+  // Per-job P&L
+  const jobPnl = completedDeals.map(deal => {
+    const dealCosts = costs.filter(c => c.deal_id === deal.id);
+    const dealCostTotal = dealCosts.reduce((s, c) => s + Number(c.amount), 0);
+    const dealRevenue = deal.estimated_value || 0;
+    const dealProfit = dealRevenue - dealCostTotal;
+    const dealMargin = dealRevenue > 0 ? ((dealProfit / dealRevenue) * 100).toFixed(1) : '0';
+    return { deal, costs: dealCosts, revenue: dealRevenue, totalCost: dealCostTotal, profit: dealProfit, margin: dealMargin };
+  }).sort((a, b) => b.revenue - a.revenue);
+
+  // Filtered cost log
+  const filteredCosts = costFilter === 'all' ? periodCosts : periodCosts.filter(c => c.category === costFilter);
+
+  // Existing overview stats
   const totalDealValue = deals.reduce((s, d) => s + (d.estimated_value || 0), 0);
   const totalQuoteValue = crmQuotes.reduce((s, q) => s + (q.estimated_price || 0), 0);
   const acceptedQuoteValue = crmQuotes.filter((q) => q.status === 'accepted').reduce((s, q) => s + (q.estimated_price || 0), 0);
@@ -2970,30 +3110,326 @@ function ReportsTab({ leads, deals, customers, events, crmQuotes, company }: { l
   const conversionRate = leads.length > 0 ? ((wonLeads / leads.length) * 100).toFixed(1) : '0';
   const quoteConversion = crmQuotes.length > 0 ? ((crmQuotes.filter(q => q.status === 'accepted').length / crmQuotes.length) * 100).toFixed(1) : '0';
 
-  const stats = [
+  const handleAddCost = async () => {
+    if (!newCost.amount || parseFloat(newCost.amount) <= 0) { alert('Please enter an amount'); return; }
+    setSavingCost(true);
+    await onAddCost({
+      category: newCost.category,
+      description: newCost.description || null,
+      amount: parseFloat(newCost.amount),
+      deal_id: newCost.deal_id || null,
+      cost_date: newCost.cost_date,
+    } as any);
+    setNewCost({ category: 'fuel', description: '', amount: '', deal_id: '', cost_date: new Date().toISOString().split('T')[0] });
+    setShowAddCost(false);
+    setSavingCost(false);
+  };
+
+  const overviewStats = [
     { label: 'Total Leads', value: leads.length, color: 'text-blue-700' }, { label: 'Won Leads', value: wonLeads, color: 'text-green-700' }, { label: 'Lead Conversion', value: `${conversionRate}%`, color: 'text-purple-700' }, { label: 'Pipeline Value', value: `£${totalDealValue.toLocaleString()}`, color: 'text-yellow-700' },
     { label: 'Quotes Sent', value: crmQuotes.length, color: 'text-indigo-700' }, { label: 'Quote Conversion', value: `${quoteConversion}%`, color: 'text-teal-700' }, { label: 'Total Quote Value', value: `£${totalQuoteValue.toLocaleString()}`, color: 'text-orange-700' }, { label: 'Accepted Value', value: `£${acceptedQuoteValue.toLocaleString()}`, color: 'text-emerald-700' },
     { label: 'Total Customers', value: customers.length, color: 'text-indigo-700' }, { label: 'Pipeline Deals', value: deals.length, color: 'text-orange-700' }, { label: 'Jobs Completed', value: completedEvents, color: 'text-teal-700' }, { label: 'Account Balance', value: `£${company.balance?.toFixed(2) || '0.00'}`, color: 'text-emerald-700' },
   ];
 
+  const periodLabels: Record<string, string> = { month: 'This Month', lastmonth: 'Last Month', quarter: 'This Quarter', all: 'All Time' };
+
   return (
     <div>
-      <div className="mb-6"><h2 className="text-2xl font-bold text-gray-900">Reports</h2><p className="text-sm text-gray-500 mt-1">Overview of your business performance</p></div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        {stats.map((stat, i) => (<div key={i} className="bg-white rounded-xl border p-5"><p className="text-xs font-medium text-gray-500 mb-1">{stat.label}</p><p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p></div>))}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Reports</h2>
+          <p className="text-sm text-gray-500 mt-1">Business performance & financial tracking</p>
+        </div>
       </div>
-      <div className="bg-white rounded-xl border p-5">
-        <h3 className="font-bold text-gray-900 mb-4">Recent Leads</h3>
-        {leads.slice(0, 10).map((lead) => (
-          <div key={lead.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-            <div><p className="text-sm font-medium text-gray-800 truncate">{lead.instant_quotes?.starting_address || 'Unknown'}</p><p className="text-xs text-gray-400">{new Date(lead.created_at).toLocaleDateString('en-GB')}</p></div>
-            <span className={`px-2 py-0.5 rounded text-xs font-semibold ${lead.status === 'new' ? 'bg-green-100 text-green-700' : lead.status === 'won' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>{lead.status}</span>
-          </div>
+
+      {/* Sub-tabs */}
+      <div className="flex items-center gap-1 mb-6 border-b border-gray-200">
+        {[
+          { key: 'overview', label: 'Overview' },
+          { key: 'costs', label: 'Cost Tracker' },
+          { key: 'pnl', label: 'Profit & Loss' },
+        ].map(tab => (
+          <button key={tab.key} onClick={() => setSubTab(tab.key as any)}
+            className={`px-4 py-2.5 text-sm font-medium transition border-b-2 -mb-px ${
+              subTab === tab.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}>
+            {tab.label}
+          </button>
         ))}
       </div>
+
+      {/* ═══════ OVERVIEW SUB-TAB ═══════ */}
+      {subTab === 'overview' && (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            {overviewStats.map((stat, i) => (<div key={i} className="bg-white rounded-xl border p-5"><p className="text-xs font-medium text-gray-500 mb-1">{stat.label}</p><p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p></div>))}
+          </div>
+          <div className="bg-white rounded-xl border p-5">
+            <h3 className="font-bold text-gray-900 mb-4">Recent Leads</h3>
+            {leads.slice(0, 10).map((lead) => (
+              <div key={lead.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                <div><p className="text-sm font-medium text-gray-800 truncate">{lead.instant_quotes?.starting_address || 'Unknown'}</p><p className="text-xs text-gray-400">{new Date(lead.created_at).toLocaleDateString('en-GB')}</p></div>
+                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${lead.status === 'new' ? 'bg-green-100 text-green-700' : lead.status === 'won' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>{lead.status}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* ═══════ COST TRACKER SUB-TAB ═══════ */}
+      {subTab === 'costs' && (
+        <>
+          {/* Period filter + Add button */}
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex gap-2">
+              {(['month', 'lastmonth', 'quarter', 'all'] as const).map(p => (
+                <button key={p} onClick={() => setPeriod(p)} className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${period === p ? 'bg-blue-600 text-white' : 'bg-white border text-gray-600 hover:bg-gray-50'}`}>
+                  {periodLabels[p]}
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setShowAddCost(true)} className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">+ Add Cost</button>
+          </div>
+
+          {/* P&L Summary Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-white rounded-xl border p-5">
+              <p className="text-xs font-medium text-gray-500 mb-1">Revenue</p>
+              <p className="text-2xl font-bold text-green-600">£{totalRevenue.toLocaleString()}</p>
+              <p className="text-[10px] text-gray-400 mt-1">{completedDeals.length} completed job{completedDeals.length !== 1 ? 's' : ''}</p>
+            </div>
+            <div className="bg-white rounded-xl border p-5">
+              <p className="text-xs font-medium text-gray-500 mb-1">Total Costs</p>
+              <p className="text-2xl font-bold text-red-600">£{totalCosts.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              <p className="text-[10px] text-gray-400 mt-1">{periodCosts.length} expense{periodCosts.length !== 1 ? 's' : ''}</p>
+            </div>
+            <div className="bg-white rounded-xl border p-5">
+              <p className="text-xs font-medium text-gray-500 mb-1">Profit</p>
+              <p className={`text-2xl font-bold ${profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>£{profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            </div>
+            <div className="bg-white rounded-xl border p-5">
+              <p className="text-xs font-medium text-gray-500 mb-1">Margin</p>
+              <p className={`text-2xl font-bold ${parseFloat(margin) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{margin}%</p>
+            </div>
+          </div>
+
+          {/* Cost Breakdown by Category */}
+          {categoryBreakdown.length > 0 && (
+            <div className="bg-white rounded-xl border p-5 mb-6">
+              <h3 className="font-bold text-gray-900 mb-4">Cost Breakdown</h3>
+              <div className="space-y-3">
+                {categoryBreakdown.map(cat => (
+                  <div key={cat.value} className="flex items-center gap-3">
+                    <span className="text-lg w-8 text-center flex-shrink-0">{cat.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-medium text-gray-800">{cat.label}</span>
+                        <span className="text-sm font-bold text-gray-900">£{cat.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                      </div>
+                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${(cat.total / maxCategoryTotal) * 100}%` }} />
+                      </div>
+                    </div>
+                    <span className="text-xs text-gray-400 w-16 text-right flex-shrink-0">{totalCosts > 0 ? ((cat.total / totalCosts) * 100).toFixed(0) : 0}%</span>
+                  </div>
+                ))}
+              </div>
+              {categoryBreakdown.length > 0 && (
+                <div className="mt-4 pt-3 border-t flex items-center justify-between">
+                  <span className="text-sm font-bold text-gray-700">Highest cost:</span>
+                  <span className="text-sm font-bold text-red-600">{categoryBreakdown[0].icon} {categoryBreakdown[0].label} — £{categoryBreakdown[0].total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Add Cost Form */}
+          {showAddCost && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-5 mb-6 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-blue-800 text-sm">Add New Cost</h3>
+                <button onClick={() => setShowAddCost(false)} className="text-blue-400 hover:text-blue-600 transition">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Category</label>
+                  <select value={newCost.category} onChange={e => setNewCost({ ...newCost, category: e.target.value })} className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                    {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.icon} {c.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Amount (£)</label>
+                  <input type="number" step="0.01" value={newCost.amount} onChange={e => setNewCost({ ...newCost, amount: e.target.value })} placeholder="0.00" className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Date</label>
+                  <input type="date" value={newCost.cost_date} onChange={e => setNewCost({ ...newCost, cost_date: e.target.value })} className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Link to Job (optional)</label>
+                  <select value={newCost.deal_id} onChange={e => setNewCost({ ...newCost, deal_id: e.target.value })} className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                    <option value="">No linked job</option>
+                    {deals.map(d => <option key={d.id} value={d.id}>{d.customer_name}{d.estimated_value ? ` — £${d.estimated_value.toLocaleString()}` : ''}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Description (optional)</label>
+                <input value={newCost.description} onChange={e => setNewCost({ ...newCost, description: e.target.value })} placeholder="e.g. Diesel fill-up for Bristol job" className="w-full px-3 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button onClick={handleAddCost} disabled={savingCost || !newCost.amount} className="px-5 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition disabled:opacity-40">{savingCost ? 'Adding...' : 'Add Cost'}</button>
+                <button onClick={() => setShowAddCost(false)} className="px-5 py-2 bg-gray-100 text-gray-600 text-sm font-medium rounded-lg hover:bg-gray-200 transition">Cancel</button>
+              </div>
+            </div>
+          )}
+
+          {/* Cost Log */}
+          <div className="bg-white rounded-xl border overflow-hidden">
+            <div className="px-5 py-4 border-b flex items-center justify-between">
+              <h3 className="font-bold text-gray-900">Cost Log</h3>
+              <div className="flex gap-1.5 flex-wrap">
+                <button onClick={() => setCostFilter('all')} className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition ${costFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>All</button>
+                {CATEGORIES.filter(c => periodCosts.some(pc => pc.category === c.value)).map(c => (
+                  <button key={c.value} onClick={() => setCostFilter(c.value)} className={`px-2.5 py-1 text-[11px] font-medium rounded-md transition ${costFilter === c.value ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{c.icon} {c.label}</button>
+                ))}
+              </div>
+            </div>
+            {filteredCosts.length === 0 ? (
+              <div className="px-5 py-12 text-center">
+                <p className="text-gray-400 text-sm">{costs.length === 0 ? 'No costs logged yet' : 'No costs match your filters'}</p>
+                {costs.length === 0 && <p className="text-xs text-gray-300 mt-1">Click "+ Add Cost" to start tracking expenses</p>}
+              </div>
+            ) : (
+              <div className="divide-y">
+                {filteredCosts.map(cost => {
+                  const cat = getCategoryInfo(cost.category);
+                  const linkedDeal = cost.deal_id ? deals.find(d => d.id === cost.deal_id) : null;
+                  return (
+                    <div key={cost.id} className="px-5 py-3 flex items-center gap-3 hover:bg-gray-50 transition group">
+                      <span className="text-lg flex-shrink-0">{cat.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${cat.color}`}>{cat.label}</span>
+                          {linkedDeal && <span className="text-[10px] text-gray-400">· {linkedDeal.customer_name}</span>}
+                        </div>
+                        {cost.description && <p className="text-sm text-gray-600 truncate mt-0.5">{cost.description}</p>}
+                        <p className="text-[10px] text-gray-400 mt-0.5">{new Date(cost.cost_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                      </div>
+                      <span className="text-sm font-bold text-red-600 flex-shrink-0">-£{Number(cost.amount).toFixed(2)}</span>
+                      <button onClick={() => { if (confirm('Delete this cost?')) onDeleteCost(cost.id); }} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 transition opacity-0 group-hover:opacity-100 flex-shrink-0">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ═══════ PROFIT & LOSS SUB-TAB ═══════ */}
+      {subTab === 'pnl' && (
+        <>
+          {/* Period filter */}
+          <div className="flex gap-2 mb-5">
+            {(['month', 'lastmonth', 'quarter', 'all'] as const).map(p => (
+              <button key={p} onClick={() => setPeriod(p)} className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${period === p ? 'bg-blue-600 text-white' : 'bg-white border text-gray-600 hover:bg-gray-50'}`}>
+                {periodLabels[p]}
+              </button>
+            ))}
+          </div>
+
+          {/* P&L Summary */}
+          <div className="bg-white rounded-xl border p-6 mb-6">
+            <h3 className="font-bold text-gray-900 mb-5">Profit & Loss — {periodLabels[period]}</h3>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between py-2">
+                <span className="text-sm text-gray-600">Revenue ({completedDeals.length} completed jobs)</span>
+                <span className="text-lg font-bold text-green-600">£{totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div className="border-t" />
+              {categoryBreakdown.map(cat => (
+                <div key={cat.value} className="flex items-center justify-between py-1">
+                  <span className="text-sm text-gray-500">{cat.icon} {cat.label} ({cat.count})</span>
+                  <span className="text-sm font-semibold text-red-600">-£{cat.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
+              ))}
+              {categoryBreakdown.length > 0 && (
+                <>
+                  <div className="flex items-center justify-between py-2 border-t">
+                    <span className="text-sm font-semibold text-gray-700">Total Costs</span>
+                    <span className="text-lg font-bold text-red-600">-£{totalCosts.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="flex items-center justify-between py-3 border-t-2 border-gray-900">
+                    <span className="text-base font-bold text-gray-900">Net Profit</span>
+                    <span className={`text-2xl font-bold ${profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>£{profit.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-sm text-gray-500">Profit Margin</span>
+                    <span className={`text-sm font-bold ${parseFloat(margin) >= 20 ? 'text-green-600' : parseFloat(margin) >= 0 ? 'text-amber-600' : 'text-red-600'}`}>{margin}%</span>
+                  </div>
+                </>
+              )}
+              {categoryBreakdown.length === 0 && (
+                <div className="py-4 text-center text-gray-400 text-sm">No costs logged for this period. Add costs in the Cost Tracker tab.</div>
+              )}
+            </div>
+          </div>
+
+          {/* Per-Job P&L Table */}
+          <div className="bg-white rounded-xl border overflow-hidden">
+            <div className="px-5 py-4 border-b">
+              <h3 className="font-bold text-gray-900">Per-Job Profitability</h3>
+              <p className="text-xs text-gray-500 mt-0.5">Completed jobs with linked costs</p>
+            </div>
+            {jobPnl.length === 0 ? (
+              <div className="px-5 py-12 text-center">
+                <p className="text-gray-400 text-sm">No completed jobs for this period</p>
+                <p className="text-xs text-gray-300 mt-1">Complete jobs in the diary and link costs to see per-job profitability</p>
+              </div>
+            ) : (
+              <div className="divide-y">
+                {jobPnl.map(({ deal, revenue, totalCost, profit: jobProfit, margin: jobMargin }) => (
+                  <div key={deal.id} className="px-5 py-3 flex items-center gap-4 hover:bg-gray-50 transition">
+                    <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xs flex-shrink-0">
+                      {deal.customer_name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{deal.customer_name}</p>
+                      {deal.moving_date && <p className="text-[10px] text-gray-400">{new Date(deal.moving_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</p>}
+                    </div>
+                    <div className="text-right flex-shrink-0 w-20">
+                      <p className="text-xs text-gray-500">Revenue</p>
+                      <p className="text-sm font-semibold text-green-600">£{revenue.toLocaleString()}</p>
+                    </div>
+                    <div className="text-right flex-shrink-0 w-20">
+                      <p className="text-xs text-gray-500">Costs</p>
+                      <p className="text-sm font-semibold text-red-600">{totalCost > 0 ? `-£${totalCost.toFixed(2)}` : '—'}</p>
+                    </div>
+                    <div className="text-right flex-shrink-0 w-20">
+                      <p className="text-xs text-gray-500">Profit</p>
+                      <p className={`text-sm font-bold ${jobProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>£{jobProfit.toFixed(2)}</p>
+                    </div>
+                    <div className="flex-shrink-0 w-14 text-right">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                        parseFloat(jobMargin) >= 20 ? 'bg-green-100 text-green-700' : parseFloat(jobMargin) >= 0 ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                      }`}>{jobMargin}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
+
 
 // ============================================
 // SETTINGS TAB
