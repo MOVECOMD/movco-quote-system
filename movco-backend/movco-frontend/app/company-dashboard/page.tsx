@@ -204,7 +204,7 @@ export default function CompanyDashboardPage() {
   const [pdfBranding, setPdfBranding] = useState<any>({});
 
   // Pricing config state
-  const [pricingConfig, setPricingConfig] = useState<any>({ hourly_rate: 45, minimum_hours: 2, fuel_rate_per_mile: 0.50 });
+  const [pricingConfig, setPricingConfig] = useState<any>({ hourly_rate: 45, minimum_hours: 2, fuel_rate_per_mile: 0.50, van_cost_per_day: 75 });
 
   // Email connection state
   const [emailConnected, setEmailConnected] = useState(false);
@@ -1629,12 +1629,16 @@ function QuoteBuilder({ company, onSave, onCancel, prefill, pdfBranding, pricing
     const costs: { category: string; description: string; amount: string }[] = [];
     const rate = pricingConfig?.hourly_rate || 45;
     const fuelRate = pricingConfig?.fuel_rate_per_mile || 0.50;
+    const vanRate = pricingConfig?.van_cost_per_day || 75;
     const m = parseInt(movers) || 2;
     const h = parseFloat(hours) || 0;
     const d = parseFloat(distance) || 0;
     const v = parseInt(vans) || 1;
     if (m > 0 && h > 0) {
       costs.push({ category: 'labour', description: `${m} movers × ${h}hrs × £${rate}/hr`, amount: (m * h * rate).toFixed(2) });
+    }
+    if (v > 0 && vanRate > 0) {
+      costs.push({ category: 'vehicle', description: `${v} van${v !== 1 ? 's' : ''} × £${vanRate}/day`, amount: (v * vanRate).toFixed(2) });
     }
     if (d > 0 && fuelRate > 0) {
       costs.push({ category: 'fuel', description: `${d} miles × £${fuelRate.toFixed(2)}/mile`, amount: (d * fuelRate).toFixed(2) });
@@ -4111,13 +4115,17 @@ function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose,
     const costs: { category: string; description: string; amount: number }[] = [];
     const rate = pricingConfig?.hourly_rate || 45;
     const fuelRate = pricingConfig?.fuel_rate_per_mile || 0.50;
+    const vanRate = pricingConfig?.van_cost_per_day || 75;
     const m = quote.movers || 2;
     const h = quote.estimated_hours || (quote.total_volume_m3 <= 10 ? 3 : quote.total_volume_m3 <= 20 ? 5 : quote.total_volume_m3 <= 35 ? 7 : 9);
     const d = quote.distance_miles || 0;
+    const v = quote.van_count || 1;
     if (m > 0 && h > 0) costs.push({ category: 'labour', description: `${m} movers × ${h}hrs × £${rate}/hr`, amount: m * h * rate });
+    if (v > 0 && vanRate > 0) costs.push({ category: 'vehicle', description: `${v} van${v !== 1 ? 's' : ''} × £${vanRate}/day`, amount: v * vanRate });
     if (d > 0 && fuelRate > 0) costs.push({ category: 'fuel', description: `${d} miles × £${fuelRate.toFixed(2)}/mile`, amount: d * fuelRate });
     return costs;
   };
+
   const [editCosts, setEditCosts] = useState<{ category: string; description: string; amount: number }[]>(
     (quote.cost_breakdown && quote.cost_breakdown.length > 0) ? quote.cost_breakdown : autoGenCosts()
   );
