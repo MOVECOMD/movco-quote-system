@@ -340,7 +340,16 @@ export default function CompanyDashboardPage() {
       .order('created_at', { ascending: false });
 
     if (quotesData) setCrmQuotes(quotesData as CrmQuote[]);
+
+    const { data: tasksData } = await supabase
+      .from('crm_customer_tasks')
+      .select('*')
+      .eq('company_id', companyId)
+      .eq('completed', false)
+      .order('due_date', { ascending: true });
+    if (tasksData) setAllCompanyTasks(tasksData);
   };
+
 
   // ============================================
   // CRM ACTIONS
@@ -843,6 +852,19 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
     }
   };
 
+  const [allCompanyTasks, setAllCompanyTasks] = useState<CustomerTask[]>([]);
+
+  const fetchAllCompanyTasks = async () => {
+    if (!company) return;
+    const { data } = await supabase
+      .from('crm_customer_tasks')
+      .select('*')
+      .eq('company_id', company.id)
+      .eq('completed', false)
+      .order('due_date', { ascending: true });
+    if (data) setAllCompanyTasks(data);
+  };
+
   const [detailDeal, setDetailDeal] = useState<Deal | null>(null);
 
   const openCustomerDetail = (customer: Customer, deal?: Deal | null) => {
@@ -1140,6 +1162,9 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
                 onClickDeal={(deal) => openCustomerFromDeal(deal)}
                 dealHasBooking={dealHasBooking}
                 onManageStages={() => setShowStageManager(true)}
+                tasks={allCompanyTasks}
+                customers={customers}
+                onOpenCustomerDetail={(customer) => openCustomerDetail(customer)}
               />
             )}
             {activeTab === 'diary' && (
@@ -2072,18 +2097,71 @@ function QuotesTab({ quotes, company, onAddQuote, onDeleteQuote, onUpdateStatus,
 // PIPELINE TAB
 // ============================================
 
-function PipelineTab({ stages, deals, events, onMoveDeal, onAddDeal, onEditDeal, onDeleteDeal, onClickDeal, dealHasBooking, onManageStages }: {
+function PipelineTab({ stages, deals, events, onMoveDeal, onAddDeal, onEditDeal, onDeleteDeal, onClickDeal, dealHasBooking, onManageStages, tasks, customers, onOpenCustomerDetail }: {
   stages: PipelineStage[]; deals: Deal[]; events: DiaryEvent[];
   onMoveDeal: (dealId: string, stageId: string) => void;
   onAddDeal: () => void; onEditDeal: (deal: Deal) => void; onDeleteDeal: (dealId: string) => void;
   onClickDeal: (deal: Deal) => void;
   dealHasBooking: (dealId: string) => boolean;
   onManageStages: () => void;
+  tasks: CustomerTask[];
+  customers: Customer[];
+  onOpenCustomerDetail: (customer: Customer) => void;
 }) {
   const [draggedDealId, setDraggedDealId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'newest' | 'value' | 'date'>('newest');
+  const [showTasksDropdown, setShowTasksDropdown] = useState(false);
+  const tasksRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (tasksRef.current && !tasksRef.current.contains(e.target as Node)) {
+        setShowTasksDropdown(false);
+      }
+    };
+    if (showTasksDropdown) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showTasksDropdown]);
+
+  const hasOverdue = tasks.some(t => {
+    const due = new Date(t.due_date);
+    const today = new Date();
+    return new Date(due.getFullYear(), due.getMonth(), due.getDate()) < new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  });
+
+  const hasDueToday = tasks.some(t => {
+    const due = new Date(t.due_date);
+    const today = new Date();
+    return due.getFullYear() === today.getFullYear() && due.getMonth() === today.getMonth() && due.getDate() === today.getDate();
+  });
+
+  const getTaskColor = (dateStr: string) => {
+    const due = new Date(dateStr);
+    const today = new Date();
+    const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+    const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const diff = dueDay.getTime() - todayDay.getTime();
+    const diffDays = Math.round(diff / 86400000);
+    if (diffDays < 0) return { bg: 'bg-red-50', text: 'text-red-600', dot: 'bg-red-500' };
+    if (diffDays === 0) return { bg: 'bg-amber-50', text: 'text-amber-600', dot: 'bg-amber-500' };
+    return { bg: 'bg-gray-50', text: 'text-gray-600', dot: 'bg-gray-400' };
+  };
+
+  const formatTaskDue = (dateStr: string) => {
+    const due = new Date(dateStr);
+    const today = new Date();
+    const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+    const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const diffDays = Math.round((dueDay.getTime() - todayDay.getTime()) / 86400000);
+    if (diffDays < 0) return `${Math.abs(diffDays)}d overdue`;
+    if (diffDays === 0) return 'Due today';
+    if (diffDays === 1) return 'Tomorrow';
+    if (diffDays < 7) return `In ${diffDays}d`;
+    return due.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  };
 
   const totalValue = deals.reduce((s, d) => s + (d.estimated_value || 0), 0);
 
@@ -2125,6 +2203,79 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onAddDeal, onEditDeal,
             <option value="value">Highest value</option>
             <option value="date">Move date</option>
           </select>
+          {/* Tasks Button + Dropdown */}
+          <div className="relative" ref={tasksRef}>
+            <button
+              onClick={() => setShowTasksDropdown(!showTasksDropdown)}
+              className={`inline-flex items-center gap-2 px-3 py-2 border font-medium rounded-lg transition text-sm ${
+                hasOverdue
+                  ? 'border-red-300 text-red-700 bg-red-50 hover:bg-red-100'
+                  : hasDueToday
+                  ? 'border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100'
+                  : 'border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300'
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+              </svg>
+              Tasks
+              {tasks.length > 0 && (
+                <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${
+                  hasOverdue ? 'bg-red-500 text-white' : hasDueToday ? 'bg-amber-500 text-white' : 'bg-gray-200 text-gray-700'
+                }`}>
+                  {tasks.length}
+                </span>
+              )}
+            </button>
+
+            {showTasksDropdown && (
+              <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-xl border border-gray-200 z-50 overflow-hidden">
+                <div className="px-4 py-3 border-b bg-gray-50">
+                  <h3 className="font-bold text-gray-900 text-sm">Pending Tasks</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">{tasks.length} task{tasks.length !== 1 ? 's' : ''} across all customers</p>
+                </div>
+                {tasks.length === 0 ? (
+                  <div className="px-4 py-8 text-center">
+                    <p className="text-sm text-gray-400">No pending tasks</p>
+                    <p className="text-xs text-gray-300 mt-1">Tasks added to customers will appear here</p>
+                  </div>
+                ) : (
+                  <div className="max-h-80 overflow-y-auto divide-y divide-gray-50">
+                    {tasks.map((task) => {
+                      const colors = getTaskColor(task.due_date);
+                      const customer = customers.find(c => c.id === task.customer_id);
+                      return (
+                        <button
+                          key={task.id}
+                          onClick={() => {
+                            if (customer) {
+                              onOpenCustomerDetail(customer);
+                              setShowTasksDropdown(false);
+                            }
+                          }}
+                          className={`w-full px-4 py-3 text-left hover:bg-gray-50 transition ${customer ? 'cursor-pointer' : 'cursor-default'}`}
+                        >
+                          <div className="flex items-start gap-2.5">
+                            <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${colors.dot}`} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-800 truncate">{task.title}</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className={`text-[11px] font-semibold ${colors.text}`}>{formatTaskDue(task.due_date)}</span>
+                                {customer && (
+                                  <span className="text-[11px] text-gray-400 truncate">· {customer.name}</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <button
             onClick={onManageStages}
             className="inline-flex items-center gap-2 px-3 py-2 border border-gray-200 text-gray-600 font-medium rounded-lg hover:bg-gray-50 hover:border-gray-300 transition text-sm"
