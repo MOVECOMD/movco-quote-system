@@ -44,22 +44,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        loadCompanyUser(session.user.id).then(() => setLoading(false));
-      } else {
-        setLoading(false);
-      }
-    });
+    let mounted = true;
 
+    // Set up the auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      async (event, session) => {
+        if (!mounted) return;
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
-          loadCompanyUser(session.user.id);
+          await loadCompanyUser(session.user.id);
         } else {
           setCompanyUser(null);
         }
@@ -67,8 +61,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     );
 
-    return () => subscription.unsubscribe();
+    // Then attempt to recover/refresh the session
+    // This will trigger onAuthStateChange with the refreshed session
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!mounted) return;
+      if (session) {
+        setSession(session);
+        setUser(session.user);
+        await loadCompanyUser(session.user.id);
+        setLoading(false);
+      } else {
+        // No session at all — try to refresh explicitly
+        const { data: refreshData } = await supabase.auth.refreshSession();
+        if (!mounted) return;
+        if (refreshData.session) {
+          setSession(refreshData.session);
+          setUser(refreshData.session.user);
+          await loadCompanyUser(refreshData.session.user.id);
+        }
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
+
 
   const signUp = async (email: string, password: string, name: string, phone: string) => {
     const { data, error } = await supabase.auth.signUp({
