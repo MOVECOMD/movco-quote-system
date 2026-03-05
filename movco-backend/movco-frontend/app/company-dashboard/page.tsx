@@ -82,6 +82,15 @@ type CustomerNote = {
   note_text: string;
   created_at: string;
 };
+type CustomerTask = {
+  id: string;
+  company_id: string;
+  customer_id: string;
+  title: string;
+  due_date: string;
+  completed: boolean;
+  created_at: string;
+};
 type DiaryEvent = {
   id: string;
   title: string;
@@ -194,6 +203,7 @@ export default function CompanyDashboardPage() {
   const [showCustomerDetail, setShowCustomerDetail] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerNotes, setCustomerNotes] = useState<CustomerNote[]>([]);
+  const [customerTasks, setCustomerTasks] = useState<CustomerTask[]>([]);
 
   // Redirect if not logged in
   useEffect(() => {
@@ -783,6 +793,56 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
     }
   };
 
+  // ── Customer Tasks ──
+  const fetchCustomerTasks = async (customerId: string) => {
+    if (!company) return;
+    const { data } = await supabase
+      .from('crm_customer_tasks')
+      .select('*')
+      .eq('customer_id', customerId)
+      .eq('company_id', company.id)
+      .order('due_date', { ascending: true });
+    if (data) setCustomerTasks(data);
+  };
+
+  const addCustomerTask = async (customerId: string, title: string, dueDate: string) => {
+    if (!company) return;
+    const { data, error } = await supabase
+      .from('crm_customer_tasks')
+      .insert({
+        company_id: company.id,
+        customer_id: customerId,
+        title,
+        due_date: dueDate,
+      })
+      .select()
+      .single();
+    if (!error && data) {
+      setCustomerTasks(prev => [...prev, data].sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime()));
+    }
+    return { error };
+  };
+
+  const toggleCustomerTask = async (taskId: string, completed: boolean) => {
+    const { error } = await supabase
+      .from('crm_customer_tasks')
+      .update({ completed })
+      .eq('id', taskId);
+    if (!error) {
+      setCustomerTasks(prev => prev.map(t => t.id === taskId ? { ...t, completed } : t));
+    }
+  };
+
+  const deleteCustomerTask = async (taskId: string) => {
+    const { error } = await supabase
+      .from('crm_customer_tasks')
+      .delete()
+      .eq('id', taskId);
+    if (!error) {
+      setCustomerTasks(prev => prev.filter(t => t.id !== taskId));
+    }
+  };
+
   const [detailDeal, setDetailDeal] = useState<Deal | null>(null);
 
   const openCustomerDetail = (customer: Customer, deal?: Deal | null) => {
@@ -790,6 +850,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
     setDetailDeal(deal || null);
     setShowCustomerDetail(true);
     fetchCustomerNotes(customer.id);
+    fetchCustomerTasks(customer.id);
   };
 
   const openCustomerFromDeal = (deal: Deal) => {
@@ -817,6 +878,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
       setDetailDeal(deal);
       setShowCustomerDetail(true);
       setCustomerNotes([]);
+      setCustomerTasks([]);
     }
   };
   const disconnectEmail = async () => {
@@ -1183,11 +1245,15 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
         <CustomerDetailPopup
           customer={selectedCustomer}
           notes={customerNotes}
+          tasks={customerTasks}
           deal={detailDeal}
           stages={stages}
-          onClose={() => { setShowCustomerDetail(false); setSelectedCustomer(null); setCustomerNotes([]); setDetailDeal(null); }}
+          onClose={() => { setShowCustomerDetail(false); setSelectedCustomer(null); setCustomerNotes([]); setCustomerTasks([]); setDetailDeal(null); }}
           onAddNote={(text) => addCustomerNote(selectedCustomer.id, text)}
           onDeleteNote={deleteCustomerNote}
+          onAddTask={(title, dueDate) => addCustomerTask(selectedCustomer.id, title, dueDate)}
+          onToggleTask={toggleCustomerTask}
+          onDeleteTask={deleteCustomerTask}
           onEditCustomer={() => { setShowCustomerDetail(false); setEditingCustomer(selectedCustomer); setShowCustomerModal(true); }}
           onComposeEmail={() => { setComposeEmailCustomer(selectedCustomer); setShowComposeEmail(true); }}
           emailConnected={emailConnected}
@@ -3255,14 +3321,18 @@ function QuoteDetailPopup({ quote, company, onClose, onUpdateStatus, onDelete, o
 // CUSTOMER DETAIL POPUP
 // ============================================
 
-function CustomerDetailPopup({ customer, notes, deal, stages, onClose, onAddNote, onDeleteNote, onEditCustomer, onComposeEmail, emailConnected, onSchedule, onCreateQuote, onDeleteDeal, events }: {
+function CustomerDetailPopup({ customer, notes, tasks, deal, stages, onClose, onAddNote, onDeleteNote, onAddTask, onToggleTask, onDeleteTask, onEditCustomer, onComposeEmail, emailConnected, onSchedule, onCreateQuote, onDeleteDeal, events }: {
   customer: Customer;
   notes: CustomerNote[];
+  tasks: CustomerTask[];
   deal?: Deal | null;
   stages?: PipelineStage[];
   onClose: () => void;
   onAddNote: (text: string) => Promise<any>;
   onDeleteNote: (noteId: string) => void;
+  onAddTask: (title: string, dueDate: string) => Promise<any>;
+  onToggleTask: (taskId: string, completed: boolean) => void;
+  onDeleteTask: (taskId: string) => void;
   onEditCustomer: () => void;
   onComposeEmail: () => void;
   emailConnected: boolean;
@@ -3275,6 +3345,13 @@ function CustomerDetailPopup({ customer, notes, deal, stages, onClose, onAddNote
   const [saving, setSaving] = useState(false);
   const noteInputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Task state
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskDueDate, setNewTaskDueDate] = useState('');
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [savingTask, setSavingTask] = useState(false);
+  const taskInputRef = useRef<HTMLInputElement>(null);
+
   const handleAddNote = async () => {
     const trimmed = newNote.trim();
     if (!trimmed) return;
@@ -3283,6 +3360,29 @@ function CustomerDetailPopup({ customer, notes, deal, stages, onClose, onAddNote
     setNewNote('');
     setSaving(false);
     noteInputRef.current?.focus();
+  };
+
+  const handleAddTask = async () => {
+    const trimmed = newTaskTitle.trim();
+    if (!trimmed || !newTaskDueDate) return;
+    setSavingTask(true);
+    await onAddTask(trimmed, new Date(newTaskDueDate).toISOString());
+    setNewTaskTitle('');
+    setNewTaskDueDate('');
+    setShowAddTask(false);
+    setSavingTask(false);
+  };
+
+  const setQuickDate = (offset: string) => {
+    const d = new Date();
+    if (offset === 'tomorrow') d.setDate(d.getDate() + 1);
+    else if (offset === '1week') d.setDate(d.getDate() + 7);
+    else if (offset === '1month') d.setMonth(d.getMonth() + 1);
+    else if (offset === '3months') d.setMonth(d.getMonth() + 3);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    setNewTaskDueDate(`${yyyy}-${mm}-${dd}`);
   };
 
   const formatDate = (dateStr: string) => {
@@ -3299,8 +3399,61 @@ function CustomerDetailPopup({ customer, notes, deal, stages, onClose, onAddNote
     return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
   };
 
+  const formatTaskDue = (dateStr: string) => {
+    const due = new Date(dateStr);
+    const now = new Date();
+    // Reset times to compare dates only
+    const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const diffMs = dueDay.getTime() - today.getTime();
+    const diffDays = Math.round(diffMs / 86400000);
+
+    if (diffDays < 0) {
+      const absDays = Math.abs(diffDays);
+      if (absDays === 1) return '1 day overdue';
+      if (absDays < 7) return `${absDays} days overdue`;
+      if (absDays < 30) return `${Math.floor(absDays / 7)} week${Math.floor(absDays / 7) !== 1 ? 's' : ''} overdue`;
+      return `${Math.floor(absDays / 30)} month${Math.floor(absDays / 30) !== 1 ? 's' : ''} overdue`;
+    }
+    if (diffDays === 0) return 'Due today';
+    if (diffDays === 1) return 'Due tomorrow';
+    if (diffDays < 7) return `In ${diffDays} days`;
+    if (diffDays < 30) return `In ${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) !== 1 ? 's' : ''}`;
+    if (diffDays < 365) return `In ${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) !== 1 ? 's' : ''}`;
+    return due.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
+  const getTaskDueColor = (dateStr: string, completed: boolean) => {
+    if (completed) return 'text-gray-400';
+    const due = new Date(dateStr);
+    const now = new Date();
+    const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const diffMs = dueDay.getTime() - today.getTime();
+    const diffDays = Math.round(diffMs / 86400000);
+    if (diffDays < 0) return 'text-red-600';
+    if (diffDays === 0) return 'text-amber-600';
+    return 'text-gray-500';
+  };
+
+  const getTaskDueBg = (dateStr: string, completed: boolean) => {
+    if (completed) return 'bg-gray-50';
+    const due = new Date(dateStr);
+    const now = new Date();
+    const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const diffMs = dueDay.getTime() - today.getTime();
+    const diffDays = Math.round(diffMs / 86400000);
+    if (diffDays < 0) return 'bg-red-50';
+    if (diffDays === 0) return 'bg-amber-50';
+    return 'bg-gray-50';
+  };
+
   const stage = deal && stages ? stages.find(s => s.id === deal.stage_id) : null;
   const linkedEvents = deal && events ? events.filter(e => e.deal_id === deal.id) : [];
+
+  const pendingTasks = tasks.filter(t => !t.completed);
+  const completedTasks = tasks.filter(t => t.completed);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
@@ -3393,7 +3546,150 @@ function CustomerDetailPopup({ customer, notes, deal, stages, onClose, onAddNote
             )}
           </div>
 
-          {/* Notes Section */}
+          {/* ════════════════════════════════════════════ */}
+          {/* TASKS SECTION — NEW */}
+          {/* ════════════════════════════════════════════ */}
+          <div className="px-6 py-4 border-b">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                Tasks
+                {pendingTasks.length > 0 && (
+                  <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">{pendingTasks.length}</span>
+                )}
+              </h3>
+              {customer.id && !showAddTask && (
+                <button
+                  onClick={() => { setShowAddTask(true); setTimeout(() => taskInputRef.current?.focus(), 50); }}
+                  className="text-xs font-semibold text-blue-600 hover:text-blue-800 px-2.5 py-1 bg-blue-50 rounded-lg hover:bg-blue-100 transition"
+                >
+                  + Add Task
+                </button>
+              )}
+            </div>
+
+            {/* Add Task Form */}
+            {showAddTask && customer.id && (
+              <div className="mb-4 p-3 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/50">
+                <input
+                  ref={taskInputRef}
+                  value={newTaskTitle}
+                  onChange={(e) => setNewTaskTitle(e.target.value)}
+                  placeholder="Task title (e.g. Call back about quote)"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none mb-2 bg-white"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newTaskTitle.trim() && newTaskDueDate) handleAddTask();
+                    if (e.key === 'Escape') { setShowAddTask(false); setNewTaskTitle(''); setNewTaskDueDate(''); }
+                  }}
+                />
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  <button onClick={() => setQuickDate('tomorrow')} className={`text-[11px] font-medium px-2.5 py-1 rounded-md transition ${newTaskDueDate === (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0]; })() ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>Tomorrow</button>
+                  <button onClick={() => setQuickDate('1week')} className={`text-[11px] font-medium px-2.5 py-1 rounded-md transition ${(() => { const d = new Date(); d.setDate(d.getDate() + 7); return newTaskDueDate === d.toISOString().split('T')[0]; })() ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>1 Week</button>
+                  <button onClick={() => setQuickDate('1month')} className={`text-[11px] font-medium px-2.5 py-1 rounded-md transition ${(() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return newTaskDueDate === d.toISOString().split('T')[0]; })() ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>1 Month</button>
+                  <button onClick={() => setQuickDate('3months')} className={`text-[11px] font-medium px-2.5 py-1 rounded-md transition ${(() => { const d = new Date(); d.setMonth(d.getMonth() + 3); return newTaskDueDate === d.toISOString().split('T')[0]; })() ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>3 Months</button>
+                  <input
+                    type="date"
+                    value={newTaskDueDate}
+                    onChange={(e) => setNewTaskDueDate(e.target.value)}
+                    className="text-[11px] px-2.5 py-1 border border-gray-200 rounded-md text-gray-600 focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setShowAddTask(false); setNewTaskTitle(''); setNewTaskDueDate(''); }}
+                    className="flex-1 text-xs py-1.5 bg-white border border-gray-200 text-gray-600 font-medium rounded-lg hover:bg-gray-50 transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleAddTask}
+                    disabled={!newTaskTitle.trim() || !newTaskDueDate || savingTask}
+                    className="flex-1 text-xs py-1.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {savingTask ? 'Adding...' : 'Add Task'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Task List */}
+            {tasks.length === 0 && !showAddTask ? (
+              <div className="text-center py-4">
+                <p className="text-sm text-gray-400">No tasks yet</p>
+                {customer.id && <p className="text-xs text-gray-300 mt-1">Add reminders and follow-ups</p>}
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {/* Pending tasks first */}
+                {pendingTasks.map((task) => (
+                  <div
+                    key={task.id}
+                    className={`group flex items-start gap-2.5 px-3 py-2.5 rounded-xl transition ${getTaskDueBg(task.due_date, task.completed)}`}
+                  >
+                    <button
+                      onClick={() => onToggleTask(task.id, !task.completed)}
+                      className="w-5 h-5 rounded-md border-2 border-gray-300 hover:border-blue-500 flex items-center justify-center flex-shrink-0 mt-0.5 transition"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-800 font-medium">{task.title}</p>
+                      <p className={`text-[11px] font-semibold ${getTaskDueColor(task.due_date, task.completed)}`}>
+                        {formatTaskDue(task.due_date)}
+                        <span className="font-normal text-gray-400 ml-1.5">
+                          · {new Date(task.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                        </span>
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => { if (confirm('Delete this task?')) onDeleteTask(task.id); }}
+                      className="text-gray-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100 flex-shrink-0 mt-0.5"
+                      title="Delete task"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+
+                {/* Completed tasks */}
+                {completedTasks.length > 0 && (
+                  <>
+                    {pendingTasks.length > 0 && <div className="border-t border-gray-100 my-1" />}
+                    {completedTasks.map((task) => (
+                      <div
+                        key={task.id}
+                        className="group flex items-start gap-2.5 px-3 py-2 rounded-xl bg-gray-50 opacity-60 hover:opacity-80 transition"
+                      >
+                        <button
+                          onClick={() => onToggleTask(task.id, !task.completed)}
+                          className="w-5 h-5 rounded-md bg-green-500 flex items-center justify-center flex-shrink-0 mt-0.5 transition hover:bg-green-600"
+                        >
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-500 line-through">{task.title}</p>
+                          <p className="text-[11px] text-gray-400">
+                            {new Date(task.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => { if (confirm('Delete this task?')) onDeleteTask(task.id); }}
+                          className="text-gray-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100 flex-shrink-0 mt-0.5"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Notes Section — unchanged from original */}
           <div className="px-6 py-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold text-gray-900">Notes</h3>
@@ -3467,6 +3763,7 @@ function CustomerDetailPopup({ customer, notes, deal, stages, onClose, onAddNote
     </div>
   );
 }
+
 const EMAIL_TEMPLATES = [
   {
     label: '📋 Survey reminder',
