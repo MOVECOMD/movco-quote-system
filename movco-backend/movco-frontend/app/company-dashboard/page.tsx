@@ -139,6 +139,7 @@ type CrmQuote = {
   van_count: number;
   movers: number;
   estimated_price: number | null;
+  cost_breakdown: { category: string; description: string; amount: number }[];
   status: string;
   notes: string | null;
   valid_until: string | null;
@@ -1081,6 +1082,24 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
           await sendConfirmationEmail(event, recipientEmail, event.customer_name || linkedDeal?.customer_name, data.id);
         }
       }
+      // Auto-create costs from linked quote's cost_breakdown when booking a job
+      if (event.event_type === 'job' && event.deal_id) {
+        const linkedQuote = crmQuotes.find(q => q.deal_id === event.deal_id);
+        if (linkedQuote?.cost_breakdown && linkedQuote.cost_breakdown.length > 0) {
+          const costDate = data.start_time ? new Date(data.start_time).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+          for (const cb of linkedQuote.cost_breakdown) {
+            if (cb.amount > 0) {
+              await addCost({
+                category: cb.category,
+                description: cb.description || `Auto from quote: ${linkedQuote.customer_name}`,
+                amount: cb.amount,
+                deal_id: event.deal_id,
+                cost_date: costDate,
+              } as any);
+            }
+          }
+        }
+      }
     }
     setShowQuickBookModal(false);
   };
@@ -1589,6 +1608,26 @@ function QuoteBuilder({ company, onSave, onCancel, prefill, pdfBranding }: {
   const [customItemName, setCustomItemName] = useState('');
   const [customItemVolume, setCustomItemVolume] = useState('');
 
+  // Cost breakdown state
+  const [costBreakdown, setCostBreakdown] = useState<{ category: string; description: string; amount: string }[]>([]);
+  const [showCostForm, setShowCostForm] = useState(false);
+  const [newCostCategory, setNewCostCategory] = useState('fuel');
+  const [newCostDesc, setNewCostDesc] = useState('');
+  const [newCostAmount, setNewCostAmount] = useState('');
+  const COST_CATEGORIES = [
+    { value: 'fuel', label: 'Fuel', icon: '⛽' },
+    { value: 'labour', label: 'Labour', icon: '👷' },
+    { value: 'materials', label: 'Materials', icon: '📦' },
+    { value: 'packing', label: 'Packing', icon: '🎁' },
+    { value: 'tolls', label: 'Tolls/Parking', icon: '🅿️' },
+    { value: 'storage', label: 'Storage', icon: '🏪' },
+    { value: 'subcontractor', label: 'Subcontractor', icon: '🤝' },
+    { value: 'vehicle', label: 'Vehicle', icon: '🔧' },
+    { value: 'other', label: 'Other', icon: '📋' },
+  ];
+  const totalEstCosts = costBreakdown.reduce((s, c) => s + (parseFloat(c.amount) || 0), 0);
+  const estMargin = editPrice ? (((parseFloat(editPrice) - totalEstCosts) / parseFloat(editPrice)) * 100).toFixed(1) : '0';
+
   const COMMON_ITEMS = [
     { name: 'Sofa - 2 Seater', note: '~35 ft³' },{ name: 'Sofa - 3 Seater', note: '~45 ft³' },{ name: 'Sofa - Corner/L-Shape', note: '~60 ft³' },{ name: 'Armchair', note: '~20 ft³' },{ name: 'Coffee Table', note: '~10 ft³' },{ name: 'TV Unit / Stand', note: '~15 ft³' },{ name: 'Bookcase', note: '~25 ft³' },{ name: 'Sideboard', note: '~25 ft³' },{ name: 'Display Cabinet', note: '~30 ft³' },{ name: 'Single Bed + Mattress', note: '~40 ft³' },{ name: 'Double Bed + Mattress', note: '~55 ft³' },{ name: 'King Bed + Mattress', note: '~65 ft³' },{ name: 'Super King Bed + Mattress', note: '~75 ft³' },{ name: 'Wardrobe - Single', note: '~35 ft³' },{ name: 'Wardrobe - Double', note: '~65 ft³' },{ name: 'Chest of Drawers', note: '~20 ft³' },{ name: 'Bedside Table', note: '~5 ft³' },{ name: 'Dressing Table', note: '~15 ft³' },{ name: 'Fridge Freezer', note: '~30 ft³' },{ name: 'American Fridge Freezer', note: '~40 ft³' },{ name: 'Washing Machine', note: '~30 ft³' },{ name: 'Tumble Dryer', note: '~25 ft³' },{ name: 'Dishwasher', note: '~25 ft³' },{ name: 'Microwave', note: '~5 ft³' },{ name: 'Dining Table - 4 Seat', note: '~20 ft³' },{ name: 'Dining Table - 6 Seat', note: '~30 ft³' },{ name: 'Dining Chair', note: '~5 ft³' },{ name: 'China Cabinet', note: '~35 ft³' },{ name: 'Office Desk', note: '~20 ft³' },{ name: 'Office Chair', note: '~10 ft³' },{ name: 'Filing Cabinet', note: '~15 ft³' },{ name: 'Patio Table + 4 Chairs', note: '~25 ft³' },{ name: 'BBQ', note: '~15 ft³' },{ name: 'Lawnmower', note: '~10 ft³' },{ name: 'Small Box (Book Box)', note: '~2 ft³' },{ name: 'Medium Box', note: '~3 ft³' },{ name: 'Large Box', note: '~5 ft³' },{ name: 'Wardrobe Box', note: '~10 ft³' },{ name: 'Bicycle', note: '~10 ft³' },{ name: 'Piano - Upright', note: '~50 ft³' },{ name: 'Exercise Bike / Treadmill', note: '~20 ft³' },{ name: 'Trampoline', note: '~20 ft³' },
   ];
@@ -1711,6 +1750,7 @@ function QuoteBuilder({ company, onSave, onCancel, prefill, pdfBranding }: {
       van_count: parseInt(editVans) || 1,
       movers: parseInt(editMovers) || 2,
       estimated_price: editPrice ? parseFloat(editPrice) : null,
+      cost_breakdown: costBreakdown.filter(c => parseFloat(c.amount) > 0).map(c => ({ category: c.category, description: c.description, amount: parseFloat(c.amount) })),
       notes: notes || null,
       status: 'draft',
       deal_id: prefill?.deal_id || null,
@@ -1899,7 +1939,61 @@ function QuoteBuilder({ company, onSave, onCancel, prefill, pdfBranding }: {
               <div><label className="text-xs text-gray-500 mb-1 block">Your Price (£)</label><input type="number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-full px-3 py-2.5 border rounded-lg text-sm font-bold text-green-600 focus:ring-2 focus:ring-blue-500 outline-none" /></div>
             </div>
           </div>
-
+{/* ESTIMATED COSTS */}
+          <div className="bg-white rounded-xl border p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-bold text-gray-900">Estimated Costs</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Your internal costs for this job — not shown to customer</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-gray-500">Est. Margin</p>
+                <p className={`text-lg font-bold ${parseFloat(estMargin) >= 20 ? 'text-green-600' : parseFloat(estMargin) >= 0 ? 'text-amber-600' : 'text-red-600'}`}>{estMargin}%</p>
+              </div>
+            </div>
+            {costBreakdown.length > 0 && (
+              <div className="space-y-2 mb-4">
+                {costBreakdown.map((cost, idx) => {
+                  const cat = COST_CATEGORIES.find(c => c.value === cost.category) || COST_CATEGORIES[COST_CATEGORIES.length - 1];
+                  return (
+                    <div key={idx} className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2 group">
+                      <span className="text-base">{cat.icon}</span>
+                      <span className="text-sm text-gray-700 flex-1">{cat.label}{cost.description ? ` — ${cost.description}` : ''}</span>
+                      <span className="text-sm font-semibold text-red-600">£{parseFloat(cost.amount).toFixed(2)}</span>
+                      <button onClick={() => setCostBreakdown(prev => prev.filter((_, i) => i !== idx))} className="text-gray-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                    </div>
+                  );
+                })}
+                <div className="flex items-center justify-between pt-2 border-t">
+                  <span className="text-sm font-semibold text-gray-700">Total Costs</span>
+                  <span className="text-sm font-bold text-red-600">£{totalEstCosts.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-gray-700">Est. Profit</span>
+                  <span className={`text-sm font-bold ${(parseFloat(editPrice || '0') - totalEstCosts) >= 0 ? 'text-green-600' : 'text-red-600'}`}>£{(parseFloat(editPrice || '0') - totalEstCosts).toFixed(2)}</span>
+                </div>
+              </div>
+            )}
+            {showCostForm ? (
+              <div className="bg-blue-50 rounded-lg p-3 space-y-2">
+                <div className="grid grid-cols-3 gap-2">
+                  <select value={newCostCategory} onChange={e => setNewCostCategory(e.target.value)} className="px-2 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                    {COST_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.icon} {c.label}</option>)}
+                  </select>
+                  <input value={newCostDesc} onChange={e => setNewCostDesc(e.target.value)} placeholder="Description" className="px-2 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                  <input type="number" step="0.01" value={newCostAmount} onChange={e => setNewCostAmount(e.target.value)} placeholder="£ Amount" className="px-2 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => { if (!newCostAmount || parseFloat(newCostAmount) <= 0) return; setCostBreakdown(prev => [...prev, { category: newCostCategory, description: newCostDesc, amount: newCostAmount }]); setNewCostCategory('fuel'); setNewCostDesc(''); setNewCostAmount(''); }} className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition">Add</button>
+                  <button onClick={() => { setShowCostForm(false); setNewCostDesc(''); setNewCostAmount(''); }} className="px-3 py-1.5 bg-gray-100 text-gray-600 text-xs font-medium rounded-lg hover:bg-gray-200 transition">Done</button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setShowCostForm(true)} className="w-full py-2.5 border-2 border-dashed border-gray-200 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 transition">+ Add Estimated Cost</button>
+            )}
+          </div>
           {/* EDITABLE ITEMS LIST */}
           <div className="bg-white rounded-xl border">
             <div className="px-6 py-4 border-b flex items-center justify-between">
@@ -3074,7 +3168,11 @@ function ReportsTab({ leads, deals, customers, events, crmQuotes, company, costs
     return linkedEvents.length > 0;
   });
 
-  const totalRevenue = completedDeals.reduce((s, d) => s + (d.estimated_value || 0), 0);
+  const totalRevenue = completedDeals.reduce((s, d) => {
+    // Use linked quote price if available, fall back to deal value
+    const linkedQuote = crmQuotes.find(q => q.deal_id === d.id && q.estimated_price);
+    return s + (linkedQuote?.estimated_price || d.estimated_value || 0);
+  }, 0);
   const totalCosts = periodCosts.reduce((s, c) => s + Number(c.amount), 0);
   const profit = totalRevenue - totalCosts;
   const margin = totalRevenue > 0 ? ((profit / totalRevenue) * 100).toFixed(1) : '0';
@@ -3092,7 +3190,8 @@ function ReportsTab({ leads, deals, customers, events, crmQuotes, company, costs
   const jobPnl = completedDeals.map(deal => {
     const dealCosts = costs.filter(c => c.deal_id === deal.id);
     const dealCostTotal = dealCosts.reduce((s, c) => s + Number(c.amount), 0);
-    const dealRevenue = deal.estimated_value || 0;
+    const linkedQuote = crmQuotes.find(q => q.deal_id === deal.id && q.estimated_price);
+    const dealRevenue = linkedQuote?.estimated_price || deal.estimated_value || 0;
     const dealProfit = dealRevenue - dealCostTotal;
     const dealMargin = dealRevenue > 0 ? ((dealProfit / dealRevenue) * 100).toFixed(1) : '0';
     return { deal, costs: dealCosts, revenue: dealRevenue, totalCost: dealCostTotal, profit: dealProfit, margin: dealMargin };
@@ -3968,6 +4067,23 @@ function QuoteDetailPopup({ quote, company, pdfBranding, onClose, onUpdateStatus
   const [customItemName, setCustomItemName] = useState('');
   const [customItemVolume, setCustomItemVolume] = useState('');
 
+  // Cost breakdown state
+  const [editCosts, setEditCosts] = useState<{ category: string; description: string; amount: number }[]>(quote.cost_breakdown || []);
+  const [showCostForm, setShowCostForm] = useState(false);
+  const [newCostCat, setNewCostCat] = useState('fuel');
+  const [newCostDesc, setNewCostDesc] = useState('');
+  const [newCostAmt, setNewCostAmt] = useState('');
+  const COST_CATS = [
+    { value: 'fuel', label: 'Fuel', icon: '⛽' }, { value: 'labour', label: 'Labour', icon: '👷' },
+    { value: 'materials', label: 'Materials', icon: '📦' }, { value: 'packing', label: 'Packing', icon: '🎁' },
+    { value: 'tolls', label: 'Tolls/Parking', icon: '🅿️' }, { value: 'storage', label: 'Storage', icon: '🏪' },
+    { value: 'subcontractor', label: 'Subcontractor', icon: '🤝' }, { value: 'vehicle', label: 'Vehicle', icon: '🔧' },
+    { value: 'other', label: 'Other', icon: '📋' },
+  ];
+  const totalCostEst = editCosts.reduce((s, c) => s + c.amount, 0);
+  const profitEst = (quote.estimated_price || 0) - totalCostEst;
+  const marginEst = (quote.estimated_price || 0) > 0 ? ((profitEst / (quote.estimated_price || 1)) * 100).toFixed(1) : '0';
+
   const COMMON_ITEMS = [
     { name: 'Sofa - 2 Seater', note: '~35 ft³' },{ name: 'Sofa - 3 Seater', note: '~45 ft³' },{ name: 'Sofa - Corner/L-Shape', note: '~60 ft³' },{ name: 'Armchair', note: '~20 ft³' },{ name: 'Coffee Table', note: '~10 ft³' },{ name: 'TV Unit / Stand', note: '~15 ft³' },{ name: 'Bookcase', note: '~25 ft³' },{ name: 'Sideboard', note: '~25 ft³' },{ name: 'Display Cabinet', note: '~30 ft³' },{ name: 'Single Bed + Mattress', note: '~40 ft³' },{ name: 'Double Bed + Mattress', note: '~55 ft³' },{ name: 'King Bed + Mattress', note: '~65 ft³' },{ name: 'Super King Bed + Mattress', note: '~75 ft³' },{ name: 'Wardrobe - Single', note: '~35 ft³' },{ name: 'Wardrobe - Double', note: '~65 ft³' },{ name: 'Chest of Drawers', note: '~20 ft³' },{ name: 'Bedside Table', note: '~5 ft³' },{ name: 'Dressing Table', note: '~15 ft³' },{ name: 'Fridge Freezer', note: '~30 ft³' },{ name: 'American Fridge Freezer', note: '~40 ft³' },{ name: 'Washing Machine', note: '~30 ft³' },{ name: 'Tumble Dryer', note: '~25 ft³' },{ name: 'Dishwasher', note: '~25 ft³' },{ name: 'Microwave', note: '~5 ft³' },{ name: 'Dining Table - 4 Seat', note: '~20 ft³' },{ name: 'Dining Table - 6 Seat', note: '~30 ft³' },{ name: 'Dining Chair', note: '~5 ft³' },{ name: 'China Cabinet', note: '~35 ft³' },{ name: 'Office Desk', note: '~20 ft³' },{ name: 'Office Chair', note: '~10 ft³' },{ name: 'Filing Cabinet', note: '~15 ft³' },{ name: 'Patio Table + 4 Chairs', note: '~25 ft³' },{ name: 'BBQ', note: '~15 ft³' },{ name: 'Lawnmower', note: '~10 ft³' },{ name: 'Small Box (Book Box)', note: '~2 ft³' },{ name: 'Medium Box', note: '~3 ft³' },{ name: 'Large Box', note: '~5 ft³' },{ name: 'Wardrobe Box', note: '~10 ft³' },{ name: 'Bicycle', note: '~10 ft³' },{ name: 'Piano - Upright', note: '~50 ft³' },{ name: 'Exercise Bike / Treadmill', note: '~20 ft³' },{ name: 'Trampoline', note: '~20 ft³' },
   ];
@@ -4008,7 +4124,7 @@ function QuoteDetailPopup({ quote, company, pdfBranding, onClose, onUpdateStatus
   const totalItemCount = editItems.reduce((s: number, i: any) => s + (i.quantity || 1), 0);
 
   const handleSave = () => {
-    onSave({ items: editItems, notes: editNotes || null } as any);
+    onSave({ items: editItems, notes: editNotes || null, cost_breakdown: editCosts } as any);
     setHasChanges(false);
     setEditingNotes(false);
   };
@@ -4065,7 +4181,54 @@ function QuoteDetailPopup({ quote, company, pdfBranding, onClose, onUpdateStatus
             <div className="bg-gray-50 rounded-xl p-3 text-center"><p className="text-xs text-gray-500">Movers</p><p className="text-lg font-bold text-gray-900">{quote.movers || 0}</p></div>
             <div className="bg-gray-50 rounded-xl p-3 text-center"><p className="text-xs text-gray-500">Items</p><p className="text-lg font-bold text-gray-900">{totalItemCount}</p></div>
           </div>
-
+{/* COST BREAKDOWN */}
+          <div className="bg-gray-50 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Cost Breakdown (Internal)</p>
+              <div className="flex items-center gap-3">
+                <span className={`text-xs font-bold ${parseFloat(marginEst) >= 20 ? 'text-green-600' : parseFloat(marginEst) >= 0 ? 'text-amber-600' : 'text-red-600'}`}>Margin: {marginEst}%</span>
+                <button onClick={() => setShowCostForm(true)} className="px-2 py-1 bg-blue-600 text-white text-[10px] font-semibold rounded hover:bg-blue-700 transition">+ Add</button>
+              </div>
+            </div>
+            {editCosts.length > 0 ? (
+              <div className="space-y-1.5 mb-3">
+                {editCosts.map((cost, idx) => {
+                  const cat = COST_CATS.find(c => c.value === cost.category) || COST_CATS[COST_CATS.length - 1];
+                  return (
+                    <div key={idx} className="flex items-center gap-2 bg-white rounded-lg px-3 py-2 group">
+                      <span className="text-sm">{cat.icon}</span>
+                      <span className="text-xs text-gray-600 flex-1">{cat.label}{cost.description ? ` — ${cost.description}` : ''}</span>
+                      <span className="text-xs font-bold text-red-600">-£{cost.amount.toFixed(2)}</span>
+                      <button onClick={() => { setEditCosts(prev => prev.filter((_, i) => i !== idx)); setHasChanges(true); }} className="text-gray-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                    </div>
+                  );
+                })}
+                <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                  <span className="text-xs font-semibold text-gray-600">Total Costs: <span className="text-red-600">£{totalCostEst.toFixed(2)}</span></span>
+                  <span className={`text-xs font-bold ${profitEst >= 0 ? 'text-green-600' : 'text-red-600'}`}>Profit: £{profitEst.toFixed(2)}</span>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400 mb-2">No costs estimated yet</p>
+            )}
+            {showCostForm && (
+              <div className="bg-white rounded-lg p-2.5 space-y-2 border">
+                <div className="grid grid-cols-3 gap-2">
+                  <select value={newCostCat} onChange={e => setNewCostCat(e.target.value)} className="px-2 py-1.5 border rounded text-xs focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+                    {COST_CATS.map(c => <option key={c.value} value={c.value}>{c.icon} {c.label}</option>)}
+                  </select>
+                  <input value={newCostDesc} onChange={e => setNewCostDesc(e.target.value)} placeholder="Description" className="px-2 py-1.5 border rounded text-xs focus:ring-2 focus:ring-blue-500 outline-none" />
+                  <input type="number" step="0.01" value={newCostAmt} onChange={e => setNewCostAmt(e.target.value)} placeholder="£" className="px-2 py-1.5 border rounded text-xs focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => { if (!newCostAmt || parseFloat(newCostAmt) <= 0) return; setEditCosts(prev => [...prev, { category: newCostCat, description: newCostDesc, amount: parseFloat(newCostAmt) }]); setNewCostCat('fuel'); setNewCostDesc(''); setNewCostAmt(''); setHasChanges(true); }} className="px-3 py-1 bg-blue-600 text-white text-[10px] font-semibold rounded hover:bg-blue-700 transition">Add</button>
+                  <button onClick={() => { setShowCostForm(false); setNewCostDesc(''); setNewCostAmt(''); }} className="px-3 py-1 bg-gray-100 text-gray-500 text-[10px] font-medium rounded hover:bg-gray-200 transition">Done</button>
+                </div>
+              </div>
+            )}
+          </div>
           {/* EDITABLE Notes */}
           <div className={`rounded-xl p-4 ${editingNotes ? 'bg-white border-2 border-blue-400' : editNotes ? 'bg-yellow-50 border border-yellow-200' : 'bg-gray-50 border border-dashed border-gray-300'}`}>
             <div className="flex items-center justify-between mb-1">
