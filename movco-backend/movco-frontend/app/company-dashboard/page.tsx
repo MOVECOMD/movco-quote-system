@@ -91,6 +91,16 @@ type CustomerTask = {
   completed: boolean;
   created_at: string;
 };
+type CustomerFile = {
+  id: string;
+  company_id: string;
+  customer_id: string;
+  file_name: string;
+  file_url: string;
+  file_size: number | null;
+  file_type: string | null;
+  created_at: string;
+};
 type DiaryEvent = {
   id: string;
   title: string;
@@ -204,6 +214,7 @@ export default function CompanyDashboardPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerNotes, setCustomerNotes] = useState<CustomerNote[]>([]);
   const [customerTasks, setCustomerTasks] = useState<CustomerTask[]>([]);
+  const [customerFiles, setCustomerFiles] = useState<CustomerFile[]>([]);
 
   // Redirect if not logged in
   useEffect(() => {
@@ -852,6 +863,72 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
     }
   };
 
+  // ── Customer Files ──
+  const fetchCustomerFiles = async (customerId: string) => {
+    if (!company) return;
+    const { data } = await supabase
+      .from('crm_customer_files')
+      .select('*')
+      .eq('customer_id', customerId)
+      .eq('company_id', company.id)
+      .order('created_at', { ascending: false });
+    if (data) setCustomerFiles(data);
+  };
+
+  const uploadCustomerFile = async (customerId: string, file: File) => {
+    if (!company) return;
+    const filePath = `${company.id}/${customerId}/${Date.now()}-${file.name}`;
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('crm-files')
+      .upload(filePath, file);
+    if (uploadError) {
+      console.error('File upload error:', uploadError);
+      alert('Failed to upload file: ' + uploadError.message);
+      return;
+    }
+    const { data: pubData } = supabase.storage.from('crm-files').getPublicUrl(filePath);
+    if (!pubData?.publicUrl) {
+      alert('Failed to get file URL');
+      return;
+    }
+    const { data, error } = await supabase
+      .from('crm_customer_files')
+      .insert({
+        company_id: company.id,
+        customer_id: customerId,
+        file_name: file.name,
+        file_url: pubData.publicUrl,
+        file_size: file.size,
+        file_type: file.type || null,
+      })
+      .select()
+      .single();
+    if (!error && data) {
+      setCustomerFiles(prev => [data, ...prev]);
+    }
+    return { error };
+  };
+
+  const deleteCustomerFile = async (fileId: string, fileUrl: string) => {
+    // Delete from storage
+    try {
+      const urlParts = fileUrl.split('/crm-files/');
+      if (urlParts[1]) {
+        await supabase.storage.from('crm-files').remove([decodeURIComponent(urlParts[1])]);
+      }
+    } catch (err) {
+      console.error('Storage delete error:', err);
+    }
+    // Delete metadata row
+    const { error } = await supabase
+      .from('crm_customer_files')
+      .delete()
+      .eq('id', fileId);
+    if (!error) {
+      setCustomerFiles(prev => prev.filter(f => f.id !== fileId));
+    }
+  };
+
   const [allCompanyTasks, setAllCompanyTasks] = useState<CustomerTask[]>([]);
 
   const fetchAllCompanyTasks = async () => {
@@ -873,6 +950,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
     setShowCustomerDetail(true);
     fetchCustomerNotes(customer.id);
     fetchCustomerTasks(customer.id);
+    fetchCustomerFiles(customer.id);
   };
 
   const openCustomerFromDeal = (deal: Deal) => {
@@ -901,6 +979,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
       setShowCustomerDetail(true);
       setCustomerNotes([]);
       setCustomerTasks([]);
+      setCustomerFiles([]);
     }
   };
   const disconnectEmail = async () => {
@@ -1271,14 +1350,17 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
           customer={selectedCustomer}
           notes={customerNotes}
           tasks={customerTasks}
+          files={customerFiles}
           deal={detailDeal}
           stages={stages}
-          onClose={() => { setShowCustomerDetail(false); setSelectedCustomer(null); setCustomerNotes([]); setCustomerTasks([]); setDetailDeal(null); }}
+          onClose={() => { setShowCustomerDetail(false); setSelectedCustomer(null); setCustomerNotes([]); setCustomerTasks([]); setCustomerFiles([]); setDetailDeal(null); }}
           onAddNote={(text) => addCustomerNote(selectedCustomer.id, text)}
           onDeleteNote={deleteCustomerNote}
           onAddTask={(title, dueDate) => addCustomerTask(selectedCustomer.id, title, dueDate)}
           onToggleTask={toggleCustomerTask}
           onDeleteTask={deleteCustomerTask}
+          onUploadFile={(file) => uploadCustomerFile(selectedCustomer.id, file)}
+          onDeleteFile={deleteCustomerFile}
           onEditCustomer={() => { setShowCustomerDetail(false); setEditingCustomer(selectedCustomer); setShowCustomerModal(true); }}
           onComposeEmail={() => { setComposeEmailCustomer(selectedCustomer); setShowComposeEmail(true); }}
           emailConnected={emailConnected}
@@ -3472,10 +3554,11 @@ function QuoteDetailPopup({ quote, company, onClose, onUpdateStatus, onDelete, o
 // CUSTOMER DETAIL POPUP
 // ============================================
 
-function CustomerDetailPopup({ customer, notes, tasks, deal, stages, onClose, onAddNote, onDeleteNote, onAddTask, onToggleTask, onDeleteTask, onEditCustomer, onComposeEmail, emailConnected, onSchedule, onCreateQuote, onDeleteDeal, events }: {
+function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onClose, onAddNote, onDeleteNote, onAddTask, onToggleTask, onDeleteTask, onUploadFile, onDeleteFile, onEditCustomer, onComposeEmail, emailConnected, onSchedule, onCreateQuote, onDeleteDeal, events }: {
   customer: Customer;
   notes: CustomerNote[];
   tasks: CustomerTask[];
+  files: CustomerFile[];
   deal?: Deal | null;
   stages?: PipelineStage[];
   onClose: () => void;
@@ -3484,6 +3567,8 @@ function CustomerDetailPopup({ customer, notes, tasks, deal, stages, onClose, on
   onAddTask: (title: string, dueDate: string) => Promise<any>;
   onToggleTask: (taskId: string, completed: boolean) => void;
   onDeleteTask: (taskId: string) => void;
+  onUploadFile: (file: File) => Promise<any>;
+  onDeleteFile: (fileId: string, fileUrl: string) => void;
   onEditCustomer: () => void;
   onComposeEmail: () => void;
   emailConnected: boolean;
@@ -3502,6 +3587,51 @@ function CustomerDetailPopup({ customer, notes, tasks, deal, stages, onClose, on
   const [showAddTask, setShowAddTask] = useState(false);
   const [savingTask, setSavingTask] = useState(false);
   const taskInputRef = useRef<HTMLInputElement>(null);
+
+  // File state
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (!customer.id) return;
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    if (droppedFiles.length === 0) return;
+    setUploading(true);
+    for (const file of droppedFiles) {
+      await onUploadFile(file);
+    }
+    setUploading(false);
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0 || !customer.id) return;
+    const selectedFiles = Array.from(e.target.files);
+    setUploading(true);
+    for (const file of selectedFiles) {
+      await onUploadFile(file);
+    }
+    setUploading(false);
+    e.target.value = '';
+  };
+
+  const formatFileSize = (bytes: number | null) => {
+    if (!bytes) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const getFileIcon = (type: string | null, name: string) => {
+    const ext = name.split('.').pop()?.toLowerCase() || '';
+    if (type?.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)) return '🖼️';
+    if (type === 'application/pdf' || ext === 'pdf') return '📄';
+    if (type?.includes('word') || ['doc', 'docx'].includes(ext)) return '📝';
+    if (type?.includes('spreadsheet') || ['xls', 'xlsx', 'csv'].includes(ext)) return '📊';
+    return '📎';
+  };
 
   const handleAddNote = async () => {
     const trimmed = newNote.trim();
@@ -3840,8 +3970,113 @@ function CustomerDetailPopup({ customer, notes, tasks, deal, stages, onClose, on
             )}
           </div>
 
-          {/* Notes Section — unchanged from original */}
+          {/* ════════════════════════════════════════════ */}
+          {/* FILES SECTION — NEW */}
+          {/* ════════════════════════════════════════════ */}
+          <div className="px-6 py-4 border-b">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                Files
+                {files.length > 0 && (
+                  <span className="text-xs font-semibold bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full">{files.length}</span>
+                )}
+              </h3>
+              {customer.id && (
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-xs font-semibold text-blue-600 hover:text-blue-800 px-2.5 py-1 bg-blue-50 rounded-lg hover:bg-blue-100 transition"
+                >
+                  + Upload
+                </button>
+              )}
+            </div>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+
+            {/* Drag & Drop Zone */}
+            {customer.id && (
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleFileDrop}
+                className={`border-2 border-dashed rounded-xl p-4 text-center transition-all mb-3 ${
+                  dragOver
+                    ? 'border-blue-400 bg-blue-50 scale-[1.01]'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                {uploading ? (
+                  <div className="flex items-center justify-center gap-2 py-1">
+                    <svg className="animate-spin h-4 w-4 text-blue-600" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    <span className="text-sm text-blue-600 font-medium">Uploading...</span>
+                  </div>
+                ) : (
+                  <div className="py-1">
+                    <p className="text-sm text-gray-500">
+                      {dragOver ? (
+                        <span className="text-blue-600 font-medium">Drop files here</span>
+                      ) : (
+                        <>Drag & drop files here or <button onClick={() => fileInputRef.current?.click()} className="text-blue-600 font-medium hover:text-blue-800">browse</button></>
+                      )}
+                    </p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">Floor plans, photos, contracts, etc.</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* File List */}
+            {files.length === 0 ? (
+              <div className="text-center py-2">
+                <p className="text-xs text-gray-400">No files uploaded yet</p>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {files.map((file) => (
+                  <div key={file.id} className="group flex items-center gap-3 px-3 py-2.5 rounded-xl bg-gray-50 hover:bg-gray-100 transition">
+                    <span className="text-lg flex-shrink-0">{getFileIcon(file.file_type, file.file_name)}</span>
+                    <div className="flex-1 min-w-0">
+                      <a href={file.file_url} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-800 hover:text-blue-600 transition truncate block">
+                        {file.file_name}
+                      </a>
+                      <div className="flex items-center gap-2 text-[10px] text-gray-400">
+                        {file.file_size && <span>{formatFileSize(file.file_size)}</span>}
+                        <span>{new Date(file.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+                      </div>
+                    </div>
+                    <a href={file.file_url} target="_blank" rel="noopener noreferrer" className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition opacity-0 group-hover:opacity-100 flex-shrink-0" title="Download">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                    </a>
+                    <button
+                      onClick={() => { if (confirm(`Delete ${file.file_name}?`)) onDeleteFile(file.id, file.file_url); }}
+                      className="w-7 h-7 rounded-md flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 transition opacity-0 group-hover:opacity-100 flex-shrink-0"
+                      title="Delete"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Notes Section */}
           <div className="px-6 py-4">
+
+
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold text-gray-900">Notes</h3>
               <span className="text-xs text-gray-400">{notes.length} note{notes.length !== 1 ? 's' : ''}</span>
