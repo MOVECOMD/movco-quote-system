@@ -12,7 +12,7 @@ type Van = { name: string; type: string; capacity_cubic_ft: number; reg: string;
 type DayHours = { start: string; end: string; closed: boolean };
 type WorkingHours = Record<string, DayHours>;
 type ServiceAreas = { base_postcode: string; max_radius_miles: number; excluded_postcodes: string[] };
-type PricingRules = { hourly_rate: number; minimum_hours: number; fuel_surcharge_pct: number; congestion_charge: number; stair_charge_per_flight: number; packing_rate_per_hour: number };
+type PricingRules = { hourly_rate: number; minimum_hours: number; fuel_rate_per_mile: number; van_cost_per_day: number; fuel_surcharge_pct: number; congestion_charge: number; stair_charge_per_flight: number; packing_rate_per_hour: number };
 type BookingSettings = { min_notice_hours: number; max_advance_days: number; deposit_required: boolean; deposit_pct: number };
 type TeamMember = { id: string; email: string; full_name: string; role: string; status: string; created_at: string };
 
@@ -31,7 +31,7 @@ export default function SettingsPage() {
   const [vans, setVans] = useState<Van[]>([]);
   const [hours, setHours] = useState<WorkingHours>({});
   const [areas, setAreas] = useState<ServiceAreas>({ base_postcode: '', max_radius_miles: 50, excluded_postcodes: [] });
-  const [pricing, setPricing] = useState<PricingRules>({ hourly_rate: 45, minimum_hours: 2, fuel_surcharge_pct: 5, congestion_charge: 15, stair_charge_per_flight: 25, packing_rate_per_hour: 35 });
+  const [pricing, setPricing] = useState<PricingRules>({ hourly_rate: 45, minimum_hours: 2, fuel_rate_per_mile: 0.50, van_cost_per_day: 75, fuel_surcharge_pct: 5, congestion_charge: 15, stair_charge_per_flight: 25, packing_rate_per_hour: 35 });
   const [booking, setBooking] = useState<BookingSettings>({ min_notice_hours: 24, max_advance_days: 90, deposit_required: true, deposit_pct: 25 });
 
   // Calendar state
@@ -121,7 +121,7 @@ export default function SettingsPage() {
         setVans(config.vans || []);
         setHours(config.working_hours || {});
         setAreas(config.service_areas || { base_postcode: '', max_radius_miles: 50, excluded_postcodes: [] });
-        setPricing(config.pricing_rules || { hourly_rate: 45, minimum_hours: 2, fuel_surcharge_pct: 5, congestion_charge: 15, stair_charge_per_flight: 25, packing_rate_per_hour: 35 });
+         setPricing(prev => ({ ...prev, ...(config.pricing_rules || {}) }));
         setBooking(config.booking_settings || { min_notice_hours: 24, max_advance_days: 90, deposit_required: true, deposit_pct: 25 });
         if (config.email_template) setEmailTemplate(prev => ({ ...prev, ...config.email_template }));
         if (config.pdf_template) setPdfBranding(config.pdf_template);
@@ -717,6 +717,8 @@ export default function SettingsPage() {
                   {[
                     { key: 'hourly_rate', label: 'Hourly Rate', prefix: '£', suffix: '/hr' },
                     { key: 'minimum_hours', label: 'Minimum Hours', prefix: '', suffix: 'hrs' },
+                    { key: 'fuel_rate_per_mile', label: 'Fuel Rate', prefix: '£', suffix: '/mile' },
+                    { key: 'van_cost_per_day', label: 'Van Cost', prefix: '£', suffix: '/day' },
                     { key: 'fuel_surcharge_pct', label: 'Fuel Surcharge', prefix: '', suffix: '%' },
                     { key: 'congestion_charge', label: 'Congestion Charge', prefix: '£', suffix: '' },
                     { key: 'stair_charge_per_flight', label: 'Stair Charge', prefix: '£', suffix: '/flight' },
