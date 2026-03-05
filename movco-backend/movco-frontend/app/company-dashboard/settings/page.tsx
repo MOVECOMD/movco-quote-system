@@ -6,7 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
-type SettingsSection = 'company' | 'team' | 'fleet' | 'hours' | 'areas' | 'pricing' | 'booking' | 'calendar' | 'email' | 'import' | 'billing';
+type SettingsSection = 'company' | 'team' | 'fleet' | 'hours' | 'areas' | 'pricing' | 'booking' | 'calendar' | 'email' | 'import' | 'billing' | 'pdf';
 
 type Van = { name: string; type: string; capacity_cubic_ft: number; reg: string; mot_date: string; active: boolean };
 type DayHours = { start: string; end: string; closed: boolean };
@@ -73,6 +73,9 @@ export default function SettingsPage() {
   const [importType, setImportType] = useState('customers');
   const [importStatus, setImportStatus] = useState('');
 
+  // PDF branding state
+  const [pdfBranding, setPdfBranding] = useState<any>({});
+
   // CRM state
   const [crmActive, setCrmActive] = useState(false);
 
@@ -121,6 +124,7 @@ export default function SettingsPage() {
         setPricing(config.pricing_rules || { hourly_rate: 45, minimum_hours: 2, fuel_surcharge_pct: 5, congestion_charge: 15, stair_charge_per_flight: 25, packing_rate_per_hour: 35 });
         setBooking(config.booking_settings || { min_notice_hours: 24, max_advance_days: 90, deposit_required: true, deposit_pct: 25 });
         if (config.email_template) setEmailTemplate(prev => ({ ...prev, ...config.email_template }));
+        if (config.pdf_template) setPdfBranding(config.pdf_template);
       } else {
         await supabase.from('company_config').insert({ company_id: co.id });
       }
@@ -301,6 +305,7 @@ export default function SettingsPage() {
     { key: 'areas', label: 'Service Areas', icon: '📍', group: 'Configuration' },
     { key: 'pricing', label: 'Pricing', icon: '💰', group: 'Configuration' },
     { key: 'booking', label: 'Booking Rules', icon: '📋', group: 'Configuration' },
+    { key: 'pdf' as any, label: 'PDF Branding', icon: '📄', group: 'Configuration' },
     { key: 'email', label: 'Gmail Connect', icon: '📧', group: 'Integrations' },
     { key: 'calendar', label: 'Calendar Sync', icon: '📅', group: 'Integrations' },
     { key: 'import', label: 'Data Import', icon: '📥', group: 'Integrations' },
@@ -500,6 +505,19 @@ export default function SettingsPage() {
                 )}
               </div>
             </div>
+          )}
+
+{/* ═══════ PDF BRANDING ═══════ */}
+          {section === 'pdf' && (
+            <PdfBrandingSettings
+              branding={pdfBranding}
+              companyId={companyId!}
+              companyName={company.name || company.company_name}
+              companyEmail={company.email}
+              companyPhone={company.phone}
+              onSaved={(b) => setPdfBranding(b)}
+              saveConfig={saveConfig}
+            />
           )}
 
           {/* ═══════ FLEET TAB ═══════ */}
@@ -1194,6 +1212,196 @@ export default function SettingsPage() {
           )}
 
         </div>
+      </div>
+    </div>
+  );
+}
+function PdfBrandingSettings({ branding, companyId, companyName, companyEmail, companyPhone, onSaved, saveConfig }: {
+  branding: any; companyId: string; companyName: string; companyEmail?: string; companyPhone?: string;
+  onSaved: (b: any) => void; saveConfig: (field: string, value: any) => Promise<void>;
+}) {
+  const [primaryColor, setPrimaryColor] = useState(branding.primary_color || '#0a0f1c');
+  const [secondaryColor, setSecondaryColor] = useState(branding.secondary_color || '#2563eb');
+  const [companyNameOverride, setCompanyNameOverride] = useState(branding.company_name_override || '');
+  const [footerText, setFooterText] = useState(branding.footer_text || '');
+  const [termsText, setTermsText] = useState(branding.terms_text || '');
+  const [showPhone, setShowPhone] = useState(branding.show_phone !== false);
+  const [showEmail, setShowEmail] = useState(branding.show_email !== false);
+  const [logoUrl, setLogoUrl] = useState(branding.logo_url || '');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  const buildConfig = () => {
+    const config: any = {};
+    if (primaryColor !== '#0a0f1c') config.primary_color = primaryColor;
+    if (secondaryColor !== '#2563eb') config.secondary_color = secondaryColor;
+    if (companyNameOverride.trim()) config.company_name_override = companyNameOverride.trim();
+    if (footerText.trim()) config.footer_text = footerText.trim();
+    if (termsText.trim()) config.terms_text = termsText.trim();
+    if (!showPhone) config.show_phone = false;
+    if (!showEmail) config.show_email = false;
+    if (logoUrl) config.logo_url = logoUrl;
+    return config;
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    const config = buildConfig();
+    await saveConfig('pdf_template', config);
+    onSaved(config);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    setUploading(true);
+    try {
+      const filePath = `pdf-logos/${Date.now()}-${file.name}`;
+      const { error: uploadError } = await supabase.storage.from('crm-files').upload(filePath, file);
+      if (uploadError) { alert('Upload failed: ' + uploadError.message); setUploading(false); return; }
+      const { data: pubData } = supabase.storage.from('crm-files').getPublicUrl(filePath);
+      if (pubData?.publicUrl) setLogoUrl(pubData.publicUrl);
+    } catch (err) {
+      console.error('Logo upload error:', err);
+      alert('Failed to upload logo');
+    }
+    setUploading(false);
+    e.target.value = '';
+  };
+
+  const handlePreview = async () => {
+    const { downloadQuotePdf } = await import('@/lib/generateQuotePdf');
+    await downloadQuotePdf({
+      companyName,
+      companyEmail,
+      companyPhone,
+      quoteDate: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+      quoteRef: 'PREVIEW',
+      status: 'draft',
+      customerName: 'John Smith',
+      customerEmail: 'john@example.com',
+      customerPhone: '07700 900000',
+      movingFrom: '42 Oxford Street, London W1D 1AN',
+      movingTo: '15 High Street, Bristol BS1 2AW',
+      movingDate: new Date().toISOString(),
+      items: [
+        { name: 'Sofa - 3 Seater', quantity: 1, estimated_volume_ft3: 45 },
+        { name: 'Double Bed + Mattress', quantity: 2, estimated_volume_ft3: 55 },
+        { name: 'Wardrobe - Double', quantity: 1, estimated_volume_ft3: 65 },
+        { name: 'Dining Table - 4 Seat', quantity: 1, estimated_volume_ft3: 20 },
+        { name: 'Medium Box', quantity: 15, estimated_volume_ft3: 3 },
+      ],
+      totalVolume: 12,
+      vanCount: 1,
+      movers: 2,
+      estimatedPrice: 850,
+      notes: 'Ground floor access at both addresses. Customer has their own packing materials.',
+      branding: buildConfig(),
+    }, 'quote-preview.pdf');
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900">PDF Quote Branding</h2>
+          <p className="text-sm text-gray-500">Customise how your quote PDFs look when sent to customers</p>
+        </div>
+        {saved && <span className="text-xs font-semibold text-green-600 bg-green-50 px-3 py-1 rounded-full">✓ Saved</span>}
+      </div>
+
+      {/* Logo */}
+      <div className="bg-white rounded-xl border p-6">
+        <h4 className="font-semibold text-gray-800 text-sm mb-3">Company Logo</h4>
+        <div className="flex items-center gap-4">
+          {logoUrl ? (
+            <div className="relative">
+              <img src={logoUrl} alt="Logo" className="h-12 max-w-[120px] object-contain rounded-lg border bg-gray-50 p-1" />
+              <button onClick={() => setLogoUrl('')} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-600 transition">×</button>
+            </div>
+          ) : (
+            <label className="cursor-pointer">
+              <div className="px-4 py-2.5 border-2 border-dashed border-gray-200 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 transition">
+                {uploading ? 'Uploading...' : '+ Upload Logo'}
+              </div>
+              <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+            </label>
+          )}
+          <p className="text-xs text-gray-400">PNG or JPG, appears in the PDF header</p>
+        </div>
+      </div>
+
+      {/* Colours */}
+      <div className="bg-white rounded-xl border p-6">
+        <h4 className="font-semibold text-gray-800 text-sm mb-4">Brand Colours</h4>
+        <div className="grid grid-cols-2 gap-6">
+          <div>
+            <label className="text-xs text-gray-500 mb-2 block">Primary Colour</label>
+            <div className="flex items-center gap-3">
+              <input type="color" value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)} className="w-10 h-10 rounded-lg border cursor-pointer" />
+              <div>
+                <p className="text-sm font-medium text-gray-700">{primaryColor}</p>
+                <p className="text-xs text-gray-400">Header, headings, table</p>
+              </div>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-2 block">Accent Colour</label>
+            <div className="flex items-center gap-3">
+              <input type="color" value={secondaryColor} onChange={(e) => setSecondaryColor(e.target.value)} className="w-10 h-10 rounded-lg border cursor-pointer" />
+              <div>
+                <p className="text-sm font-medium text-gray-700">{secondaryColor}</p>
+                <p className="text-xs text-gray-400">Labels, total price box</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Company name + toggles */}
+      <div className="bg-white rounded-xl border p-6 space-y-5">
+        <div>
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Trading Name (optional)</label>
+          <input value={companyNameOverride} onChange={(e) => setCompanyNameOverride(e.target.value)} placeholder={companyName} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+          <p className="text-xs text-gray-400 mt-1">Leave blank to use your registered company name</p>
+        </div>
+        <div className="flex items-center gap-6">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={showEmail} onChange={(e) => setShowEmail(e.target.checked)} className="w-4 h-4 text-blue-600 rounded" />
+            <span className="text-sm text-gray-700">Show email in PDF header</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={showPhone} onChange={(e) => setShowPhone(e.target.checked)} className="w-4 h-4 text-blue-600 rounded" />
+            <span className="text-sm text-gray-700">Show phone in PDF header</span>
+          </label>
+        </div>
+      </div>
+
+      {/* Footer + Terms */}
+      <div className="bg-white rounded-xl border p-6 space-y-5">
+        <div>
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Footer Disclaimer</label>
+          <textarea value={footerText} onChange={(e) => setFooterText(e.target.value)} placeholder="This quote is subject to a final survey of items. Prices may vary based on actual volume and access requirements." rows={2} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Terms & Conditions (optional)</label>
+          <textarea value={termsText} onChange={(e) => setTermsText(e.target.value)} placeholder="e.g. Payment due within 7 days of move completion. Cancellations require 48 hours notice." rows={3} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-3">
+        <button onClick={handleSave} disabled={saving} className="px-6 py-2.5 bg-blue-600 text-white font-semibold text-sm rounded-lg hover:bg-blue-700 transition disabled:opacity-40">
+          {saving ? 'Saving...' : '💾 Save Branding'}
+        </button>
+        <button onClick={handlePreview} className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium text-sm rounded-lg hover:bg-gray-200 transition flex items-center gap-2">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+          Preview PDF
+        </button>
       </div>
     </div>
   );
