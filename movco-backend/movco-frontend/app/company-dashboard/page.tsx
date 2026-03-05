@@ -1442,7 +1442,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
           onUpdateStatus={(status) => { updateQuoteStatus(selectedQuote.id, status); setSelectedQuote({ ...selectedQuote, status } as CrmQuote); }}
           onDelete={() => { deleteQuote(selectedQuote.id); setShowQuoteDetail(false); setSelectedQuote(null); }}
           onConvertToDeal={() => { convertQuoteToDeal(selectedQuote); setShowQuoteDetail(false); setSelectedQuote(null); }}
-          onSave={async (fields) => { await updateQuoteFields(selectedQuote.id, fields); setSelectedQuote({ ...selectedQuote, ...fields } as CrmQuote); }}
+          onSave={async (fields) => { await updateQuoteFields(selectedQuote.id, fields); const updated = { ...selectedQuote, ...fields } as CrmQuote; setSelectedQuote(updated); setCrmQuotes(prev => prev.map(q => q.id === selectedQuote.id ? updated : q)); }}
         />
       )}
       {showCustomerDetail && selectedCustomer && (
@@ -4191,7 +4191,6 @@ function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose,
     calcDistance();
   }, []);
 
-  
   const [showCostForm, setShowCostForm] = useState(false);
   const [newCostCat, setNewCostCat] = useState('fuel');
   const [newCostDesc, setNewCostDesc] = useState('');
