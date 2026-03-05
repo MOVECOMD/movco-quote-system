@@ -1761,7 +1761,30 @@ function QuoteBuilder({ company, onSave, onCancel, prefill, pdfBranding, pricing
       setEditMovers(vol <= 15 ? '2' : vol <= 30 ? '3' : '4');
       const estHours = vol <= 10 ? '3' : vol <= 20 ? '5' : vol <= 35 ? '7' : '9';
       setEditHours(estHours);
-      const estDist = data.distanceMiles?.toString() || data.distance_miles?.toString() || '';
+      // Try to get distance from AI response, otherwise calculate via Google Geocoding
+      let estDist = data.distanceMiles?.toString() || data.distance_miles?.toString() || '';
+      if (!estDist && movingFrom && movingTo) {
+        try {
+          const geocode = async (addr: string) => {
+            const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addr)}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`);
+            const d = await r.json();
+            if (d.results?.[0]?.geometry?.location) return d.results[0].geometry.location;
+            return null;
+          };
+          const from = await geocode(movingFrom);
+          const to = await geocode(movingTo);
+          if (from && to) {
+            const R = 3958.8;
+            const dLat = (to.lat - from.lat) * Math.PI / 180;
+            const dLon = (to.lng - from.lng) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(from.lat * Math.PI / 180) * Math.cos(to.lat * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            estDist = (R * c * 1.3).toFixed(1);
+          }
+        } catch (err) {
+          console.error('Distance calc error:', err);
+        }
+      }
       setEditDistance(estDist);
       // Auto-generate cost breakdown
       const vansEst = vol <= 15 ? '1' : vol <= 30 ? '2' : '3';
@@ -4101,6 +4124,7 @@ function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose,
   const parseVol = (note: string) => { const m = note?.match(/~?(\d+(?:\.\d+)?)\s*ft/); return m ? parseFloat(m[1]) : 0; };
 
   // Editable state
+  const [editPrice, setEditPrice] = useState(quote.estimated_price?.toString() || '0');
   const [editItems, setEditItems] = useState<any[]>(quote.items || []);
   const [editNotes, setEditNotes] = useState(quote.notes || '');
   const [editingNotes, setEditingNotes] = useState(false);
@@ -4129,6 +4153,45 @@ function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose,
   const [editCosts, setEditCosts] = useState<{ category: string; description: string; amount: number }[]>(
     (quote.cost_breakdown && quote.cost_breakdown.length > 0) ? quote.cost_breakdown : autoGenCosts()
   );
+
+  // Auto-calculate distance if missing
+  useEffect(() => {
+    if (quote.distance_miles || !quote.moving_from || !quote.moving_to) return;
+    const calcDistance = async () => {
+      try {
+        const geocode = async (addr: string) => {
+          const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addr)}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`);
+          const d = await r.json();
+          if (d.results?.[0]?.geometry?.location) return d.results[0].geometry.location;
+          return null;
+        };
+        const from = await geocode(quote.moving_from!);
+        const to = await geocode(quote.moving_to!);
+        if (from && to) {
+          const R = 3958.8;
+          const dLat = (to.lat - from.lat) * Math.PI / 180;
+          const dLon = (to.lng - from.lng) * Math.PI / 180;
+          const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(from.lat * Math.PI / 180) * Math.cos(to.lat * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+          const miles = parseFloat((R * c * 1.3).toFixed(1));
+          // Update costs with fuel now that we have distance
+          const fuelRate = pricingConfig?.fuel_rate_per_mile || 0.50;
+          if (miles > 0) {
+            setEditCosts(prev => {
+              const withoutFuel = prev.filter(c => c.category !== 'fuel');
+              return [...withoutFuel, { category: 'fuel', description: `${miles} miles × £${fuelRate.toFixed(2)}/mile`, amount: parseFloat((miles * fuelRate).toFixed(2)) }];
+            });
+            setHasChanges(true);
+          }
+        }
+      } catch (err) {
+        console.error('Distance calc error:', err);
+      }
+    };
+    calcDistance();
+  }, []);
+
+  
   const [showCostForm, setShowCostForm] = useState(false);
   const [newCostCat, setNewCostCat] = useState('fuel');
   const [newCostDesc, setNewCostDesc] = useState('');
@@ -4141,8 +4204,9 @@ function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose,
     { value: 'other', label: 'Other', icon: '📋' },
   ];
   const totalCostEst = editCosts.reduce((s, c) => s + c.amount, 0);
-  const profitEst = (quote.estimated_price || 0) - totalCostEst;
-  const marginEst = (quote.estimated_price || 0) > 0 ? ((profitEst / (quote.estimated_price || 1)) * 100).toFixed(1) : '0';
+  const currentPrice = parseFloat(editPrice) || 0;
+  const profitEst = currentPrice - totalCostEst;
+  const marginEst = currentPrice > 0 ? ((profitEst / currentPrice) * 100).toFixed(1) : '0';
 
   const COMMON_ITEMS = [
     { name: 'Sofa - 2 Seater', note: '~35 ft³' },{ name: 'Sofa - 3 Seater', note: '~45 ft³' },{ name: 'Sofa - Corner/L-Shape', note: '~60 ft³' },{ name: 'Armchair', note: '~20 ft³' },{ name: 'Coffee Table', note: '~10 ft³' },{ name: 'TV Unit / Stand', note: '~15 ft³' },{ name: 'Bookcase', note: '~25 ft³' },{ name: 'Sideboard', note: '~25 ft³' },{ name: 'Display Cabinet', note: '~30 ft³' },{ name: 'Single Bed + Mattress', note: '~40 ft³' },{ name: 'Double Bed + Mattress', note: '~55 ft³' },{ name: 'King Bed + Mattress', note: '~65 ft³' },{ name: 'Super King Bed + Mattress', note: '~75 ft³' },{ name: 'Wardrobe - Single', note: '~35 ft³' },{ name: 'Wardrobe - Double', note: '~65 ft³' },{ name: 'Chest of Drawers', note: '~20 ft³' },{ name: 'Bedside Table', note: '~5 ft³' },{ name: 'Dressing Table', note: '~15 ft³' },{ name: 'Fridge Freezer', note: '~30 ft³' },{ name: 'American Fridge Freezer', note: '~40 ft³' },{ name: 'Washing Machine', note: '~30 ft³' },{ name: 'Tumble Dryer', note: '~25 ft³' },{ name: 'Dishwasher', note: '~25 ft³' },{ name: 'Microwave', note: '~5 ft³' },{ name: 'Dining Table - 4 Seat', note: '~20 ft³' },{ name: 'Dining Table - 6 Seat', note: '~30 ft³' },{ name: 'Dining Chair', note: '~5 ft³' },{ name: 'China Cabinet', note: '~35 ft³' },{ name: 'Office Desk', note: '~20 ft³' },{ name: 'Office Chair', note: '~10 ft³' },{ name: 'Filing Cabinet', note: '~15 ft³' },{ name: 'Patio Table + 4 Chairs', note: '~25 ft³' },{ name: 'BBQ', note: '~15 ft³' },{ name: 'Lawnmower', note: '~10 ft³' },{ name: 'Small Box (Book Box)', note: '~2 ft³' },{ name: 'Medium Box', note: '~3 ft³' },{ name: 'Large Box', note: '~5 ft³' },{ name: 'Wardrobe Box', note: '~10 ft³' },{ name: 'Bicycle', note: '~10 ft³' },{ name: 'Piano - Upright', note: '~50 ft³' },{ name: 'Exercise Bike / Treadmill', note: '~20 ft³' },{ name: 'Trampoline', note: '~20 ft³' },
@@ -4184,7 +4248,7 @@ function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose,
   const totalItemCount = editItems.reduce((s: number, i: any) => s + (i.quantity || 1), 0);
 
   const handleSave = () => {
-    onSave({ items: editItems, notes: editNotes || null, cost_breakdown: editCosts } as any);
+    onSave({ items: editItems, notes: editNotes || null, cost_breakdown: editCosts, estimated_price: editPrice ? parseFloat(editPrice) : null } as any);
     setHasChanges(false);
     setEditingNotes(false);
   };
@@ -4202,10 +4266,22 @@ function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose,
           <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600 transition"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
         </div>
 
-        {/* Price banner */}
+        {/* Price banner — editable */}
         <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-5 text-white">
           <div className="flex items-center justify-between">
-            <div><p className="text-sm text-blue-200">Quote Total</p><p className="text-3xl font-bold">£{(quote.estimated_price || 0).toLocaleString()}</p></div>
+            <div>
+              <p className="text-sm text-blue-200">Quote Total</p>
+              <div className="flex items-center gap-2">
+                <span className="text-3xl font-bold">£</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={editPrice}
+                  onChange={(e) => { setEditPrice(e.target.value); setHasChanges(true); }}
+                  className="text-3xl font-bold bg-white/10 border border-white/20 rounded-lg px-3 py-1 w-40 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/40"
+                />
+              </div>
+            </div>
             <div className="text-right text-sm"><p className="text-blue-200">Created</p><p className="font-medium">{new Date(quote.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</p></div>
           </div>
         </div>
