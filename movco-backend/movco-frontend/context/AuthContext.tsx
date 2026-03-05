@@ -46,9 +46,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    // Set up the auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      async (_event, session) => {
         if (!mounted) return;
         setSession(session);
         setUser(session?.user ?? null);
@@ -61,26 +60,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     );
 
-    // Then attempt to recover/refresh the session
-    // This will trigger onAuthStateChange with the refreshed session
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!mounted) return;
-      if (session) {
-        setSession(session);
-        setUser(session.user);
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) {
         await loadCompanyUser(session.user.id);
-        setLoading(false);
-      } else {
-        // No session at all — try to refresh explicitly
-        const { data: refreshData } = await supabase.auth.refreshSession();
-        if (!mounted) return;
-        if (refreshData.session) {
-          setSession(refreshData.session);
-          setUser(refreshData.session.user);
-          await loadCompanyUser(refreshData.session.user.id);
-        }
-        setLoading(false);
       }
+      setLoading(false);
     });
 
     return () => {
