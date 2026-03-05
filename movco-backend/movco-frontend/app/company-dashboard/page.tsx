@@ -4154,42 +4154,7 @@ function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose,
     (quote.cost_breakdown && quote.cost_breakdown.length > 0) ? quote.cost_breakdown : autoGenCosts()
   );
 
-  // Auto-calculate distance if missing
-  useEffect(() => {
-    if (quote.distance_miles || !quote.moving_from || !quote.moving_to) return;
-    const calcDistance = async () => {
-      try {
-        const geocode = async (addr: string) => {
-          const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addr)}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`);
-          const d = await r.json();
-          if (d.results?.[0]?.geometry?.location) return d.results[0].geometry.location;
-          return null;
-        };
-        const from = await geocode(quote.moving_from!);
-        const to = await geocode(quote.moving_to!);
-        if (from && to) {
-          const R = 3958.8;
-          const dLat = (to.lat - from.lat) * Math.PI / 180;
-          const dLon = (to.lng - from.lng) * Math.PI / 180;
-          const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(from.lat * Math.PI / 180) * Math.cos(to.lat * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
-          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-          const miles = parseFloat((R * c * 1.3).toFixed(1));
-          // Update costs with fuel now that we have distance
-          const fuelRate = pricingConfig?.fuel_rate_per_mile || 0.50;
-          if (miles > 0) {
-            setEditCosts(prev => {
-              const withoutFuel = prev.filter(c => c.category !== 'fuel');
-              return [...withoutFuel, { category: 'fuel', description: `${miles} miles × £${fuelRate.toFixed(2)}/mile`, amount: parseFloat((miles * fuelRate).toFixed(2)) }];
-            });
-            setHasChanges(true);
-          }
-        }
-      } catch (err) {
-        console.error('Distance calc error:', err);
-      }
-    };
-    calcDistance();
-  }, []);
+ 
 
   const [showCostForm, setShowCostForm] = useState(false);
   const [newCostCat, setNewCostCat] = useState('fuel');
