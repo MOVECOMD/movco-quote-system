@@ -140,6 +140,8 @@ type CrmQuote = {
   movers: number;
   estimated_price: number | null;
   cost_breakdown: { category: string; description: string; amount: number }[];
+  distance_miles: number | null;
+  estimated_hours: number | null;
   status: string;
   notes: string | null;
   valid_until: string | null;
@@ -200,6 +202,9 @@ export default function CompanyDashboardPage() {
 
   // PDF branding state
   const [pdfBranding, setPdfBranding] = useState<any>({});
+
+  // Pricing config state
+  const [pricingConfig, setPricingConfig] = useState<any>({ hourly_rate: 45, minimum_hours: 2, fuel_rate_per_mile: 0.50 });
 
   // Email connection state
   const [emailConnected, setEmailConnected] = useState(false);
@@ -383,10 +388,11 @@ export default function CompanyDashboardPage() {
 
     const { data: configData } = await supabase
       .from('company_config')
-      .select('pdf_template')
+      .select('pdf_template, pricing_rules')
       .eq('company_id', companyId)
       .maybeSingle();
     if (configData?.pdf_template) setPdfBranding(configData.pdf_template);
+    if (configData?.pricing_rules) setPricingConfig((prev: any) => ({ ...prev, ...configData.pricing_rules }));
   };
 
 
@@ -1318,6 +1324,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
                 onCancel={() => { setShowQuoteBuilder(false); setQuotePrefill(null); }}
                 prefill={quotePrefill}
                 pdfBranding={pdfBranding}
+                pricingConfig={pricingConfig}
               />
             )}
             {activeTab === 'pipeline' && (
@@ -1430,6 +1437,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
           quote={selectedQuote}
           company={company}
           pdfBranding={pdfBranding}
+          pricingConfig={pricingConfig}
           onClose={() => { setShowQuoteDetail(false); setSelectedQuote(null); }}
           onUpdateStatus={(status) => { updateQuoteStatus(selectedQuote.id, status); setSelectedQuote({ ...selectedQuote, status } as CrmQuote); }}
           onDelete={() => { deleteQuote(selectedQuote.id); setShowQuoteDetail(false); setSelectedQuote(null); }}
@@ -1569,12 +1577,13 @@ function CRMLockOverlay({ tab, onSubscribe }: { tab: Tab; onSubscribe: () => voi
 // AI QUOTE BUILDER — with editable inventory
 // ============================================
 
-function QuoteBuilder({ company, onSave, onCancel, prefill, pdfBranding }: {
+function QuoteBuilder({ company, onSave, onCancel, prefill, pdfBranding, pricingConfig }: {
   company: Company;
   onSave: (q: Partial<CrmQuote>) => void;
   onCancel: () => void;
   prefill?: QuotePrefill | null;
   pdfBranding?: any;
+  pricingConfig?: any;
 }) {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -1596,11 +1605,13 @@ function QuoteBuilder({ company, onSave, onCancel, prefill, pdfBranding }: {
   const [aiResult, setAiResult] = useState<any>(null);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
 
-  const [editItems, setEditItems] = useState<any[]>([]);
+ const [editItems, setEditItems] = useState<any[]>([]);
   const [editPrice, setEditPrice] = useState('');
   const [editVolume, setEditVolume] = useState('');
   const [editVans, setEditVans] = useState('1');
   const [editMovers, setEditMovers] = useState('2');
+  const [editDistance, setEditDistance] = useState('');
+  const [editHours, setEditHours] = useState('');
 
   // Inventory editor state
   const [showAddItemModal, setShowAddItemModal] = useState(false);
@@ -1614,6 +1625,22 @@ function QuoteBuilder({ company, onSave, onCancel, prefill, pdfBranding }: {
   const [newCostCategory, setNewCostCategory] = useState('fuel');
   const [newCostDesc, setNewCostDesc] = useState('');
   const [newCostAmount, setNewCostAmount] = useState('');
+  const autoGenerateCosts = (vans: string, movers: string, hours: string, distance: string) => {
+    const costs: { category: string; description: string; amount: string }[] = [];
+    const rate = pricingConfig?.hourly_rate || 45;
+    const fuelRate = pricingConfig?.fuel_rate_per_mile || 0.50;
+    const m = parseInt(movers) || 2;
+    const h = parseFloat(hours) || 0;
+    const d = parseFloat(distance) || 0;
+    const v = parseInt(vans) || 1;
+    if (m > 0 && h > 0) {
+      costs.push({ category: 'labour', description: `${m} movers × ${h}hrs × £${rate}/hr`, amount: (m * h * rate).toFixed(2) });
+    }
+    if (d > 0 && fuelRate > 0) {
+      costs.push({ category: 'fuel', description: `${d} miles × £${fuelRate.toFixed(2)}/mile`, amount: (d * fuelRate).toFixed(2) });
+    }
+    return costs;
+  };
   const COST_CATEGORIES = [
     { value: 'fuel', label: 'Fuel', icon: '⛽' },
     { value: 'labour', label: 'Labour', icon: '👷' },
@@ -1728,6 +1755,14 @@ function QuoteBuilder({ company, onSave, onCancel, prefill, pdfBranding }: {
       const vol = data.totalVolumeM3 || 0;
       setEditVans(vol <= 15 ? '1' : vol <= 30 ? '2' : '3');
       setEditMovers(vol <= 15 ? '2' : vol <= 30 ? '3' : '4');
+      const estHours = vol <= 10 ? '3' : vol <= 20 ? '5' : vol <= 35 ? '7' : '9';
+      setEditHours(estHours);
+      const estDist = data.distanceMiles?.toString() || data.distance_miles?.toString() || '';
+      setEditDistance(estDist);
+      // Auto-generate cost breakdown
+      const vansEst = vol <= 15 ? '1' : vol <= 30 ? '2' : '3';
+      const moversEst = vol <= 15 ? '2' : vol <= 30 ? '3' : '4';
+      setCostBreakdown(autoGenerateCosts(vansEst, moversEst, estHours, estDist));
       setStep('results');
     } catch (err: any) {
       console.error('Analyze error:', err);
@@ -1750,6 +1785,8 @@ function QuoteBuilder({ company, onSave, onCancel, prefill, pdfBranding }: {
       van_count: parseInt(editVans) || 1,
       movers: parseInt(editMovers) || 2,
       estimated_price: editPrice ? parseFloat(editPrice) : null,
+      distance_miles: editDistance ? parseFloat(editDistance) : null,
+      estimated_hours: editHours ? parseFloat(editHours) : null,
       cost_breakdown: costBreakdown.filter(c => parseFloat(c.amount) > 0).map(c => ({ category: c.category, description: c.description, amount: parseFloat(c.amount) })),
       notes: notes || null,
       status: 'draft',
@@ -1932,10 +1969,12 @@ function QuoteBuilder({ company, onSave, onCancel, prefill, pdfBranding }: {
 
           <div className="bg-white rounded-xl border p-6">
             <h3 className="font-bold text-gray-900 mb-4">Adjust Pricing & Logistics</h3>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               <div><label className="text-xs text-gray-500 mb-1 block">Volume (m³)</label><input type="number" value={editVolume} onChange={(e) => setEditVolume(e.target.value)} className="w-full px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none" /></div>
-              <div><label className="text-xs text-gray-500 mb-1 block">Vans</label><input type="number" value={editVans} onChange={(e) => setEditVans(e.target.value)} className="w-full px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none" min="1" /></div>
-              <div><label className="text-xs text-gray-500 mb-1 block">Movers</label><input type="number" value={editMovers} onChange={(e) => setEditMovers(e.target.value)} className="w-full px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none" min="1" /></div>
+              <div><label className="text-xs text-gray-500 mb-1 block">Vans</label><input type="number" value={editVans} onChange={(e) => { setEditVans(e.target.value); setCostBreakdown(autoGenerateCosts(e.target.value, editMovers, editHours, editDistance)); }} className="w-full px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none" min="1" /></div>
+              <div><label className="text-xs text-gray-500 mb-1 block">Movers</label><input type="number" value={editMovers} onChange={(e) => { setEditMovers(e.target.value); setCostBreakdown(autoGenerateCosts(editVans, e.target.value, editHours, editDistance)); }} className="w-full px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none" min="1" /></div>
+              <div><label className="text-xs text-gray-500 mb-1 block">Est. Hours</label><input type="number" step="0.5" value={editHours} onChange={(e) => { setEditHours(e.target.value); setCostBreakdown(autoGenerateCosts(editVans, editMovers, e.target.value, editDistance)); }} className="w-full px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none" min="1" /></div>
+              <div><label className="text-xs text-gray-500 mb-1 block">Distance (miles)</label><input type="number" value={editDistance} onChange={(e) => { setEditDistance(e.target.value); setCostBreakdown(autoGenerateCosts(editVans, editMovers, editHours, e.target.value)); }} className="w-full px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none" /></div>
               <div><label className="text-xs text-gray-500 mb-1 block">Your Price (£)</label><input type="number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-full px-3 py-2.5 border rounded-lg text-sm font-bold text-green-600 focus:ring-2 focus:ring-blue-500 outline-none" /></div>
             </div>
           </div>
@@ -4049,8 +4088,8 @@ function EventDetailPopup({ event, deals, onClose, onCreateQuote, onComplete, on
 // QUOTE DETAIL POPUP — EDITABLE
 // ============================================
 
-function QuoteDetailPopup({ quote, company, pdfBranding, onClose, onUpdateStatus, onDelete, onConvertToDeal, onSave }: {
-  quote: CrmQuote; company: Company; pdfBranding?: any; onClose: () => void; onUpdateStatus: (status: string) => void; onDelete: () => void; onConvertToDeal: () => void;
+function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose, onUpdateStatus, onDelete, onConvertToDeal, onSave }: {
+  quote: CrmQuote; company: Company; pdfBranding?: any; pricingConfig?: any; onClose: () => void;onUpdateStatus: (status: string) => void; onDelete: () => void; onConvertToDeal: () => void;
   onSave: (fields: Partial<CrmQuote>) => void;
 }) {
   const statusStyles: Record<string, string> = { draft: 'bg-gray-100 text-gray-700', sent: 'bg-blue-100 text-blue-700', accepted: 'bg-green-100 text-green-700', declined: 'bg-red-100 text-red-700' };
@@ -4067,8 +4106,21 @@ function QuoteDetailPopup({ quote, company, pdfBranding, onClose, onUpdateStatus
   const [customItemName, setCustomItemName] = useState('');
   const [customItemVolume, setCustomItemVolume] = useState('');
 
-  // Cost breakdown state
-  const [editCosts, setEditCosts] = useState<{ category: string; description: string; amount: number }[]>(quote.cost_breakdown || []);
+  // Cost breakdown state — auto-populate if empty
+  const autoGenCosts = () => {
+    const costs: { category: string; description: string; amount: number }[] = [];
+    const rate = pricingConfig?.hourly_rate || 45;
+    const fuelRate = pricingConfig?.fuel_rate_per_mile || 0.50;
+    const m = quote.movers || 2;
+    const h = quote.estimated_hours || (quote.total_volume_m3 <= 10 ? 3 : quote.total_volume_m3 <= 20 ? 5 : quote.total_volume_m3 <= 35 ? 7 : 9);
+    const d = quote.distance_miles || 0;
+    if (m > 0 && h > 0) costs.push({ category: 'labour', description: `${m} movers × ${h}hrs × £${rate}/hr`, amount: m * h * rate });
+    if (d > 0 && fuelRate > 0) costs.push({ category: 'fuel', description: `${d} miles × £${fuelRate.toFixed(2)}/mile`, amount: d * fuelRate });
+    return costs;
+  };
+  const [editCosts, setEditCosts] = useState<{ category: string; description: string; amount: number }[]>(
+    (quote.cost_breakdown && quote.cost_breakdown.length > 0) ? quote.cost_breakdown : autoGenCosts()
+  );
   const [showCostForm, setShowCostForm] = useState(false);
   const [newCostCat, setNewCostCat] = useState('fuel');
   const [newCostDesc, setNewCostDesc] = useState('');
