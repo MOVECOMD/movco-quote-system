@@ -187,6 +187,9 @@ export default function CompanyDashboardPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerSearch, setCustomerSearch] = useState('');
 
+  // PDF branding state
+  const [pdfBranding, setPdfBranding] = useState<any>({});
+
   // Email connection state
   const [emailConnected, setEmailConnected] = useState(false);
   const [emailAddress, setEmailAddress] = useState<string | null>(null);
@@ -359,6 +362,13 @@ export default function CompanyDashboardPage() {
       .eq('completed', false)
       .order('due_date', { ascending: true });
     if (tasksData) setAllCompanyTasks(tasksData);
+
+    const { data: configData } = await supabase
+      .from('company_config')
+      .select('pdf_template')
+      .eq('company_id', companyId)
+      .maybeSingle();
+    if (configData?.pdf_template) setPdfBranding(configData.pdf_template);
   };
 
 
@@ -1219,6 +1229,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
                 onUpdateStatus={updateQuoteStatus}
                 onConvertToDeal={convertQuoteToDeal}
                 onClickQuote={(q) => { setSelectedQuote(q); setShowQuoteDetail(true); }}
+                pdfBranding={pdfBranding}
               />
          )}
             {activeTab === 'quotes' && showQuoteBuilder && (
@@ -1227,6 +1238,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
                 onSave={saveQuoteFromBuilder}
                 onCancel={() => { setShowQuoteBuilder(false); setQuotePrefill(null); }}
                 prefill={quotePrefill}
+                pdfBranding={pdfBranding}
               />
             )}
             {activeTab === 'pipeline' && (
@@ -1280,7 +1292,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
               <ReportsTab leads={leads} deals={deals} customers={customers} events={events} crmQuotes={crmQuotes} company={company} />
             )}
             {activeTab === 'settings' && (
-              <SettingsTab company={company} crmActive={crmActive} onSubscribe={startCrmSubscription} emailConnected={emailConnected} emailAddress={emailAddress} emailLoading={emailLoading} onDisconnectEmail={disconnectEmail} />
+              <SettingsTab company={company} crmActive={crmActive} onSubscribe={startCrmSubscription} emailConnected={emailConnected} emailAddress={emailAddress} emailLoading={emailLoading} onDisconnectEmail={disconnectEmail} pdfBranding={pdfBranding} onSavePdfBranding={async (branding: any) => { const { error } = await supabase.from('company_config').upsert({ company_id: company.id, pdf_template: branding }, { onConflict: 'company_id' }); if (!error) setPdfBranding(branding); return { error }; }} />
             )}
           </div>
         </div>
@@ -1338,6 +1350,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
         <QuoteDetailPopup
           quote={selectedQuote}
           company={company}
+          pdfBranding={pdfBranding}
           onClose={() => { setShowQuoteDetail(false); setSelectedQuote(null); }}
           onUpdateStatus={(status) => { updateQuoteStatus(selectedQuote.id, status); setSelectedQuote({ ...selectedQuote, status } as CrmQuote); }}
           onDelete={() => { deleteQuote(selectedQuote.id); setShowQuoteDetail(false); setSelectedQuote(null); }}
@@ -1477,11 +1490,12 @@ function CRMLockOverlay({ tab, onSubscribe }: { tab: Tab; onSubscribe: () => voi
 // AI QUOTE BUILDER — with editable inventory
 // ============================================
 
-function QuoteBuilder({ company, onSave, onCancel, prefill }: {
+function QuoteBuilder({ company, onSave, onCancel, prefill, pdfBranding }: {
   company: Company;
   onSave: (q: Partial<CrmQuote>) => void;
   onCancel: () => void;
   prefill?: QuotePrefill | null;
+  pdfBranding?: any;
 }) {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -1911,6 +1925,7 @@ function QuoteBuilder({ company, onSave, onCancel, prefill }: {
                 movingFrom: movingFrom || undefined, movingTo: movingTo || undefined, movingDate: movingDate || undefined,
                 items: editItems || [], totalVolume: editVolume ? parseFloat(editVolume) : undefined, vanCount: editVans ? parseInt(editVans) : undefined,
                 movers: editMovers ? parseInt(editMovers) : undefined, estimatedPrice: editPrice ? parseFloat(editPrice) : undefined, notes: notes || undefined,
+                branding: pdfBranding || {},
               });
             }} className="px-6 py-3.5 bg-blue-50 text-blue-600 font-semibold rounded-xl hover:bg-blue-100 transition flex items-center gap-2">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
@@ -2080,7 +2095,7 @@ function LeadsTab({ leads, company }: { leads: Lead[]; company: Company }) {
 // QUOTES TAB — with clickable cards
 // ============================================
 
-function QuotesTab({ quotes, company, onAddQuote, onDeleteQuote, onUpdateStatus, onConvertToDeal, onClickQuote }: {
+function QuotesTab({ quotes, company, onAddQuote, onDeleteQuote, onUpdateStatus, onConvertToDeal, onClickQuote, pdfBranding }: {
   quotes: CrmQuote[];
   company: Company;
   onAddQuote: () => void;
@@ -2088,6 +2103,7 @@ function QuotesTab({ quotes, company, onAddQuote, onDeleteQuote, onUpdateStatus,
   onUpdateStatus: (id: string, status: string) => void;
   onConvertToDeal: (q: CrmQuote) => void;
   onClickQuote: (q: CrmQuote) => void;
+  pdfBranding?: any;
 }) {
   const [filterStatus, setFilterStatus] = useState<string>('all');
 
@@ -2101,6 +2117,7 @@ function QuotesTab({ quotes, company, onAddQuote, onDeleteQuote, onUpdateStatus,
       customerPhone: quote.customer_phone || undefined, movingFrom: quote.moving_from || undefined, movingTo: quote.moving_to || undefined,
       movingDate: quote.moving_date || undefined, items: quote.items || [], totalVolume: quote.total_volume_m3 || undefined,
       vanCount: quote.van_count || undefined, movers: quote.movers || undefined, estimatedPrice: quote.estimated_price || undefined, notes: quote.notes || undefined,
+      branding: pdfBranding || {},
     });
   };
 
@@ -2982,7 +2999,7 @@ function ReportsTab({ leads, deals, customers, events, crmQuotes, company }: { l
 // SETTINGS TAB
 // ============================================
 
-function SettingsTab({ company, crmActive, onSubscribe, emailConnected, emailAddress, emailLoading, onDisconnectEmail }: { company: Company; crmActive: boolean; onSubscribe: () => void; emailConnected: boolean; emailAddress: string | null; emailLoading: boolean; onDisconnectEmail: () => void; }) {
+function SettingsTab({ company, crmActive, onSubscribe, emailConnected, emailAddress, emailLoading, onDisconnectEmail, pdfBranding, onSavePdfBranding }: { company: Company; crmActive: boolean; onSubscribe: () => void; emailConnected: boolean; emailAddress: string | null; emailLoading: boolean; onDisconnectEmail: () => void; pdfBranding?: any; onSavePdfBranding?: (branding: any) => Promise<any>; }) {
   return (
     <div>
       <div className="mb-6"><h2 className="text-2xl font-bold text-gray-900">Settings & Billing</h2></div>
@@ -3052,9 +3069,204 @@ function SettingsTab({ company, crmActive, onSubscribe, emailConnected, emailAdd
           <div><p className="text-gray-500 mb-4">Unlock the full CRM suite to manage your removal business.</p><button onClick={onSubscribe} className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white font-bold px-6 py-3 rounded-xl hover:from-yellow-600 hover:to-orange-600 transition-all">Start CRM Pro — £129.99/month</button></div>
         )}
       </div>
+
+      {/* PDF BRANDING */}
+      {onSavePdfBranding && <PdfBrandingSection branding={pdfBranding || {}} onSave={onSavePdfBranding} companyName={company.name} companyEmail={company.email} companyPhone={company.phone} />}
     </div>
   );
 }
+
+function PdfBrandingSection({ branding, onSave, companyName, companyEmail, companyPhone }: { branding: any; onSave: (b: any) => Promise<any>; companyName: string; companyEmail?: string; companyPhone?: string; }) {
+  const [primaryColor, setPrimaryColor] = useState(branding.primary_color || '#0a0f1c');
+  const [secondaryColor, setSecondaryColor] = useState(branding.secondary_color || '#2563eb');
+  const [companyNameOverride, setCompanyNameOverride] = useState(branding.company_name_override || '');
+  const [footerText, setFooterText] = useState(branding.footer_text || '');
+  const [termsText, setTermsText] = useState(branding.terms_text || '');
+  const [showPhone, setShowPhone] = useState(branding.show_phone !== false);
+  const [showEmail, setShowEmail] = useState(branding.show_email !== false);
+  const [logoUrl, setLogoUrl] = useState(branding.logo_url || '');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    const config: any = {};
+    if (primaryColor !== '#0a0f1c') config.primary_color = primaryColor;
+    if (secondaryColor !== '#2563eb') config.secondary_color = secondaryColor;
+    if (companyNameOverride.trim()) config.company_name_override = companyNameOverride.trim();
+    if (footerText.trim()) config.footer_text = footerText.trim();
+    if (termsText.trim()) config.terms_text = termsText.trim();
+    if (!showPhone) config.show_phone = false;
+    if (!showEmail) config.show_email = false;
+    if (logoUrl) config.logo_url = logoUrl;
+    await onSave(config);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    setUploading(true);
+    try {
+      const { supabase } = await import('@/lib/supabaseClient');
+      const filePath = `pdf-logos/${Date.now()}-${file.name}`;
+      const { error: uploadError } = await supabase.storage.from('crm-files').upload(filePath, file);
+      if (uploadError) { alert('Upload failed: ' + uploadError.message); setUploading(false); return; }
+      const { data: pubData } = supabase.storage.from('crm-files').getPublicUrl(filePath);
+      if (pubData?.publicUrl) setLogoUrl(pubData.publicUrl);
+    } catch (err) {
+      console.error('Logo upload error:', err);
+      alert('Failed to upload logo');
+    }
+    setUploading(false);
+    e.target.value = '';
+  };
+
+  const handlePreview = async () => {
+    const { downloadQuotePdf } = await import('@/lib/generateQuotePdf');
+    await downloadQuotePdf({
+      companyName: companyName,
+      companyEmail: companyEmail,
+      companyPhone: companyPhone,
+      quoteDate: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+      quoteRef: 'PREVIEW',
+      status: 'draft',
+      customerName: 'John Smith',
+      customerEmail: 'john@example.com',
+      customerPhone: '07700 900000',
+      movingFrom: '42 Oxford Street, London W1D 1AN',
+      movingTo: '15 High Street, Bristol BS1 2AW',
+      movingDate: new Date().toISOString(),
+      items: [
+        { name: 'Sofa - 3 Seater', quantity: 1, estimated_volume_ft3: 45 },
+        { name: 'Double Bed + Mattress', quantity: 2, estimated_volume_ft3: 55 },
+        { name: 'Wardrobe - Double', quantity: 1, estimated_volume_ft3: 65 },
+        { name: 'Dining Table - 4 Seat', quantity: 1, estimated_volume_ft3: 20 },
+        { name: 'Medium Box', quantity: 15, estimated_volume_ft3: 3 },
+      ],
+      totalVolume: 12,
+      vanCount: 1,
+      movers: 2,
+      estimatedPrice: 850,
+      notes: 'Ground floor access at both addresses. Customer has their own packing materials.',
+      branding: {
+        primary_color: primaryColor,
+        secondary_color: secondaryColor,
+        company_name_override: companyNameOverride || undefined,
+        footer_text: footerText || undefined,
+        terms_text: termsText || undefined,
+        show_phone: showPhone,
+        show_email: showEmail,
+        logo_url: logoUrl || undefined,
+      },
+    }, 'quote-preview.pdf');
+  };
+
+  return (
+    <div className="bg-white rounded-xl border p-6 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="font-bold text-gray-900">PDF Quote Branding</h3>
+          <p className="text-sm text-gray-500 mt-0.5">Customise how your quote PDFs look</p>
+        </div>
+        {saved && <span className="text-xs font-semibold text-green-600 bg-green-50 px-3 py-1 rounded-full">✓ Saved</span>}
+      </div>
+
+      <div className="space-y-5">
+        {/* Logo */}
+        <div>
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Company Logo</label>
+          <div className="flex items-center gap-4">
+            {logoUrl ? (
+              <div className="relative">
+                <img src={logoUrl} alt="Logo" className="h-12 max-w-[120px] object-contain rounded-lg border bg-gray-50 p-1" />
+                <button onClick={() => setLogoUrl('')} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-600 transition">×</button>
+              </div>
+            ) : (
+              <label className="cursor-pointer">
+                <div className="px-4 py-2.5 border-2 border-dashed border-gray-200 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 transition">
+                  {uploading ? 'Uploading...' : '+ Upload Logo'}
+                </div>
+                <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+              </label>
+            )}
+            <p className="text-xs text-gray-400">PNG or JPG, appears in PDF header</p>
+          </div>
+        </div>
+
+        {/* Colours */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Primary Colour</label>
+            <div className="flex items-center gap-3">
+              <input type="color" value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)} className="w-10 h-10 rounded-lg border cursor-pointer" />
+              <div>
+                <p className="text-sm font-medium text-gray-700">{primaryColor}</p>
+                <p className="text-xs text-gray-400">Header, headings, table</p>
+              </div>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Accent Colour</label>
+            <div className="flex items-center gap-3">
+              <input type="color" value={secondaryColor} onChange={(e) => setSecondaryColor(e.target.value)} className="w-10 h-10 rounded-lg border cursor-pointer" />
+              <div>
+                <p className="text-sm font-medium text-gray-700">{secondaryColor}</p>
+                <p className="text-xs text-gray-400">Labels, total price box</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Company name override */}
+        <div>
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Trading Name (optional)</label>
+          <input value={companyNameOverride} onChange={(e) => setCompanyNameOverride(e.target.value)} placeholder={companyName} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+          <p className="text-xs text-gray-400 mt-1">Leave blank to use your registered company name</p>
+        </div>
+
+        {/* Show toggles */}
+        <div className="flex items-center gap-6">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={showEmail} onChange={(e) => setShowEmail(e.target.checked)} className="w-4 h-4 text-blue-600 rounded" />
+            <span className="text-sm text-gray-700">Show email in header</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={showPhone} onChange={(e) => setShowPhone(e.target.checked)} className="w-4 h-4 text-blue-600 rounded" />
+            <span className="text-sm text-gray-700">Show phone in header</span>
+          </label>
+        </div>
+
+        {/* Footer text */}
+        <div>
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Footer Disclaimer</label>
+          <textarea value={footerText} onChange={(e) => setFooterText(e.target.value)} placeholder="This quote is subject to a final survey of items. Prices may vary based on actual volume and access requirements." rows={2} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+        </div>
+
+        {/* Terms */}
+        <div>
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Terms & Conditions (optional)</label>
+          <textarea value={termsText} onChange={(e) => setTermsText(e.target.value)} placeholder="e.g. Payment due within 7 days of move completion. Cancellations require 48 hours notice." rows={3} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-3 mt-6 pt-5 border-t">
+        <button onClick={handleSave} disabled={saving} className="px-6 py-2.5 bg-blue-600 text-white font-semibold text-sm rounded-lg hover:bg-blue-700 transition disabled:opacity-40">
+          {saving ? 'Saving...' : 'Save Branding'}
+        </button>
+        <button onClick={handlePreview} className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium text-sm rounded-lg hover:bg-gray-200 transition flex items-center gap-2">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+          Preview PDF
+        </button>
+      </div>
+    </div>
+  );
+}
+
 
 // ============================================
 // DEAL MODAL
@@ -3302,8 +3514,8 @@ function EventDetailPopup({ event, deals, onClose, onCreateQuote, onComplete, on
 // QUOTE DETAIL POPUP — EDITABLE
 // ============================================
 
-function QuoteDetailPopup({ quote, company, onClose, onUpdateStatus, onDelete, onConvertToDeal, onSave }: {
-  quote: CrmQuote; company: Company; onClose: () => void; onUpdateStatus: (status: string) => void; onDelete: () => void; onConvertToDeal: () => void;
+function QuoteDetailPopup({ quote, company, pdfBranding, onClose, onUpdateStatus, onDelete, onConvertToDeal, onSave }: {
+  quote: CrmQuote; company: Company; pdfBranding?: any; onClose: () => void; onUpdateStatus: (status: string) => void; onDelete: () => void; onConvertToDeal: () => void;
   onSave: (fields: Partial<CrmQuote>) => void;
 }) {
   const statusStyles: Record<string, string> = { draft: 'bg-gray-100 text-gray-700', sent: 'bg-blue-100 text-blue-700', accepted: 'bg-green-100 text-green-700', declined: 'bg-red-100 text-red-700' };
@@ -3505,6 +3717,7 @@ function QuoteDetailPopup({ quote, company, onClose, onUpdateStatus, onDelete, o
               movingFrom: quote.moving_from || undefined, movingTo: quote.moving_to || undefined, movingDate: quote.moving_date || undefined,
               items: editItems || [], totalVolume: quote.total_volume_m3 || undefined, vanCount: quote.van_count || undefined, movers: quote.movers || undefined,
               estimatedPrice: quote.estimated_price || undefined, notes: editNotes || undefined,
+              branding: pdfBranding || {},
             });
           }} className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-50 text-blue-600 text-sm font-semibold rounded-lg hover:bg-blue-100 transition">📄 PDF</button>
           <button onClick={onDelete} className="flex items-center gap-1.5 px-4 py-2.5 bg-red-50 text-red-600 text-sm font-medium rounded-lg hover:bg-red-100 transition ml-auto">🗑️ Delete</button>
