@@ -240,7 +240,7 @@ export default function AdminPortalPage() {
     if (!editModal) return;
     setSaving(true);
     const table = editModal._type === 'storage' ? 'storage_partners' : 'removals_partners';
-    await adminApi({
+      await adminApi({
       action: 'update', table, id: editModal.id,
       data: {
         company_name: formData.company_name,
@@ -251,6 +251,7 @@ export default function AdminPortalPage() {
         plan: formData.plan,
         website: formData.website || null,
         notification_email: formData.notification_email || null,
+        ...(editModal._type === 'storage' ? { units: formData.units || [] } : {}),
       },
     });
     setSaving(false); setEditModal(null); fetchData();
@@ -277,7 +278,7 @@ export default function AdminPortalPage() {
   };
 
   // ─── Open edit modal ───
-  const openEdit = (partner: AnyPartner) => {
+ const openEdit = (partner: AnyPartner) => {
     setFormData({
       company_name: partner.company_name,
       slug: partner.slug,
@@ -287,6 +288,7 @@ export default function AdminPortalPage() {
       plan: partner.plan || 'trial',
       website: (partner as any).website || '',
       notification_email: (partner as any).notification_email || '',
+      units: (partner as any).units || [],
     });
     setEditModal(partner);
   };
@@ -690,6 +692,24 @@ export default function AdminPortalPage() {
               <div><label className="block text-xs font-semibold text-gray-500 mb-1">Plan</label><select className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition bg-white" value={formData.plan || 'trial'} onChange={(e) => setFormData({ ...formData, plan: e.target.value })}><option value="trial">Trial</option><option value="calculator">Calculator — £99.99/mo</option>{editModal._type === 'crm' && <option value="crm_pro">CRM Pro — £149.99/mo</option>}</select></div>
             </div>
             <div><label className="block text-xs font-semibold text-gray-500 mb-1">Website</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.website || ''} onChange={(e) => setFormData({ ...formData, website: e.target.value })} placeholder="https://..." /></div>
+             {editModal._type === 'storage' && (
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-2">Storage Units</label>
+                {(formData.units || []).map((unit: any, idx: number) => (
+                  <div key={idx} className="flex items-center gap-2 mb-2 bg-gray-50 rounded-lg p-2.5">
+                    <input className="flex-1 border border-gray-200 rounded-md px-2.5 py-1.5 text-xs outline-none focus:border-blue-500" placeholder="Name" value={unit.name || ''} onChange={(e) => { const u = [...(formData.units || [])]; u[idx] = { ...u[idx], name: e.target.value }; setFormData({ ...formData, units: u }); }} />
+                    <input className="w-20 border border-gray-200 rounded-md px-2.5 py-1.5 text-xs outline-none focus:border-blue-500" placeholder="Size" value={unit.size || ''} onChange={(e) => { const u = [...(formData.units || [])]; u[idx] = { ...u[idx], size: e.target.value }; setFormData({ ...formData, units: u }); }} />
+                    <input className="w-16 border border-gray-200 rounded-md px-2.5 py-1.5 text-xs outline-none focus:border-blue-500" placeholder="m³" type="number" value={unit.volume_m3 || ''} onChange={(e) => { const u = [...(formData.units || [])]; u[idx] = { ...u[idx], volume_m3: parseFloat(e.target.value) || 0 }; setFormData({ ...formData, units: u }); }} />
+                    <div className="flex items-center gap-0.5">
+                      <span className="text-xs text-gray-400">£</span>
+                      <input className="w-16 border border-gray-200 rounded-md px-2.5 py-1.5 text-xs outline-none focus:border-blue-500" placeholder="/mo" type="number" value={unit.monthly_price || ''} onChange={(e) => { const u = [...(formData.units || [])]; u[idx] = { ...u[idx], monthly_price: parseFloat(e.target.value) || 0 }; setFormData({ ...formData, units: u }); }} />
+                    </div>
+                    <button onClick={() => { const u = (formData.units || []).filter((_: any, i: number) => i !== idx); setFormData({ ...formData, units: u }); }} className="bg-transparent border-none cursor-pointer p-1 text-gray-300 hover:text-red-500 transition"><Icon d={icons.x} size={14} /></button>
+                  </div>
+                ))}
+                <button onClick={() => setFormData({ ...formData, units: [...(formData.units || []), { name: '', size: '', volume_m3: 0, monthly_price: 0 }] })} className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition cursor-pointer border-none mt-1"><Icon d={icons.plus} size={12} color="#2563EB" /> Add Unit</button>
+              </div>
+            )}
             <div><label className="block text-xs font-semibold text-gray-500 mb-1">Notification Email (optional)</label><input className="w-full border border-gray-200 rounded-lg px-3.5 py-2.5 text-sm outline-none focus:border-blue-500 transition" value={formData.notification_email || ''} onChange={(e) => setFormData({ ...formData, notification_email: e.target.value })} placeholder="e.g. sales@company.co.uk — defaults to main email" /><div className="text-[11px] text-gray-400 mt-1">Lead notifications go here. If blank, uses the main email above.</div></div>
           </div>
           <div className="flex gap-2.5 mt-6">
