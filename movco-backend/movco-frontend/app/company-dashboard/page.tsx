@@ -2416,10 +2416,10 @@ function QuotesTab({ quotes, company, onAddQuote, onDeleteQuote, onUpdateStatus,
 // PIPELINE TAB
 // ============================================
 
-function PipelineTab({ stages, deals, events, onMoveDeal, onAddDeal, onEditDeal, onDeleteDeal, onClickDeal, dealHasBooking, onManageStages, tasks, customers, onOpenCustomerDetail }: {
+function PipelineTab({ stages, deals, events, onMoveDeal, onEditDeal, onDeleteDeal, onClickDeal, dealHasBooking, onManageStages, tasks, customers, onOpenCustomerDetail }: {
   stages: PipelineStage[]; deals: Deal[]; events: DiaryEvent[];
   onMoveDeal: (dealId: string, stageId: string) => void;
-  onAddDeal: () => void; onEditDeal: (deal: Deal) => void; onDeleteDeal: (dealId: string) => void;
+  onEditDeal: (deal: Deal) => void; onDeleteDeal: (dealId: string) => void;
   onClickDeal: (deal: Deal) => void;
   dealHasBooking: (dealId: string) => boolean;
   onManageStages: () => void;
@@ -2604,10 +2604,7 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onAddDeal, onEditDeal,
             </svg>
             Manage Stages
           </button>
-          <button onClick={onAddDeal} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm shadow-sm">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-            Add Deal
-          </button>
+          
         </div>
       </div>
 
