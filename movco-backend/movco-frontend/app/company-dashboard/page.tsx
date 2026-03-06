@@ -1332,8 +1332,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
                 stages={stages}
                 deals={deals}
                 events={events}
-                onMoveDeal={moveDeal}
-                onAddDeal={() => { setEditingDeal(null); setShowDealModal(true); }}
+                onMoveDeal={moveDeal}                
                 onEditDeal={(deal) => { setEditingDeal(deal); setShowDealModal(true); }}
                 onDeleteDeal={deleteDeal}
                 onClickDeal={(deal) => openCustomerFromDeal(deal)}
