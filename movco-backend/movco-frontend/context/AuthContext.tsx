@@ -1,7 +1,7 @@
 // context/AuthContext.tsx
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { User, Session } from '@supabase/supabase-js';
 import { CompanyUser } from '@/lib/permissions';
@@ -24,8 +24,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [companyUser, setCompanyUser] = useState<CompanyUser | null>(null);
+  const lastLoadedUserId = useRef<string | null>(null);
 
-  const loadCompanyUser = async (userId: string) => {
+  const loadCompanyUser = useCallback(async (userId: string) => {
+    // Skip if we already loaded for this user (prevents duplicate calls)
+    if (lastLoadedUserId.current === userId) return;
+    lastLoadedUserId.current = userId;
+
     try {
       const { data } = await supabase
         .from('company_users')
@@ -37,45 +42,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       setCompanyUser(null);
     }
-  };
+  }, []);
 
-  const refreshCompanyUser = async () => {
-    if (user) await loadCompanyUser(user.id);
-  };
+  const refreshCompanyUser = useCallback(async () => {
+    if (user) {
+      // Force reload by clearing the cached user id
+      lastLoadedUserId.current = null;
+      await loadCompanyUser(user.id);
+    }
+  }, [user, loadCompanyUser]);
 
   useEffect(() => {
     let mounted = true;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        if (!mounted) return;
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await loadCompanyUser(session.user.id);
-        } else {
-          setCompanyUser(null);
-        }
-        setLoading(false);
-      }
-    );
-
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    // 1. Get the existing session first (covers page refresh / returning user)
+    supabase.auth.getSession().then(({ data: { session } }) => {
       if (!mounted) return;
       setSession(session);
       setUser(session?.user ?? null);
+
       if (session?.user) {
-        await loadCompanyUser(session.user.id);
+        loadCompanyUser(session.user.id).then(() => {
+          if (mounted) setLoading(false);
+        });
+      } else {
+        setLoading(false);
       }
-      setLoading(false);
     });
+
+    // 2. Listen for future auth changes (sign in, sign out, token refresh)
+    //    Do NOT await async work here — Supabase warns against it.
+    //    Instead, kick off loadCompanyUser without blocking.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (!mounted) return;
+        setSession(session);
+        setUser(session?.user ?? null);
+
+        if (session?.user) {
+          // Non-blocking — the ref guard prevents duplicate fetches
+          loadCompanyUser(session.user.id).then(() => {
+            if (mounted) setLoading(false);
+          });
+        } else {
+          lastLoadedUserId.current = null;
+          setCompanyUser(null);
+          setLoading(false);
+        }
+      }
+    );
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
-
+  }, [loadCompanyUser]);
 
   const signUp = async (email: string, password: string, name: string, phone: string) => {
     const { data, error } = await supabase.auth.signUp({
@@ -92,14 +113,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
+    setLoading(true);
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
+    // If sign-in fails, stop loading immediately
+    if (error) {
+      setLoading(false);
+    }
+    // If successful, onAuthStateChange will handle setLoading(false)
     return { data, error };
   };
 
   const signOut = async () => {
+    lastLoadedUserId.current = null;
     setCompanyUser(null);
     await supabase.auth.signOut();
   };
