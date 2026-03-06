@@ -248,7 +248,7 @@ export default function AdminPortalPage() {
         email: formData.email || null,
         phone: formData.phone || null,
         primary_color: formData.primary_color,
-        plan: formData.plan,
+        ...(editModal._type !== 'storage' ? { plan: formData.plan } : {}),
         website: formData.website || null,
         notification_email: formData.notification_email || null,
         ...(editModal._type === 'storage' ? { units: formData.units || [] } : {}),
@@ -265,7 +265,7 @@ export default function AdminPortalPage() {
     if (addModal === 'storage') {
       await adminApi({ action: 'insert', table: 'storage_partners', data: {
         company_name: formData.company_name, slug, email: formData.email || null, phone: formData.phone || null,
-        primary_color: formData.primary_color || '2563EB', plan: formData.plan || 'calculator', active: true, units: [],
+        primary_color: formData.primary_color || '2563EB', active: true, units: [],
       }});
     } else {
       await adminApi({ action: 'insert', table: 'removals_partners', data: {
