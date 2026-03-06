@@ -1332,7 +1332,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
                 stages={stages}
                 deals={deals}
                 events={events}
-                onMoveDeal={moveDeal}                
+                onMoveDeal={moveDeal}
                 onEditDeal={(deal) => { setEditingDeal(deal); setShowDealModal(true); }}
                 onDeleteDeal={deleteDeal}
                 onClickDeal={(deal) => openCustomerFromDeal(deal)}
@@ -1467,6 +1467,8 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
           onCreateQuote={detailDeal ? () => { openQuoteFromDeal(detailDeal); setShowCustomerDetail(false); } : undefined}
           onDeleteDeal={detailDeal ? () => { deleteDeal(detailDeal.id); setShowCustomerDetail(false); } : undefined}
           events={events}
+          quotes={crmQuotes.filter(q => q.customer_name.toLowerCase() === selectedCustomer.name.toLowerCase())}
+          onClickQuote={(q) => { setShowCustomerDetail(false); setSelectedQuote(q); setShowQuoteDetail(true); }}
         />
       )}
       {showComposeEmail && composeEmailCustomer && (
@@ -4462,7 +4464,7 @@ function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose,
 // CUSTOMER DETAIL POPUP
 // ============================================
 
-function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onClose, onAddNote, onDeleteNote, onAddTask, onToggleTask, onDeleteTask, onUploadFile, onDeleteFile, onEditCustomer, onComposeEmail, emailConnected, onSchedule, onCreateQuote, onDeleteDeal, events }: {
+function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onClose, onAddNote, onDeleteNote, onAddTask, onToggleTask, onDeleteTask, onUploadFile, onDeleteFile, onEditCustomer, onComposeEmail, emailConnected, onSchedule, onCreateQuote, onDeleteDeal, events, quotes, onClickQuote }: {
   customer: Customer;
   notes: CustomerNote[];
   tasks: CustomerTask[];
@@ -4484,6 +4486,8 @@ function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onCl
   onCreateQuote?: () => void;
   onDeleteDeal?: () => void;
   events?: DiaryEvent[];
+  quotes?: CrmQuote[];
+  onClickQuote?: (quote: CrmQuote) => void;
 }) {
   const [newNote, setNewNote] = useState('');
   const [saving, setSaving] = useState(false);
@@ -4734,7 +4738,52 @@ function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onCl
               <button onClick={onDeleteDeal} className="flex items-center gap-1.5 px-3 py-2 bg-red-50 text-red-600 text-sm font-medium rounded-lg hover:bg-red-100 transition ml-auto">🗑️ Delete</button>
             )}
           </div>
-
+ {/* ════════════════════════════════════════════ */}
+          {/* QUOTES SECTION */}
+          {/* ════════════════════════════════════════════ */}
+          {quotes && quotes.length > 0 && (
+            <div className="px-6 py-4 border-b">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                  Quotes
+                  <span className="text-xs font-semibold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full">{quotes.length}</span>
+                </h3>
+              </div>
+              <div className="space-y-2">
+                {quotes.map((q) => {
+                  const statusStyles: Record<string, string> = { draft: 'bg-gray-100 text-gray-600', sent: 'bg-blue-100 text-blue-700', accepted: 'bg-green-100 text-green-700', declined: 'bg-red-100 text-red-700' };
+                  const totalCosts = (q.cost_breakdown || []).reduce((s: number, c: any) => s + (c.amount || 0), 0);
+                  const margin = q.estimated_price && q.estimated_price > 0 ? (((q.estimated_price - totalCosts) / q.estimated_price) * 100).toFixed(0) : null;
+                  return (
+                    <button
+                      key={q.id}
+                      onClick={() => onClickQuote && onClickQuote(q)}
+                      className="w-full text-left bg-gray-50 hover:bg-gray-100 rounded-xl p-3.5 transition group"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase ${statusStyles[q.status] || statusStyles.draft}`}>{q.status}</span>
+                        <span className="text-lg font-bold text-gray-900">£{(q.estimated_price || 0).toLocaleString()}</span>
+                      </div>
+                      {(q.moving_from || q.moving_to) && (
+                        <p className="text-xs text-gray-500 mb-1.5">{q.moving_from || '—'} → {q.moving_to || '—'}</p>
+                      )}
+                      <div className="flex items-center gap-3 text-[11px] text-gray-400">
+                        {q.total_volume_m3 ? <span>{q.total_volume_m3} m³</span> : null}
+                        {q.van_count ? <span>{q.van_count} van{q.van_count !== 1 ? 's' : ''}</span> : null}
+                        {q.movers ? <span>{q.movers} movers</span> : null}
+                        {margin && (
+                          <span className={`font-semibold ${parseFloat(margin) >= 20 ? 'text-green-600' : parseFloat(margin) >= 0 ? 'text-amber-600' : 'text-red-600'}`}>
+                            {margin}% margin
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-gray-300 mt-1.5">{new Date(q.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {/* ════════════════════════════════════════════ */}
           {/* TASKS SECTION — NEW */}
           {/* ════════════════════════════════════════════ */}
