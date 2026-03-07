@@ -262,7 +262,7 @@ export default function AdminPortalPage() {
       phone: formData.phone || null,
       primary_color: formData.primary_color,
       website: formData.website || null,
-      ...(!isStorage ? { notification_email: formData.notification_email || null } : {}),
+      notification_email: formData.notification_email || null,
     };
     const result = await adminApi({
       action: 'update', table, id: editModal.id,
