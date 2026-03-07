@@ -128,6 +128,20 @@ const icons = {
 //  MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════
 
+function Modal({ onClose, children, title }: { onClose: () => void; children: React.ReactNode; title: string }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-7 max-w-lg w-[90%] max-h-[80vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-5">
+          <h2 className="text-lg font-bold text-gray-900">{title}</h2>
+          <button onClick={onClose} className="bg-gray-100 border-none rounded-lg w-8 h-8 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition"><Icon d="M6 18L18 6M6 6l12 12" size={16} color="#6B7280" /></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminPortalPage() {
   const { user, loading: authLoading, signOut } = useAuth();
 
@@ -432,19 +446,7 @@ export default function AdminPortalPage() {
     );
   };
 
-  // ═══ MODAL ═══
-  const Modal = ({ onClose, children, title }: { onClose: () => void; children: React.ReactNode; title: string }) => (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-2xl p-7 max-w-lg w-[90%] max-h-[80vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex justify-between items-center mb-5">
-          <h2 className="text-lg font-bold text-gray-900">{title}</h2>
-          <button onClick={onClose} className="bg-gray-100 border-none rounded-lg w-8 h-8 flex items-center justify-center cursor-pointer hover:bg-gray-200 transition"><Icon d={icons.x} size={16} color="#6B7280" /></button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-
+  
   // ═══ LOADING ═══
   if (loading || authLoading) {
     return (<div className="min-h-screen bg-gray-50 flex items-center justify-center"><svg className="animate-spin h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg></div>);
