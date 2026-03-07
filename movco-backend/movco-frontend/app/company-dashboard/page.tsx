@@ -228,6 +228,8 @@ export default function CompanyDashboardPage() {
   const [showQuickBookModal, setShowQuickBookModal] = useState(false);
   const [showStageManager, setShowStageManager] = useState(false);
   const [showComposeEmail, setShowComposeEmail] = useState(false);
+  const [showBulkEmail, setShowBulkEmail] = useState(false);
+const [bulkEmailRecipients, setBulkEmailRecipients] = useState<{ name: string; email: string }[]>([]);
   const [composeEmailCustomer, setComposeEmailCustomer] = useState<Customer | null>(null);
   const [showCustomerDetail, setShowCustomerDetail] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -1337,6 +1339,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
                 onDeleteDeal={deleteDeal}
                 onClickDeal={(deal) => openCustomerFromDeal(deal)}
                 dealHasBooking={dealHasBooking}
+                onBulkEmail={(recipients) => { setBulkEmailRecipients(recipients); setShowBulkEmail(true); }}
                 onManageStages={() => setShowStageManager(true)}
                 tasks={allCompanyTasks}
                 customers={customers}
@@ -1472,6 +1475,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
         />
       )}
       {showComposeEmail && composeEmailCustomer && (
+
         <ComposeEmailModal
           customer={composeEmailCustomer}
           emailConnected={emailConnected}
@@ -2417,7 +2421,7 @@ function QuotesTab({ quotes, company, onAddQuote, onDeleteQuote, onUpdateStatus,
 // PIPELINE TAB
 // ============================================
 
-function PipelineTab({ stages, deals, events, onMoveDeal, onEditDeal, onDeleteDeal, onClickDeal, dealHasBooking, onManageStages, tasks, customers, onOpenCustomerDetail }: {
+function PipelineTab({ stages, deals, events, onMoveDeal, onEditDeal, onDeleteDeal, onClickDeal, dealHasBooking, onManageStages, tasks, customers, onOpenCustomerDetail, onBulkEmail }: {
   stages: PipelineStage[]; deals: Deal[]; events: DiaryEvent[];
   onMoveDeal: (dealId: string, stageId: string) => void;
   onEditDeal: (deal: Deal) => void; onDeleteDeal: (dealId: string) => void;
@@ -2427,12 +2431,14 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onEditDeal, onDeleteDe
   tasks: CustomerTask[];
   customers: Customer[];
   onOpenCustomerDetail: (customer: Customer) => void;
+  onBulkEmail: (recipients: { name: string; email: string }[]) => void;
 }) {
   const [draggedDealId, setDraggedDealId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'newest' | 'value' | 'date'>('newest');
   const [showTasksDropdown, setShowTasksDropdown] = useState(false);
+  const [selectedDealIds, setSelectedDealIds] = useState<Set<string>>(new Set());
   const tasksRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
@@ -2483,8 +2489,43 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onEditDeal, onDeleteDe
     return due.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   };
 
-  const totalValue = deals.reduce((s, d) => s + (d.estimated_value || 0), 0);
+  const toggleDeal = (dealId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedDealIds(prev => {
+      const next = new Set(prev);
+      next.has(dealId) ? next.delete(dealId) : next.add(dealId);
+      return next;
+    });
+  };
 
+  const toggleStage = (stageId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const stageDeals = filteredDeals(stageId);
+    const stageIds = stageDeals.map(d => d.id);
+    const allSelected = stageIds.every(id => selectedDealIds.has(id));
+    setSelectedDealIds(prev => {
+      const next = new Set(prev);
+      if (allSelected) { stageIds.forEach(id => next.delete(id)); }
+      else { stageIds.forEach(id => next.add(id)); }
+      return next;
+    });
+  };
+
+  const isStageFullySelected = (stageId: string) => {
+    const stageDeals = filteredDeals(stageId);
+    return stageDeals.length > 0 && stageDeals.every(d => selectedDealIds.has(d.id));
+  };
+
+  const isStagePartiallySelected = (stageId: string) => {
+    const stageDeals = filteredDeals(stageId);
+    return stageDeals.some(d => selectedDealIds.has(d.id)) && !isStageFullySelected(stageId);
+  };
+
+  const selectedWithEmail = deals.filter(d => selectedDealIds.has(d.id) && d.customer_email);
+  const selectedWithoutEmail = deals.filter(d => selectedDealIds.has(d.id) && !d.customer_email);
+  const selectedCount = selectedDealIds.size;
+
+  const totalValue = deals.reduce((s, d) => s + (d.estimated_value || 0), 0);
   const filteredDeals = (stageId: string) => {
     let stageDeals = deals.filter((d) => d.stage_id === stageId);
     if (searchQuery) {
@@ -2523,6 +2564,40 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onEditDeal, onDeleteDe
             <option value="value">Highest value</option>
             <option value="date">Move date</option>
           </select>
+          {/* Bulk Email Button */}
+          <button
+            onClick={() => {
+              const recipients = selectedWithEmail.map(d => ({ name: d.customer_name, email: d.customer_email! }));
+              onBulkEmail(recipients);
+            }}
+            disabled={selectedWithEmail.length === 0}
+            className={`inline-flex items-center gap-2 px-3 py-2 border font-medium rounded-lg transition text-sm ${
+              selectedWithEmail.length > 0
+                ? 'border-blue-500 bg-blue-500 text-white hover:bg-blue-600'
+                : 'border-gray-200 text-gray-400 bg-white cursor-not-allowed'
+            }`}
+            title={selectedWithEmail.length === 0 ? 'Select deals to send bulk email' : `Send to ${selectedWithEmail.length} recipient${selectedWithEmail.length !== 1 ? 's' : ''}`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+            Bulk Email
+            {selectedCount > 0 && (
+              <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${selectedWithEmail.length > 0 ? 'bg-white text-blue-600' : 'bg-gray-200 text-gray-500'}`}>
+                {selectedWithEmail.length}{selectedWithoutEmail.length > 0 && <span className="opacity-60"> / {selectedCount}</span>}
+              </span>
+            )}
+          </button>
+          {selectedCount > 0 && (
+            <button
+              onClick={() => setSelectedDealIds(new Set())}
+              className="inline-flex items-center gap-1.5 px-3 py-2 border border-gray-200 text-gray-500 font-medium rounded-lg hover:bg-gray-50 transition text-sm"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              Clear
+            </button>
+          )}
+
           {/* Tasks Button + Dropdown */}
           <div className="relative" ref={tasksRef}>
             <button
@@ -2625,6 +2700,17 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onEditDeal, onDeleteDe
                 <div className="px-3 py-2.5 rounded-t-xl" style={{ backgroundColor: stage.color + '15', borderBottom: `2px solid ${stage.color}` }}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => toggleStage(stage.id, e)}
+                        className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                          isStageFullySelected(stage.id) ? 'bg-blue-500 border-blue-500'
+                          : isStagePartiallySelected(stage.id) ? 'bg-blue-100 border-blue-400'
+                          : 'bg-white border-gray-300 hover:border-blue-400'
+                        }`}
+                      >
+                        {isStageFullySelected(stage.id) && <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                        {isStagePartiallySelected(stage.id) && <div className="w-2 h-0.5 bg-blue-500 rounded" />}
+                      </button>
                       <h3 className="font-bold text-gray-800 text-[13px] truncate">{stage.name}</h3>
                     </div>
                     <div className="flex items-center gap-1.5">
@@ -2642,12 +2728,26 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onEditDeal, onDeleteDe
                     return (
                       <div key={deal.id} draggable onDragStart={() => setDraggedDealId(deal.id)} onDragEnd={() => setDraggedDealId(null)}
                         onClick={() => onClickDeal(deal)}
-                        className={`bg-white rounded-lg p-3 border border-gray-100 cursor-pointer hover:shadow-md hover:border-gray-200 transition-all group ${draggedDealId === deal.id ? 'opacity-40 scale-95' : ''}`}>
-                        
+                        className={`bg-white rounded-lg p-3 border cursor-pointer hover:shadow-md transition-all group ${
+                          selectedDealIds.has(deal.id) ? 'border-blue-400 ring-1 ring-blue-300 shadow-sm' : 'border-gray-100 hover:border-gray-200'
+                        } ${draggedDealId === deal.id ? 'opacity-40 scale-95' : ''}`}>
+
                         {/* Customer name & icons */}
                         <div className="flex items-start justify-between mb-1.5">
                           <div className="flex items-center gap-2 min-w-0 flex-1">
-                            <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0" 
+                            <button
+                              onClick={(e) => deal.customer_email ? toggleDeal(deal.id, e) : e.stopPropagation()}
+                              className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                                !deal.customer_email ? 'bg-gray-100 border-gray-200 cursor-not-allowed'
+                                : selectedDealIds.has(deal.id) ? 'bg-blue-500 border-blue-500'
+                                : 'bg-white border-gray-300 hover:border-blue-400 opacity-0 group-hover:opacity-100'
+                              }`}
+                              title={!deal.customer_email ? 'No email address' : selectedDealIds.has(deal.id) ? 'Deselect' : 'Select for bulk email'}
+                            >
+                              {selectedDealIds.has(deal.id) && deal.customer_email && <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                              {!deal.customer_email && <svg className="w-2 h-2 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>}
+                            </button>
+                            <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0"
                               style={{ backgroundColor: stage.color + '20', color: stage.color }}>
                               {deal.customer_name.charAt(0).toUpperCase()}
                             </div>
@@ -2659,12 +2759,15 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onEditDeal, onDeleteDe
                         </div>
 
                         {/* Details */}
+                        {!deal.customer_email && (
+                          <p className="text-[10px] text-gray-300 ml-14 mb-1 italic">No email address</p>
+                        )}
                         {deal.moving_from && (
-                          <p className="text-[11px] text-gray-500 truncate mb-1 ml-9">{deal.moving_from} → {deal.moving_to}</p>
+                          <p className="text-[11px] text-gray-500 truncate mb-1 ml-14">{deal.moving_from} → {deal.moving_to}</p>
                         )}
 
                         {/* Meta row */}
-                        <div className="flex items-center gap-2 ml-9 mt-1.5">
+                        <div className="flex items-center gap-2 ml-14 mt-1.5">
                           {deal.moving_date && (
                             <span className="text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded font-medium">
                               {new Date(deal.moving_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
@@ -2674,7 +2777,7 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onEditDeal, onDeleteDe
                         </div>
 
                         {/* Action icons — show on hover */}
-                        <div className="flex items-center gap-1 mt-2 ml-9 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center gap-1 mt-2 ml-14 opacity-0 group-hover:opacity-100 transition-opacity">
                           {deal.customer_phone && (
                             <a href={`tel:${deal.customer_phone}`} onClick={e => e.stopPropagation()} className="w-6 h-6 rounded flex items-center justify-center text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition" title="Call">
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
@@ -5230,6 +5333,142 @@ function ComposeEmailModal({ customer, emailConnected, companyId, onClose }: {
       </div>
     );
   }
+
+ function BulkEmailModal({ recipients, emailConnected, companyId, onClose }: {
+  recipients: { name: string; email: string }[];
+  emailConnected: boolean;
+  companyId: string;
+  onClose: () => void;
+}) {
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [sending, setSending] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [results, setResults] = useState<{ sent: number; failed: number } | null>(null);
+
+  const quickTemplates = [
+    { label: 'Follow-up', subject: 'Following up on your move', body: `Hi {name},\n\nI wanted to follow up regarding your upcoming move. Please don't hesitate to get in touch if you have any questions.\n\nBest regards` },
+    { label: 'Confirmation', subject: 'Your move is confirmed', body: `Hi {name},\n\nWe're pleased to confirm your upcoming move with us. Our team will be in touch shortly with further details.\n\nBest regards` },
+    { label: 'Reminder', subject: 'Reminder about your upcoming move', body: `Hi {name},\n\nThis is a friendly reminder about your upcoming move. If you have any last-minute questions or changes, please contact us as soon as possible.\n\nBest regards` },
+    { label: 'Check-in', subject: 'Checking in', body: `Hi {name},\n\nI just wanted to check in and see if there's anything we can do to help as you prepare for your move.\n\nBest regards` },
+  ];
+
+  const handleSend = async () => {
+    if (!subject.trim() || !body.trim()) return;
+    setSending(true);
+    setProgress(0);
+    let sent = 0;
+    let failed = 0;
+    for (let i = 0; i < recipients.length; i++) {
+      const r = recipients[i];
+      const personalised = body.replace(/\{name\}/g, r.name.split(' ')[0]);
+      try {
+        const res = await fetch('/api/email/send-custom', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ company_id: companyId, recipient_email: r.email, recipient_name: r.name, subject, body_text: personalised }),
+        });
+        res.ok ? sent++ : failed++;
+      } catch { failed++; }
+      setProgress(Math.round(((i + 1) / recipients.length) * 100));
+      if (i < recipients.length - 1) await new Promise(res => setTimeout(res, 200));
+    }
+    setSending(false);
+    setResults({ sent, failed });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">Bulk Email</h2>
+            <p className="text-sm text-gray-500 mt-0.5">{recipients.length} recipient{recipients.length !== 1 ? 's' : ''}</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 transition">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        {results ? (
+          <div className="px-6 py-10 text-center">
+            <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-7 h-7 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Emails Sent</h3>
+            <p className="text-gray-500 mb-1"><span className="font-semibold text-green-600">{results.sent}</span> sent successfully</p>
+            {results.failed > 0 && <p className="text-gray-500 mb-4"><span className="font-semibold text-red-500">{results.failed}</span> failed</p>}
+            <button onClick={onClose} className="mt-4 px-6 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 transition text-sm">Done</button>
+          </div>
+        ) : sending ? (
+          <div className="px-6 py-10 text-center">
+            <div className="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+              <svg className="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-1">Sending...</h3>
+            <p className="text-sm text-gray-500 mb-5">{progress}% complete</p>
+            <div className="w-full bg-gray-100 rounded-full h-2">
+              <div className="bg-blue-500 h-2 rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
+            </div>
+          </div>
+        ) : (
+          <div className="px-6 py-5 space-y-4">
+            {!emailConnected && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-700">
+                ⚠️ Gmail not connected. Connect your email in Settings to send emails.
+              </div>
+            )}
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Recipients</p>
+              <div className="max-h-28 overflow-y-auto space-y-1">
+                {recipients.map((r, i) => (
+                  <div key={i} className="flex items-center gap-2.5 px-3 py-1.5 bg-gray-50 rounded-lg">
+                    <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center text-[10px] font-bold text-blue-600 flex-shrink-0">
+                      {r.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-gray-800 truncate">{r.name}</p>
+                      <p className="text-[10px] text-gray-400 truncate">{r.email}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1.5">Use <code className="bg-gray-100 px-1 rounded">{'{name}'}</code> to personalise with first name.</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Quick Templates</p>
+              <div className="flex flex-wrap gap-1.5">
+                {quickTemplates.map(t => (
+                  <button key={t.label} onClick={() => { setSubject(t.subject); setBody(t.body); }}
+                    className="px-3 py-1.5 bg-gray-100 hover:bg-blue-50 hover:text-blue-700 text-gray-600 rounded-lg text-xs font-medium transition">
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1.5">Subject</label>
+              <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Email subject..."
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1.5">Message</label>
+              <textarea value={body} onChange={e => setBody(e.target.value)} rows={7} placeholder="Write your message here..."
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none" />
+            </div>
+            <div className="flex gap-3 pt-1">
+              <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-600 rounded-lg font-medium hover:bg-gray-50 transition text-sm">Cancel</button>
+              <button onClick={handleSend} disabled={!subject.trim() || !body.trim() || !emailConnected}
+                className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
+                Send to {recipients.length}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
   if (sent) {
     return (
