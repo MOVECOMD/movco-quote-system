@@ -254,20 +254,23 @@ export default function AdminPortalPage() {
     if (!editModal) return;
     setSaving(true);
     const table = editModal._type === 'storage' ? 'storage_partners' : 'removals_partners';
-      await adminApi({
+    const isStorage = editModal._type === 'storage';
+    const commonFields = {
+      company_name: formData.company_name,
+      slug: formData.slug,
+      email: formData.email || null,
+      phone: formData.phone || null,
+      primary_color: formData.primary_color,
+      website: formData.website || null,
+      notification_email: formData.notification_email || null,
+    };
+    const result = await adminApi({
       action: 'update', table, id: editModal.id,
-      data: {
-        company_name: formData.company_name,
-        slug: formData.slug,
-        email: formData.email || null,
-        phone: formData.phone || null,
-        primary_color: formData.primary_color,
-        ...(editModal._type !== 'storage' ? { plan: formData.plan } : {}),
-        website: formData.website || null,
-        notification_email: formData.notification_email || null,
-        ...(editModal._type === 'storage' ? { units: formData.units || [] } : {}),
-      },
+      data: isStorage
+        ? { ...commonFields, units: formData.units || [] }
+        : { ...commonFields, plan: formData.plan },
     });
+    if (result?.error) console.error('Save failed:', result.error);
     setSaving(false); setEditModal(null); fetchData();
   };
 
