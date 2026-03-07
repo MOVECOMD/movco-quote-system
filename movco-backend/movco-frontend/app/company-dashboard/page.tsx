@@ -621,7 +621,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
     }
   };
 
-  const saveQuoteFromBuilder = async (quote: Partial<CrmQuote>) => {
+   const saveQuoteFromBuilder = async (quote: Partial<CrmQuote>) => {
     if (!company) return;
     const { data, error } = await supabase
       .from('crm_quotes')
@@ -630,6 +630,15 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
       .single();
     if (!error && data) {
       setCrmQuotes((prev) => [data as CrmQuote, ...prev]);
+
+      // Update the linked deal's estimated_value with the quote price
+      if (quote.deal_id && quote.estimated_price) {
+        await supabase
+          .from('crm_deals')
+          .update({ estimated_value: quote.estimated_price, updated_at: new Date().toISOString() })
+          .eq('id', quote.deal_id);
+        setDeals((prev) => prev.map((d) => d.id === quote.deal_id ? { ...d, estimated_value: quote.estimated_price! } : d));
+      }
     }
     setShowQuoteBuilder(false);
     setQuotePrefill(null);
