@@ -621,7 +621,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
     }
   };
 
-   const saveQuoteFromBuilder = async (quote: Partial<CrmQuote>) => {
+     const saveQuoteFromBuilder = async (quote: Partial<CrmQuote>) => {
     if (!company) return;
     const { data, error } = await supabase
       .from('crm_quotes')
@@ -629,7 +629,9 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
       .select()
       .single();
     if (!error && data) {
-      setCrmQuotes((prev) => [data as CrmQuote, ...prev]);
+      // Ensure deal_id is preserved in local state even if DB doesn't return it
+      const savedQuote = { ...data, deal_id: data.deal_id || quote.deal_id || null } as CrmQuote;
+      setCrmQuotes((prev) => [savedQuote, ...prev]);
 
       // Update the linked deal's estimated_value with the quote price
       if (quote.deal_id && quote.estimated_price) {
