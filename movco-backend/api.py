@@ -26,7 +26,7 @@ FT3_TO_M3 = 0.0283168  # cubic feet -> cubic metres
 # ---------------------------------------------------------------------------
 # Van & labour constants (UK removals industry standard)
 # ---------------------------------------------------------------------------
-LUTON_VAN_CAPACITY_M3 = 35.0   # Large Luton van: ~30-38 m³, we use 35
+LUTON_VAN_CAPACITY_M3 = 42.0   # Large Luton van: ~30-38 m³, we use 35
 SWB_VAN_CAPACITY_M3 = 11.0     # Small (short wheelbase) van
 LWB_VAN_CAPACITY_M3 = 18.0     # Medium (long wheelbase) van
 
@@ -133,6 +133,7 @@ class QuoteResponse(BaseModel):
     recommended_movers: int = 2
     is_weekend: bool = False
     pricing_method: str = "hybrid"  # "model", "rule_based", or "hybrid"
+    job_hours: float = 4.0
 
 
 FURNITURE_VOLUMES = {
@@ -843,6 +844,7 @@ def analyze_quote(req: QuoteRequest):
         recommended_movers=movers,
         is_weekend=weekend,
         pricing_method=pricing_method,
+        job_hours=rule_price_info['job_hours'],
     )
 
 

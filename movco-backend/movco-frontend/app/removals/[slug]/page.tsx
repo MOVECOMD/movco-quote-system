@@ -173,7 +173,7 @@ export default function RemovalsCalculatorPage() {
     const sorted = [...vans].sort((a, b) => a.capacity_m3 - b.capacity_m3);
     const recommended = sorted.find((v) => v.capacity_m3 >= volumeNeeded) || sorted[sorted.length - 1];
 
-    const hours = analysisData.estimated_hours || 4;
+    const hours = analysisData.estimated_hours || 3;
     const labour = recommended.hourly * hours;
     const mileageEstimate = 15;
     const mileageCost = mileageEstimate * partnerData.pricing.per_mile;
@@ -246,7 +246,7 @@ export default function RemovalsCalculatorPage() {
           items: data.items || [],
           totalVolumeM3: data.totalVolumeM3 || 10,
           totalVolumeFt3: data.totalVolumeFt3,
-          estimated_hours: data.estimated_hours,
+          estimated_hours: data.job_hours,
           van_count: data.van_count,
           recommended_movers: data.recommended_movers,
           description: data.description || '',
