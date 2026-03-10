@@ -135,73 +135,154 @@ class QuoteResponse(BaseModel):
     pricing_method: str = "hybrid"  # "model", "rule_based", or "hybrid"
 
 
-# ---------- Furniture volume estimates (average cubic feet) ----------
-
 FURNITURE_VOLUMES = {
-    "sofa": 50.0,
-    "3-seater sofa": 60.0,
-    "2-seater sofa": 45.0,
-    "loveseat": 40.0,
-    "sectional sofa": 80.0,
-    "armchair": 30.0,
-    "recliner": 35.0,
-    "bed": 70.0,
-    "queen bed": 70.0,
-    "king bed": 85.0,
-    "double bed": 65.0,
-    "single bed": 50.0,
-    "bunk bed": 80.0,
-    "dining table": 45.0,
-    "coffee table": 15.0,
-    "side table": 8.0,
-    "end table": 8.0,
-    "console table": 20.0,
-    "desk": 35.0,
-    "office desk": 40.0,
-    "dresser": 45.0,
-    "chest of drawers": 40.0,
-    "wardrobe": 65.0,
-    "armoire": 70.0,
-    "bookshelf": 35.0,
-    "bookcase": 40.0,
-    "tv stand": 25.0,
-    "entertainment center": 50.0,
-    "nightstand": 10.0,
-    "bedside table": 10.0,
-    "dining chair": 8.0,
-    "office chair": 12.0,
-    "bar stool": 6.0,
-    "ottoman": 12.0,
-    "cabinet": 30.0,
-    "filing cabinet": 15.0,
-    "china cabinet": 45.0,
-    "sideboard": 40.0,
-    "credenza": 35.0,
-    "bench": 15.0,
-    "footstool": 5.0,
-    "mirror": 5.0,
-    "large mirror": 8.0,
-    "lamp": 3.0,
-    "floor lamp": 4.0,
-    "mattress": 30.0,
-    "box spring": 30.0,
-    "rug": 5.0,
-    "large rug": 10.0,
-    "tv": 8.0,
-    "large tv": 12.0,
-    "refrigerator": 55.0,
-    "washing machine": 30.0,
-    "dryer": 30.0,
-    "dishwasher": 25.0,
-    "microwave": 4.0,
-    "boxes": 3.0,
-    "storage box": 3.0,
-    "bin": 2.0,
-    "plant": 5.0,
-    "large plant": 10.0,
-    "bicycle": 15.0,
-    "treadmill": 40.0,
-    "exercise equipment": 20.0,
+    # ===== SOFAS & SEATING =====
+    "sofa": 30.0,                    # ~0.85m³
+    "3-seater sofa": 35.0,           # ~0.99m³
+    "2-seater sofa": 25.0,           # ~0.71m³
+    "loveseat": 22.0,                # ~0.62m³
+    "sectional sofa": 55.0,          # ~1.56m³
+    "armchair": 15.0,                # ~0.42m³
+    "recliner": 18.0,                # ~0.51m³
+    "sofa bed": 40.0,                # ~1.13m³
+    "chair": 10.0,                   # ~0.28m³
+
+    # ===== BEDS & BEDROOM =====
+    "bed": 40.0,                     # ~1.13m³ (double, no mattress)
+    "king bed": 50.0,                # ~1.42m³
+    "queen bed": 45.0,               # ~1.27m³
+    "double bed": 40.0,              # ~1.13m³
+    "single bed": 28.0,              # ~0.79m³
+    "bunk bed": 55.0,                # ~1.56m³
+    "bed frame": 25.0,               # ~0.71m³
+    "mattress": 18.0,                # ~0.51m³ (compressible)
+    "single mattress": 14.0,         # ~0.40m³
+    "double mattress": 18.0,         # ~0.51m³
+    "king mattress": 22.0,           # ~0.62m³
+    "box spring": 18.0,              # ~0.51m³
+    "headboard": 8.0,                # ~0.23m³
+    "bedside table": 5.0,            # ~0.14m³
+    "nightstand": 5.0,               # ~0.14m³
+
+    # ===== STORAGE & WARDROBES =====
+    "wardrobe": 38.0,                # ~1.08m³
+    "large wardrobe": 50.0,          # ~1.42m³
+    "double wardrobe": 45.0,         # ~1.27m³
+    "single wardrobe": 28.0,         # ~0.79m³
+    "armoire": 45.0,                 # ~1.27m³
+    "chest of drawers": 18.0,        # ~0.51m³
+    "tall chest of drawers": 22.0,   # ~0.62m³
+    "dresser": 20.0,                 # ~0.57m³
+    "filing cabinet": 8.0,           # ~0.23m³
+    "cabinet": 15.0,                 # ~0.42m³
+    "storage cabinet": 15.0,         # ~0.42m³
+    "display cabinet": 20.0,         # ~0.57m³
+    "china cabinet": 25.0,           # ~0.71m³
+
+    # ===== TABLES =====
+    "dining table": 25.0,            # ~0.71m³
+    "large dining table": 35.0,      # ~0.99m³
+    "coffee table": 8.0,             # ~0.23m³
+    "side table": 4.0,               # ~0.11m³
+    "end table": 4.0,                # ~0.11m³
+    "console table": 10.0,           # ~0.28m³
+    "desk": 20.0,                    # ~0.57m³
+    "office desk": 22.0,             # ~0.62m³
+    "computer desk": 18.0,           # ~0.51m³
+    "dressing table": 18.0,          # ~0.51m³
+
+    # ===== CHAIRS =====
+    "dining chair": 5.0,             # ~0.14m³
+    "office chair": 8.0,             # ~0.23m³
+    "bar stool": 3.0,                # ~0.08m³
+    "stool": 3.0,                    # ~0.08m³
+    "bench": 10.0,                   # ~0.28m³
+    "ottoman": 8.0,                  # ~0.23m³
+    "footstool": 4.0,                # ~0.11m³
+
+    # ===== SHELVING & BOOKCASES =====
+    "bookcase": 18.0,                # ~0.51m³
+    "bookshelf": 18.0,               # ~0.51m³
+    "large bookcase": 25.0,          # ~0.71m³
+    "shelving unit": 15.0,           # ~0.42m³
+    "wall unit": 30.0,               # ~0.85m³
+
+    # ===== TV & MEDIA =====
+    "tv": 5.0,                       # ~0.14m³ (flat screen)
+    "large tv": 8.0,                 # ~0.23m³ (65"+)
+    "tv stand": 12.0,                # ~0.34m³
+    "entertainment center": 28.0,    # ~0.79m³
+    "media unit": 20.0,              # ~0.57m³
+
+    # ===== SIDEBOARDS & LIVING ROOM =====
+    "sideboard": 20.0,               # ~0.57m³
+    "credenza": 18.0,                # ~0.51m³
+    "buffet": 20.0,                  # ~0.57m³
+
+    # ===== APPLIANCES =====
+    "refrigerator": 28.0,            # ~0.79m³
+    "fridge": 25.0,                  # ~0.71m³
+    "fridge freezer": 30.0,          # ~0.85m³
+    "washing machine": 18.0,         # ~0.51m³
+    "dryer": 18.0,                   # ~0.51m³
+    "dishwasher": 14.0,              # ~0.40m³
+    "microwave": 2.0,                # ~0.06m³
+    "oven": 20.0,                    # ~0.57m³
+    "cooker": 22.0,                  # ~0.62m³
+    "freezer": 22.0,                 # ~0.62m³
+
+    # ===== BOXES & PACKING =====
+    "boxes": 2.5,                    # ~0.07m³ per box
+    "box": 2.5,                      # ~0.07m³
+    "cardboard box": 2.5,            # ~0.07m³
+    "large box": 4.0,                # ~0.11m³
+    "small box": 1.5,                # ~0.04m³
+    "storage box": 3.0,              # ~0.08m³
+    "storage crate": 3.0,            # ~0.08m³
+    "packing box": 2.5,              # ~0.07m³
+    "removal box": 2.5,              # ~0.07m³
+    "bin": 2.0,                      # ~0.06m³
+    "storage bin": 2.0,              # ~0.06m³
+
+    # ===== DÉCOR & MISC =====
+    "mirror": 3.0,                   # ~0.08m³
+    "large mirror": 5.0,             # ~0.14m³
+    "lamp": 2.0,                     # ~0.06m³
+    "floor lamp": 3.0,               # ~0.08m³
+    "rug": 3.0,                      # ~0.08m³ (rolled)
+    "large rug": 6.0,                # ~0.17m³ (rolled)
+    "plant": 3.0,                    # ~0.08m³
+    "large plant": 6.0,              # ~0.17m³
+    "picture": 1.0,                  # ~0.03m³
+    "artwork": 2.0,                  # ~0.06m³
+
+    # ===== GARDEN & OUTDOOR =====
+    "garden furniture": 20.0,        # ~0.57m³
+    "garden table": 15.0,            # ~0.42m³
+    "garden chair": 5.0,             # ~0.14m³
+    "bbq": 10.0,                     # ~0.28m³
+    "lawnmower": 12.0,               # ~0.34m³
+
+    # ===== SPORTS & LEISURE =====
+    "bicycle": 10.0,                 # ~0.28m³
+    "treadmill": 22.0,               # ~0.62m³
+    "exercise bike": 12.0,           # ~0.34m³
+    "exercise equipment": 15.0,      # ~0.42m³
+    "golf clubs": 5.0,               # ~0.14m³
+
+    # ===== CHILDREN =====
+    "cot": 18.0,                     # ~0.51m³
+    "crib": 18.0,                    # ~0.51m³
+    "pram": 8.0,                     # ~0.23m³
+    "pushchair": 6.0,                # ~0.17m³
+    "high chair": 5.0,               # ~0.14m³
+    "toy box": 6.0,                  # ~0.17m³
+
+    # ===== OFFICE =====
+    "printer": 3.0,                  # ~0.08m³
+    "computer": 3.0,                 # ~0.08m³
+    "monitor": 3.0,                  # ~0.08m³
+    "safe": 15.0,                    # ~0.42m³
 }
 
 
