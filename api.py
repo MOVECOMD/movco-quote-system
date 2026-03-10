@@ -150,6 +150,7 @@ class QuoteResponse(BaseModel):
     recommended_movers: int = 2
     is_weekend: bool = False
     pricing_method: str = "hybrid"  # "model", "rule_based", or "hybrid"
+    job_hours: float = 4.0
 
 
 class BookingNotifyRequest(BaseModel):
@@ -170,72 +171,133 @@ class BookingNotifyRequest(BaseModel):
 # ---------- Furniture volume estimates (average cubic feet) ----------
 
 FURNITURE_VOLUMES = {
-    "sofa": 50.0,
-    "3-seater sofa": 60.0,
-    "2-seater sofa": 45.0,
-    "loveseat": 40.0,
-    "sectional sofa": 80.0,
-    "armchair": 30.0,
-    "recliner": 35.0,
-    "bed": 70.0,
-    "queen bed": 70.0,
-    "king bed": 85.0,
-    "double bed": 65.0,
-    "single bed": 50.0,
-    "bunk bed": 80.0,
-    "dining table": 45.0,
-    "coffee table": 15.0,
-    "side table": 8.0,
-    "end table": 8.0,
-    "console table": 20.0,
-    "desk": 35.0,
-    "office desk": 40.0,
-    "dresser": 45.0,
-    "chest of drawers": 40.0,
-    "wardrobe": 65.0,
-    "armoire": 70.0,
-    "bookshelf": 35.0,
-    "bookcase": 40.0,
-    "tv stand": 25.0,
-    "entertainment center": 50.0,
-    "nightstand": 10.0,
-    "bedside table": 10.0,
-    "dining chair": 8.0,
-    "office chair": 12.0,
-    "bar stool": 6.0,
-    "ottoman": 12.0,
-    "cabinet": 30.0,
-    "filing cabinet": 15.0,
-    "china cabinet": 45.0,
-    "sideboard": 40.0,
-    "credenza": 35.0,
-    "bench": 15.0,
-    "footstool": 5.0,
-    "mirror": 5.0,
-    "large mirror": 8.0,
-    "lamp": 3.0,
-    "floor lamp": 4.0,
-    "mattress": 30.0,
-    "box spring": 30.0,
-    "rug": 5.0,
-    "large rug": 10.0,
-    "tv": 8.0,
-    "large tv": 12.0,
-    "refrigerator": 55.0,
-    "washing machine": 30.0,
-    "dryer": 30.0,
-    "dishwasher": 25.0,
-    "microwave": 4.0,
-    "boxes": 3.0,
+    "sofa": 30.0,
+    "3-seater sofa": 35.0,
+    "2-seater sofa": 25.0,
+    "loveseat": 22.0,
+    "sectional sofa": 55.0,
+    "armchair": 15.0,
+    "recliner": 18.0,
+    "sofa bed": 40.0,
+    "chair": 10.0,
+    "bed": 40.0,
+    "king bed": 50.0,
+    "queen bed": 45.0,
+    "double bed": 40.0,
+    "single bed": 28.0,
+    "bunk bed": 55.0,
+    "bed frame": 25.0,
+    "mattress": 18.0,
+    "single mattress": 14.0,
+    "double mattress": 18.0,
+    "king mattress": 22.0,
+    "box spring": 18.0,
+    "headboard": 8.0,
+    "bedside table": 5.0,
+    "nightstand": 5.0,
+    "wardrobe": 38.0,
+    "large wardrobe": 50.0,
+    "double wardrobe": 45.0,
+    "single wardrobe": 28.0,
+    "armoire": 45.0,
+    "chest of drawers": 18.0,
+    "tall chest of drawers": 22.0,
+    "dresser": 20.0,
+    "filing cabinet": 8.0,
+    "cabinet": 15.0,
+    "storage cabinet": 15.0,
+    "display cabinet": 20.0,
+    "china cabinet": 25.0,
+    "dining table": 25.0,
+    "large dining table": 35.0,
+    "coffee table": 8.0,
+    "side table": 4.0,
+    "end table": 4.0,
+    "console table": 10.0,
+    "desk": 20.0,
+    "office desk": 22.0,
+    "computer desk": 18.0,
+    "dressing table": 18.0,
+    "dining chair": 5.0,
+    "office chair": 8.0,
+    "bar stool": 3.0,
+    "stool": 3.0,
+    "bench": 10.0,
+    "ottoman": 8.0,
+    "footstool": 4.0,
+    "bookcase": 18.0,
+    "bookshelf": 18.0,
+    "large bookcase": 25.0,
+    "shelving unit": 15.0,
+    "wall unit": 30.0,
+    "tv": 5.0,
+    "large tv": 8.0,
+    "tv stand": 12.0,
+    "entertainment center": 28.0,
+    "media unit": 20.0,
+    "sideboard": 20.0,
+    "credenza": 18.0,
+    "buffet": 20.0,
+    "refrigerator": 28.0,
+    "fridge": 25.0,
+    "fridge freezer": 30.0,
+    "washing machine": 18.0,
+    "dryer": 18.0,
+    "dishwasher": 14.0,
+    "microwave": 2.0,
+    "oven": 20.0,
+    "cooker": 22.0,
+    "freezer": 22.0,
+    "boxes": 2.5,
+    "box": 2.5,
+    "cardboard box": 2.5,
+    "large box": 4.0,
+    "small box": 1.5,
     "storage box": 3.0,
+    "storage crate": 3.0,
+    "packing box": 2.5,
+    "removal box": 2.5,
     "bin": 2.0,
-    "plant": 5.0,
-    "large plant": 10.0,
-    "bicycle": 15.0,
-    "treadmill": 40.0,
-    "exercise equipment": 20.0,
+    "storage bin": 2.0,
+    "decorative pillows": 0.5,
+    "cushions": 0.5,
+    "throw": 0.3,
+    "curtains": 0.5,
+    "bedding": 0.5,
+    "pillows": 0.5,
+    "duvet": 0.5,
+    "table lamp": 1.0,
+    "lamp": 2.0,
+    "floor lamp": 3.0,
+    "pendant light fixture": 0.5,
+    "light fixture": 0.5,
+    "mirror": 4.0,
+    "large mirror": 6.0,
+    "rug": 3.0,
+    "large rug": 6.0,
+    "plant": 3.0,
+    "large plant": 6.0,
+    "garden furniture": 20.0,
+    "garden table": 15.0,
+    "garden chair": 5.0,
+    "bbq": 10.0,
+    "lawnmower": 12.0,
+    "bicycle": 10.0,
+    "treadmill": 22.0,
+    "exercise bike": 12.0,
+    "exercise equipment": 15.0,
+    "golf clubs": 5.0,
+    "cot": 18.0,
+    "crib": 18.0,
+    "pram": 8.0,
+    "pushchair": 6.0,
+    "high chair": 5.0,
+    "toy box": 6.0,
+    "printer": 3.0,
+    "computer": 3.0,
+    "monitor": 3.0,
+    "safe": 15.0,
 }
-
 
 def estimate_item_volume(item_name: str) -> float:
     item_lower = item_name.lower().strip()
@@ -244,7 +306,7 @@ def estimate_item_volume(item_name: str) -> float:
     for key, volume in FURNITURE_VOLUMES.items():
         if key in item_lower or item_lower in key:
             return volume
-    return 15.0
+    return 3.0
 
 
 # ---------- Van & Labour Estimation (NEW) ----------
@@ -502,23 +564,23 @@ def analyze_room_with_claude(image_url: str) -> Dict[str, Any]:
                         },
                         {
                             "type": "text",
-                            "text": """Analyze this room photo for a moving/removals company. 
+                            "text": """Analyze this room photo for a moving/removals company.
 
-Identify ALL furniture and notable items visible in the image. For each item, provide:
-1. The item name (be specific - e.g., "3-seater sofa" not just "sofa")
-2. Quantity (if multiple identical items are visible)
+Identify ALL furniture and items visible. Use ONLY simple standard names from this list where possible:
+sofa, 2-seater sofa, 3-seater sofa, armchair, bed, single bed, double bed, king bed, mattress, wardrobe, chest of drawers, bedside table, nightstand, dining table, dining chair, coffee table, desk, office chair, bookcase, bookshelf, tv, tv stand, sideboard, cabinet, washing machine, fridge, dishwasher, microwave, boxes, lamp, floor lamp, mirror, rug, plant, bicycle, treadmill, printer, monitor, curtains, headboard, dresser
 
-Format your response EXACTLY as a list like this:
-- 3-seater sofa (1)
-- armchair (2)
-- coffee table (1)
-- dining table (1)
-- dining chair (4)
-- bookshelf (1)
-- tv stand (1)
-- boxes (5)
+Only use a name NOT from this list if the item is genuinely not represented above.
+Never use slashes (/) in item names.
+Never add descriptive words like "wall-mounted", "small", "decorative", "built-in".
 
-Be thorough - include tables, chairs, shelves, beds, sofas, cabinets, storage boxes, plants, TVs, appliances, etc. Count everything that would need to be moved.""",
+Format your response EXACTLY as:
+- double bed (1)
+- bedside table (2)
+- wardrobe (1)
+- lamp (2)
+- curtains (1)
+
+Count everything visible that would need to be moved or stored.""",
                         },
                     ],
                 }
@@ -887,10 +949,12 @@ def analyze_quote(req: QuoteRequest):
         recommended_movers=movers,
         is_weekend=weekend,
         pricing_method=pricing_method,
+        job_hours=rule_price_info['job_hours'],
     )
 
 
 if __name__ == "__main__":
+
     import uvicorn
 
     print("\n[MOVCO] 🚀 Starting MOVCO API server (v2 — improved pricing)...")
