@@ -612,23 +612,23 @@ def analyze_room_with_claude(image_url: str) -> Dict[str, Any]:
                         },
                         {
                             "type": "text",
-                            "text": """Analyze this room photo for a moving/removals company. 
+                            "text": """Analyze this room photo for a moving/removals company.
 
-Identify ALL furniture and notable items visible in the image. For each item, provide:
-1. The item name (be specific - e.g., "3-seater sofa" not just "sofa")
-2. Quantity (if multiple identical items are visible)
+Identify ALL furniture and items visible. Use ONLY simple standard names from this list where possible:
+sofa, 2-seater sofa, 3-seater sofa, armchair, bed, single bed, double bed, king bed, mattress, wardrobe, chest of drawers, bedside table, nightstand, dining table, dining chair, coffee table, desk, office chair, bookcase, bookshelf, tv, tv stand, sideboard, cabinet, washing machine, fridge, dishwasher, microwave, boxes, lamp, floor lamp, mirror, rug, plant, bicycle, treadmill, printer, monitor, curtains, headboard, dresser
 
-Format your response EXACTLY as a list like this:
-- 3-seater sofa (1)
-- armchair (2)
-- coffee table (1)
-- dining table (1)
-- dining chair (4)
-- bookshelf (1)
-- tv stand (1)
-- boxes (5)
+Only use a name NOT from this list if the item is genuinely not represented above.
+Never use slashes (/) in item names.
+Never add descriptive words like "wall-mounted", "small", "decorative", "built-in".
 
-Be thorough - include tables, chairs, shelves, beds, sofas, cabinets, storage boxes, plants, TVs, appliances, etc. Count everything that would need to be moved.""",
+Format your response EXACTLY as:
+- double bed (1)
+- bedside table (2)
+- wardrobe (1)
+- lamp (2)
+- curtains (1)
+
+Count everything visible that would need to be moved or stored."""
                         },
                     ],
                 }
