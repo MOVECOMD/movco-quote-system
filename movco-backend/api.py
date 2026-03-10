@@ -245,17 +245,21 @@ FURNITURE_VOLUMES = {
     "bin": 2.0,                      # ~0.06m³
     "storage bin": 2.0,              # ~0.06m³
 
+   # ===== SOFT FURNISHINGS (near zero volume) =====
+    "decorative pillows": 0.5,
+    "decorative pillows/cushions": 0.5,
+    "bedding set": 0.5,
+    "cushions": 0.5,
+    "throw": 0.3,
+    "curtains": 0.5,
+    "bedding": 0.5,
+    "pillows": 0.5,
+    "duvet": 0.5,
+    "table lamp": 1.0,
+    "pendant light fixture": 0.5,
+    "light fixture": 0.5,
+
     # ===== DÉCOR & MISC =====
-    "mirror": 3.0,                   # ~0.08m³
-    "large mirror": 5.0,             # ~0.14m³
-    "lamp": 2.0,                     # ~0.06m³
-    "floor lamp": 3.0,               # ~0.08m³
-    "rug": 3.0,                      # ~0.08m³ (rolled)
-    "large rug": 6.0,                # ~0.17m³ (rolled)
-    "plant": 3.0,                    # ~0.08m³
-    "large plant": 6.0,              # ~0.17m³
-    "picture": 1.0,                  # ~0.03m³
-    "artwork": 2.0,                  # ~0.06m³
 
     # ===== GARDEN & OUTDOOR =====
     "garden furniture": 20.0,        # ~0.57m³
@@ -294,7 +298,7 @@ def estimate_item_volume(item_name: str) -> float:
     for key, volume in FURNITURE_VOLUMES.items():
         if key in item_lower or item_lower in key:
             return volume
-    return 15.0
+    return 3.0
 
 
 # ---------- Van & Labour Estimation (NEW) ----------
