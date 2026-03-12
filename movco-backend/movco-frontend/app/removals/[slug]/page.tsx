@@ -181,8 +181,9 @@ export default function RemovalsCalculatorPage() {
     const boxVolumeM3 = boxCount * 0.07;
     const totalVolumeWithBoxes = analysisData.totalVolumeM3 + boxVolumeM3;
 
-    // 1.6x buffer: removals load less efficiently than storage stacking
-    const volumeNeeded = totalVolumeWithBoxes * 1.6;
+    // Scaled buffer: AI underestimates more on larger moves
+    const volumeMultiplier = totalVolumeWithBoxes < 15 ? 1.6 : totalVolumeWithBoxes < 30 ? 2.0 : 2.4;
+    const volumeNeeded = totalVolumeWithBoxes * volumeMultiplier;
 
     // Exclude 'Large Luton' — stack standard Lutons instead
     const filteredVans = vans.filter((v) => !v.name.toLowerCase().includes('large luton'));
