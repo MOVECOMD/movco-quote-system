@@ -172,9 +172,8 @@ export default function RemovalsCalculatorPage() {
   // ─── Quote calculation ───
   const calculateQuote = (analysisData: AnalysisResult, partnerData: Partner, extrasData: Extras): Quote => {
     const vans = partnerData.van_types as VanType[];
-    // Removals needs a larger buffer than storage — items aren't packed as efficiently
-// when loading a van vs stacking in a storage unit. 1.6x corrects for AI underestimation.
-const volumeNeeded = analysisData.totalVolumeM3 * 1.6;
+    // 1.6x buffer: removals load less efficiently than storage stacking
+    const volumeNeeded = analysisData.totalVolumeM3 * 1.6;
     const sorted = [...vans].sort((a, b) => a.capacity_m3 - b.capacity_m3);
     const largest = sorted[sorted.length - 1];
 
@@ -199,7 +198,8 @@ const volumeNeeded = analysisData.totalVolumeM3 * 1.6;
     // Sum crew across all vans
     const totalCrew = selectedVans.reduce((sum, v) => sum + v.crew, 0);
 
-    const hours = analysisData.estimated_hours || 3;
+    // ── Fixed 8-hour day rate ──
+    const hours = 8;
     const labour = combinedHourly * hours;
 
     // ── Distance & mileage — field name confirmed after console.log check ──
@@ -789,7 +789,7 @@ const volumeNeeded = analysisData.totalVolumeM3 * 1.6;
             <p className="text-base opacity-90 mb-6">
               {quote.van_count > 1 ? `${quote.van_count}× ${quote.van.name}` : quote.van.name}
               {' · '}{quote.crew}-person crew
-              {' · '}{quote.distance_miles} miles
+              {' · '}8hr day rate
             </p>
 
             <div className="flex gap-2 justify-center flex-wrap">
@@ -814,8 +814,8 @@ const volumeNeeded = analysisData.totalVolumeM3 * 1.6;
             {[
               {
                 label: quote.van_count > 1
-                  ? `Labour (${quote.van_count}× ${quote.van.name}, ${quote.hours}hrs × £${quote.van.hourly}ea)`
-                  : `Labour (${quote.van.name}, ${quote.hours}hrs × £${quote.van.hourly})`,
+                  ? `Labour (${quote.van_count}× ${quote.van.name}, 8hr day × £${quote.van.hourly}ea)`
+                  : `Labour (${quote.van.name}, 8hr day × £${quote.van.hourly})`,
                 val: quote.breakdown.labour,
               },
               { label: `Distance (${quote.distance_miles} miles)`, val: quote.breakdown.mileage },
@@ -917,6 +917,22 @@ const volumeNeeded = analysisData.totalVolumeM3 * 1.6;
               })}
             </div>
           </div>
+
+          {/* ── Uploaded photos ── */}
+          {photoPreviews.length > 0 && (
+            <div className="bg-white rounded-2xl shadow-lg p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                Photos Analysed ({photoPreviews.length})
+              </h3>
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                {photoPreviews.map((url, idx) => (
+                  <div key={idx} className="aspect-square rounded-xl overflow-hidden border border-gray-100">
+                    <img src={url} alt={`Room ${idx + 1}`} className="w-full h-full object-cover" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ── CTA ── */}
           <div className="bg-white rounded-2xl shadow-lg p-6 text-center space-y-4">
