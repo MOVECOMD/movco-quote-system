@@ -124,7 +124,7 @@ export default function StorageCalculatorPage() {
       // 2. AI analysis
       setStep('analyzing');
 
-      const aiResponse = await fetch('https://movco-api.onrender.com/analyze', {
+      const aiResponse = await fetch('https://movco-storage-api.onrender.com/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
