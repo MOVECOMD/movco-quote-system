@@ -170,12 +170,24 @@ export default function RemovalsCalculatorPage() {
   };
 
   // ─── Quote calculation ───
-  const calculateQuote = (analysisData: AnalysisResult, partnerData: Partner, extrasData: Extras): Quote => {
+  const calculateQuote = (analysisData: AnalysisResult, partnerData: Partner, extrasData: Extras, propertyTypeVal: string): Quote => {
     const vans = partnerData.van_types as VanType[];
+
+    // ── Box estimates per property type (each box ~0.07 m³) ──
+    const BOX_COUNTS: Record<string, number> = {
+      studio: 15, '1bed': 25, '2bed': 40, '3bed': 60, '4bed': 80, office: 30,
+    };
+    const boxCount = BOX_COUNTS[propertyTypeVal] || 20;
+    const boxVolumeM3 = boxCount * 0.07;
+    const totalVolumeWithBoxes = analysisData.totalVolumeM3 + boxVolumeM3;
+
     // 1.6x buffer: removals load less efficiently than storage stacking
-    const volumeNeeded = analysisData.totalVolumeM3 * 1.6;
-    const sorted = [...vans].sort((a, b) => a.capacity_m3 - b.capacity_m3);
-    const largest = sorted[sorted.length - 1];
+    const volumeNeeded = totalVolumeWithBoxes * 1.6;
+
+    // Exclude 'Large Luton' — stack standard Lutons instead
+    const filteredVans = vans.filter((v) => !v.name.toLowerCase().includes('large luton'));
+    const sorted = [...filteredVans].sort((a, b) => a.capacity_m3 - b.capacity_m3);
+    const largest = sorted[sorted.length - 1]; // standard Luton
 
     // ── Multi-van logic ──
     let selectedVans: VanType[] = [];
@@ -202,7 +214,7 @@ export default function RemovalsCalculatorPage() {
     const hours = 8;
     const labour = combinedHourly * hours;
 
-    // ── Distance & mileage — field name confirmed after console.log check ──
+    // ── Distance & mileage ──
     const distanceMiles = analysisData.distance_miles || 15;
     const mileageCost = distanceMiles * partnerData.pricing.per_mile;
 
@@ -299,7 +311,7 @@ export default function RemovalsCalculatorPage() {
       setAnalysis(analysisData);
 
       // 3. Calculate quote
-      const quoteData = calculateQuote(analysisData, partner, extras);
+      const quoteData = calculateQuote(analysisData, partner, extras, propertyType);
       setQuote(quoteData);
 
       // 4. Save lead to Supabase
@@ -861,6 +873,19 @@ export default function RemovalsCalculatorPage() {
                   </div>
                 </div>
               ))}
+              {/* Box estimate based on property type */}
+              {(() => {
+                const BOX_COUNTS: Record<string, number> = {
+                  studio: 15, '1bed': 25, '2bed': 40, '3bed': 60, '4bed': 80, office: 30,
+                };
+                const boxes = BOX_COUNTS[propertyType] || 20;
+                return (
+                  <div className="flex items-center justify-between py-1.5 px-2 rounded-lg bg-amber-50 text-sm mt-2">
+                    <span className="text-amber-700 font-medium">📦 Estimated boxes (based on property size)</span>
+                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">×{boxes}</span>
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
