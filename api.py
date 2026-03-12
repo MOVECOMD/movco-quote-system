@@ -550,6 +550,7 @@ def analyze_room_with_claude(image_url: str) -> Dict[str, Any]:
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=2048,
+            temperature=0,
             messages=[
                 {
                     "role": "user",
