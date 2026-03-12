@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+anthropic
+joblib
+requests
+scikit-learn
+pydantic

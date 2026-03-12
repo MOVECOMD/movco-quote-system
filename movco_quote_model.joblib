@@ -1,0 +1,61 @@
+# train_model.py
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.metrics import mean_absolute_error
+import joblib
+
+# 1. Load your data
+df = pd.read_csv("jobs.csv")
+
+# 2. Basic feature/target split
+FEATURES = ["distance_km", "rooms", "stairs", "packing", "day_of_week", "month"]
+TARGET = "price"
+
+X = df[FEATURES]
+y = df[TARGET]
+
+# 3. Train/test split to see if it actually works
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+# 4. Choose a simple, solid model
+model = GradientBoostingRegressor(random_state=42)
+model.fit(X_train, y_train)
+
+# 5. Evaluate
+y_pred = model.predict(X_test)
+mae = mean_absolute_error(y_test, y_pred)
+print(f"Mean absolute error: £{mae:.2f}")
+
+# 6. Save the trained model for your app
+joblib.dump(model, "movco_quote_model.joblib")
+print("Model saved to movco_quote_model.joblib")
+# api.py
+from fastapi import FastAPI
+from pydantic import BaseModel
+import joblib
+import numpy as np
+
+app = FastAPI()
+model = joblib.load("movco_quote_model.joblib")
+
+FEATURES = ["distance_km", "rooms", "stairs", "packing", "day_of_week", "month"]
+
+class QuoteRequest(BaseModel):
+    distance_km: float
+    rooms: int
+    stairs: int
+    packing: int  # 0/1
+    day_of_week: int  # 0=Mon
+    month: int  # 1-12
+
+class QuoteResponse(BaseModel):
+    predicted_price: float
+
+@app.post("/predict", response_model=QuoteResponse)
+def predict(req: QuoteRequest):
+    x = np.array([[getattr(req, f) for f in FEATURES]])
+    price = float(model.predict(x)[0])
+    return QuoteResponse(predicted_price=round(price, 2))

@@ -1,0 +1,310 @@
+type PdfBrandingConfig = {
+  logo_url?: string;
+  primary_color?: string;
+  secondary_color?: string;
+  company_name_override?: string;
+  footer_text?: string;
+  terms_text?: string;
+  show_phone?: boolean;
+  show_email?: boolean;
+};
+
+type QuotePdfData = {
+  companyName: string;
+  companyEmail?: string;
+  companyPhone?: string;
+  quoteRef?: string;
+  quoteDate: string;
+  validUntil?: string;
+  status?: string;
+  customerName: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  movingFrom?: string;
+  movingTo?: string;
+  movingDate?: string;
+  items?: { name: string; quantity: number; estimated_volume_ft3?: number }[];
+  totalVolume?: number;
+  vanCount?: number;
+  movers?: number;
+  estimatedPrice?: number;
+  notes?: string;
+  branding?: PdfBrandingConfig;
+};
+
+function hexToRgb(hex: string): [number, number, number] {
+  const clean = hex.replace('#', '');
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+  return [r, g, b];
+}
+
+export async function downloadQuotePdf(data: QuotePdfData, filename?: string) {
+  const { default: jsPDF } = await import('jspdf');
+  const autoTableModule = await import('jspdf-autotable');
+  const autoTable = autoTableModule.default;
+
+  const doc = new jsPDF('p', 'mm', 'a4');
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const margin = 20;
+  const contentWidth = pageWidth - margin * 2;
+  let y = margin;
+
+  const branding = data.branding || {};
+  const displayName = branding.company_name_override || data.companyName;
+  const primaryColor: [number, number, number] = branding.primary_color ? hexToRgb(branding.primary_color) : [10, 15, 28];
+  const accentColor: [number, number, number] = branding.secondary_color ? hexToRgb(branding.secondary_color) : [37, 99, 235];
+  const grayColor: [number, number, number] = [107, 114, 128];
+  const lightGray: [number, number, number] = [243, 244, 246];
+  const showEmail = branding.show_email !== false;
+  const showPhone = branding.show_phone !== false;
+
+  // ===== HEADER BAR =====
+  doc.setFillColor(...primaryColor);
+  doc.rect(0, 0, pageWidth, 40, 'F');
+
+  // Logo (if provided)
+  let logoOffset = 0;
+  if (branding.logo_url) {
+    try {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject();
+        img.src = branding.logo_url!;
+      });
+      const logoH = 20;
+      const logoW = (img.width / img.height) * logoH;
+      doc.addImage(img, 'PNG', margin, 10, logoW, logoH);
+      logoOffset = logoW + 6;
+    } catch {
+      // Logo failed to load — continue without it
+    }
+  }
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(22);
+  doc.setFont('helvetica', 'bold');
+  doc.text(displayName.toUpperCase(), margin + logoOffset, 18);
+
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  const headerInfo: string[] = [];
+  if (showEmail && data.companyEmail) headerInfo.push(data.companyEmail);
+  if (showPhone && data.companyPhone) headerInfo.push(data.companyPhone);
+  if (headerInfo.length > 0) {
+    doc.text(headerInfo.join('  |  '), margin + logoOffset, 28);
+  }
+
+  doc.setFontSize(28);
+  doc.setFont('helvetica', 'bold');
+  doc.text('QUOTE', pageWidth - margin, 22, { align: 'right' });
+
+  y = 52;
+
+  // ===== QUOTE META =====
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...grayColor);
+  const metaItems = [
+    data.quoteRef ? `Ref: ${data.quoteRef}` : '',
+    `Date: ${data.quoteDate}`,
+    data.validUntil ? `Valid until: ${data.validUntil}` : '',
+    data.status ? `Status: ${data.status.toUpperCase()}` : '',
+  ].filter(Boolean);
+  doc.text(metaItems.join('   |   '), margin, y);
+  y += 10;
+
+  // ===== TWO-COLUMN BOXES =====
+  const colWidth = (contentWidth - 8) / 2;
+
+  // Customer details box
+  doc.setFillColor(...lightGray);
+  doc.roundedRect(margin, y, colWidth, 48, 2, 2, 'F');
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...accentColor);
+  doc.text('CUSTOMER DETAILS', margin + 6, y + 8);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(...primaryColor);
+  doc.text(data.customerName, margin + 6, y + 17);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(...grayColor);
+  let cy = y + 24;
+  if (data.customerEmail) { doc.text(data.customerEmail, margin + 6, cy); cy += 6; }
+  if (data.customerPhone) { doc.text(data.customerPhone, margin + 6, cy); }
+
+  // Move details box
+  const col2X = margin + colWidth + 8;
+  doc.setFillColor(...lightGray);
+  doc.roundedRect(col2X, y, colWidth, 48, 2, 2, 'F');
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...accentColor);
+  doc.text('MOVE DETAILS', col2X + 6, y + 8);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(...primaryColor);
+  let my = y + 17;
+  if (data.movingFrom) {
+    doc.setFont('helvetica', 'bold');
+    doc.text('From:', col2X + 6, my);
+    doc.setFont('helvetica', 'normal');
+    const fromText = doc.splitTextToSize(data.movingFrom, colWidth - 28);
+    doc.text(fromText, col2X + 22, my);
+    my += fromText.length * 5 + 2;
+  }
+  if (data.movingTo) {
+    doc.setFont('helvetica', 'bold');
+    doc.text('To:', col2X + 6, my);
+    doc.setFont('helvetica', 'normal');
+    const toText = doc.splitTextToSize(data.movingTo, colWidth - 28);
+    doc.text(toText, col2X + 22, my);
+    my += toText.length * 5 + 2;
+  }
+  if (data.movingDate) {
+    doc.setFont('helvetica', 'bold');
+    doc.text('Date:', col2X + 6, my);
+    doc.setFont('helvetica', 'normal');
+    doc.text(new Date(data.movingDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }), col2X + 22, my);
+  }
+
+  y += 58;
+
+  // ===== ITEMS TABLE =====
+  if (data.items && data.items.length > 0) {
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...primaryColor);
+    doc.text('ITEMS', margin, y);
+    y += 4;
+
+    const tableBody = data.items.map((item, idx) => [
+      (idx + 1).toString(),
+      item.name,
+      item.quantity.toString(),
+      item.estimated_volume_ft3 ? `${item.estimated_volume_ft3.toFixed(1)} ft³` : '—',
+    ]);
+
+    autoTable(doc, {
+      startY: y,
+      head: [['#', 'Item', 'Qty', 'Volume']],
+      body: tableBody,
+      margin: { left: margin, right: margin },
+      theme: 'plain',
+      headStyles: {
+        fillColor: primaryColor,
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        fontSize: 8,
+        cellPadding: 4,
+      },
+      bodyStyles: {
+        fontSize: 8,
+        cellPadding: 3.5,
+        textColor: [55, 65, 81],
+      },
+      alternateRowStyles: {
+        fillColor: [249, 250, 251],
+      },
+      columnStyles: {
+        0: { cellWidth: 12, halign: 'center' },
+        1: { cellWidth: 'auto' },
+        2: { cellWidth: 20, halign: 'center' },
+        3: { cellWidth: 30, halign: 'right' },
+      },
+    });
+
+    y = (doc as any).lastAutoTable.finalY + 8;
+  }
+
+  // ===== LOGISTICS SUMMARY =====
+  const logItems: string[] = [];
+  if (data.totalVolume) logItems.push(`Total Volume: ${data.totalVolume} m³`);
+  if (data.vanCount) logItems.push(`Vans: ${data.vanCount}`);
+  if (data.movers) logItems.push(`Movers: ${data.movers}`);
+
+  if (logItems.length > 0) {
+    doc.setFillColor(...lightGray);
+    doc.roundedRect(margin, y, contentWidth, 22, 2, 2, 'F');
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...grayColor);
+    const spacing = contentWidth / logItems.length;
+    logItems.forEach((item, idx) => {
+      doc.text(item, margin + spacing * idx + spacing / 2, y + 13, { align: 'center' });
+    });
+    y += 30;
+  }
+
+  // ===== TOTAL PRICE =====
+  if (data.estimatedPrice) {
+    doc.setFillColor(...accentColor);
+    doc.roundedRect(pageWidth - margin - 80, y, 80, 28, 2, 2, 'F');
+
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(255, 255, 255);
+    doc.text('TOTAL', pageWidth - margin - 40, y + 8, { align: 'center' });
+
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.text(
+      `£${data.estimatedPrice.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      pageWidth - margin - 40, y + 22, { align: 'center' }
+    );
+
+    y += 36;
+  }
+
+  // ===== NOTES =====
+  if (data.notes) {
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...primaryColor);
+    doc.text('NOTES', margin, y);
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...grayColor);
+    const splitNotes = doc.splitTextToSize(data.notes, contentWidth);
+    doc.text(splitNotes, margin, y);
+    y += splitNotes.length * 4 + 6;
+  }
+
+  // ===== TERMS =====
+  if (branding.terms_text) {
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...primaryColor);
+    doc.text('TERMS & CONDITIONS', margin, y);
+    y += 4;
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...grayColor);
+    const splitTerms = doc.splitTextToSize(branding.terms_text, contentWidth);
+    doc.text(splitTerms, margin, y);
+  }
+
+  // ===== FOOTER =====
+  const footerY = pageHeight - 20;
+  doc.setDrawColor(220, 220, 220);
+  doc.line(margin, footerY - 6, pageWidth - margin, footerY - 6);
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...grayColor);
+  const footerText = branding.footer_text || 'This quote is subject to a final survey of items. Prices may vary based on actual volume and access requirements.';
+  doc.text(footerText, margin, footerY);
+  doc.text(`Generated by ${displayName}`, margin, footerY + 4);
+  doc.text('Page 1 of 1', pageWidth - margin, footerY, { align: 'right' });
+
+  // Download
+  const fname = filename || `quote-${data.customerName.replace(/\s+/g, '-').toLowerCase()}-${new Date().toISOString().slice(0, 10)}.pdf`;
+  doc.save(fname);
+}
