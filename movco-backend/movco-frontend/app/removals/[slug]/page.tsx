@@ -172,7 +172,9 @@ export default function RemovalsCalculatorPage() {
   // ─── Quote calculation ───
   const calculateQuote = (analysisData: AnalysisResult, partnerData: Partner, extrasData: Extras): Quote => {
     const vans = partnerData.van_types as VanType[];
-    const volumeNeeded = analysisData.totalVolumeM3 * 1.15; // 15% packing buffer
+    // Removals needs a larger buffer than storage — items aren't packed as efficiently
+// when loading a van vs stacking in a storage unit. 1.6x corrects for AI underestimation.
+const volumeNeeded = analysisData.totalVolumeM3 * 1.6;
     const sorted = [...vans].sort((a, b) => a.capacity_m3 - b.capacity_m3);
     const largest = sorted[sorted.length - 1];
 
