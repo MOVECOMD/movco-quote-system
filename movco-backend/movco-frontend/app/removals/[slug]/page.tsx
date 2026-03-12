@@ -52,14 +52,17 @@ type AnalysisResult = {
   estimated_hours?: number;
   van_count?: number;
   recommended_movers?: number;
+  distance_miles?: number;
   description: string;
 };
 
 type Quote = {
   van: VanType;
   all_vans: VanType[];
+  van_count: number;
   hours: number;
   crew: number;
+  distance_miles: number;
   low: number;
   high: number;
   breakdown: {
@@ -167,27 +170,53 @@ export default function RemovalsCalculatorPage() {
   };
 
   // ─── Quote calculation ───
-  const calculateQuote = (analysisData: AnalysisResult, partnerData: Partner): Quote => {
+  const calculateQuote = (analysisData: AnalysisResult, partnerData: Partner, extrasData: Extras): Quote => {
     const vans = partnerData.van_types as VanType[];
-    const volumeNeeded = analysisData.totalVolumeM3 * 1.15;
+    const volumeNeeded = analysisData.totalVolumeM3 * 1.15; // 15% packing buffer
     const sorted = [...vans].sort((a, b) => a.capacity_m3 - b.capacity_m3);
-    const recommended = sorted.find((v) => v.capacity_m3 >= volumeNeeded) || sorted[sorted.length - 1];
+    const largest = sorted[sorted.length - 1];
+
+    // ── Multi-van logic ──
+    let selectedVans: VanType[] = [];
+    const singleFit = sorted.find((v) => v.capacity_m3 >= volumeNeeded);
+    if (singleFit) {
+      selectedVans = [singleFit];
+    } else {
+      // Fill with largest van repeatedly until volume is covered
+      let remaining = volumeNeeded;
+      while (remaining > 0) {
+        selectedVans.push(largest);
+        remaining -= largest.capacity_m3;
+      }
+    }
+
+    const vanCount = selectedVans.length;
+    const primaryVan = selectedVans[0];
+    // Sum hourly rates across all vans
+    const combinedHourly = selectedVans.reduce((sum, v) => sum + v.hourly, 0);
+    // Sum crew across all vans
+    const totalCrew = selectedVans.reduce((sum, v) => sum + v.crew, 0);
 
     const hours = analysisData.estimated_hours || 3;
-    const labour = recommended.hourly * hours;
-    const mileageEstimate = 15;
-    const mileageCost = mileageEstimate * partnerData.pricing.per_mile;
-    const packingCost = extras.packing ? partnerData.pricing.packing_flat : 0;
-    const disassemblyCost = extras.disassembly ? partnerData.pricing.disassembly_flat : 0;
+    const labour = combinedHourly * hours;
+
+    // ── Distance & mileage — field name confirmed after console.log check ──
+    const distanceMiles = analysisData.distance_miles || 15;
+    const mileageCost = distanceMiles * partnerData.pricing.per_mile;
+
+    const packingCost = extrasData.packing ? partnerData.pricing.packing_flat : 0;
+    const disassemblyCost = extrasData.disassembly ? partnerData.pricing.disassembly_flat : 0;
 
     const totalLow = Math.round(labour + mileageCost + packingCost + disassemblyCost);
     const totalHigh = Math.round(totalLow * 1.25);
 
     return {
-      van: recommended,
+      van: primaryVan,
       all_vans: sorted,
+      van_count: vanCount,
       hours,
-      crew: recommended.crew,
+      crew: totalCrew,
+      distance_miles: distanceMiles,
       low: totalLow,
       high: totalHigh,
       breakdown: {
@@ -242,6 +271,8 @@ export default function RemovalsCalculatorPage() {
 
       if (aiResponse.ok) {
         const data = await aiResponse.json();
+        // 🔍 TEMPORARY: remove once distance field name is confirmed
+        console.log('🔍 MOVCO API full response:', data);
         analysisData = {
           items: data.items || [],
           totalVolumeM3: data.totalVolumeM3 || 10,
@@ -249,6 +280,8 @@ export default function RemovalsCalculatorPage() {
           estimated_hours: data.job_hours,
           van_count: data.van_count,
           recommended_movers: data.recommended_movers,
+          // Tries all likely field names — lock in correct one after checking console
+          distance_miles: data.distance_miles ?? data.distance_mi ?? data.distance ?? data.miles ?? undefined,
           description: data.description || '',
         };
       } else {
@@ -264,7 +297,7 @@ export default function RemovalsCalculatorPage() {
       setAnalysis(analysisData);
 
       // 3. Calculate quote
-      const quoteData = calculateQuote(analysisData, partner);
+      const quoteData = calculateQuote(analysisData, partner, extras);
       setQuote(quoteData);
 
       // 4. Save lead to Supabase
@@ -284,7 +317,7 @@ export default function RemovalsCalculatorPage() {
         total_volume_m3: analysisData.totalVolumeM3,
         total_volume_ft3: analysisData.totalVolumeFt3 || null,
         estimated_hours: analysisData.estimated_hours || null,
-        recommended_van: quoteData.van.name,
+        recommended_van: quoteData.van_count > 1 ? `${quoteData.van_count}x ${quoteData.van.name}` : quoteData.van.name,
         recommended_crew: quoteData.crew,
         quote_low: quoteData.low,
         quote_high: quoteData.high,
@@ -306,9 +339,9 @@ export default function RemovalsCalculatorPage() {
               moving_from: moveFrom,
               moving_to: moveTo,
               items: analysisData.items,
-              van_size: quoteData.van.name,
+              van_size: quoteData.van_count > 1 ? `${quoteData.van_count}x ${quoteData.van.name}` : quoteData.van.name,
               crew_size: quoteData.crew,
-              estimated_time: `${quoteData.hours} hours`,
+              distance: `${quoteData.distance_miles} miles`,
               quoted_price: `£${quoteData.low} – £${quoteData.high}`,
               photo_urls: uploadedUrls,
             },
@@ -382,7 +415,7 @@ export default function RemovalsCalculatorPage() {
             {[
               { n: '1', title: 'Tell Us About Your Move', desc: 'Property type, addresses, and your preferred date' },
               { n: '2', title: 'Upload Room Photos', desc: 'Snap each room — our AI detects every item automatically' },
-              { n: '3', title: 'Get Your Instant Quote', desc: 'Van size, crew, estimated hours, and a clear price range' },
+              { n: '3', title: 'Get Your Instant Quote', desc: 'Van size, crew, distance, and a clear price range' },
             ].map((s) => (
               <div key={s.n} className="text-center">
                 <div className="w-14 h-14 rounded-xl flex items-center justify-center mx-auto mb-3 text-white font-bold text-lg" style={{ backgroundColor: `#${pc}` }}>{s.n}</div>
@@ -743,6 +776,7 @@ export default function RemovalsCalculatorPage() {
             </p>
           </div>
 
+          {/* ── Price hero card ── */}
           <div className="text-white rounded-2xl shadow-xl p-8 text-center" style={{ backgroundColor: `#${pc}` }}>
             <p className="text-sm font-medium opacity-80 mb-2 tracking-wider uppercase">Estimated Quote</p>
             <div className="flex items-baseline justify-center gap-2 mb-2">
@@ -750,13 +784,18 @@ export default function RemovalsCalculatorPage() {
               <span className="text-2xl opacity-60">–</span>
               <span className="text-5xl font-bold">£{quote.high}</span>
             </div>
-            <p className="text-base opacity-90 mb-6">{quote.van.name} · {quote.crew}-person crew · ~{quote.hours} hours</p>
+            <p className="text-base opacity-90 mb-6">
+              {quote.van_count > 1 ? `${quote.van_count}× ${quote.van.name}` : quote.van.name}
+              {' · '}{quote.crew}-person crew
+              {' · '}{quote.distance_miles} miles
+            </p>
 
             <div className="flex gap-2 justify-center flex-wrap">
               {[
                 { val: `${analysis.totalVolumeM3} m³`, label: 'Volume' },
                 { val: totalItems, label: 'Items' },
-                { val: `${quote.hours} hrs`, label: 'Est. Time' },
+                { val: `${quote.distance_miles} mi`, label: 'Distance' },
+                { val: quote.van_count > 1 ? `${quote.van_count}× Van` : quote.van.name, label: 'Van' },
                 { val: quote.crew, label: 'Crew' },
               ].map((m) => (
                 <div key={m.label} className="bg-white/15 backdrop-blur rounded-xl px-4 py-2.5 min-w-[70px]">
@@ -767,11 +806,17 @@ export default function RemovalsCalculatorPage() {
             </div>
           </div>
 
+          {/* ── Price breakdown ── */}
           <div className="bg-white rounded-2xl shadow-lg p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Price Breakdown</h3>
             {[
-              { label: `Labour (${quote.van.name}, ${quote.hours}hrs × £${quote.van.hourly})`, val: quote.breakdown.labour },
-              { label: 'Mileage estimate', val: quote.breakdown.mileage },
+              {
+                label: quote.van_count > 1
+                  ? `Labour (${quote.van_count}× ${quote.van.name}, ${quote.hours}hrs × £${quote.van.hourly}ea)`
+                  : `Labour (${quote.van.name}, ${quote.hours}hrs × £${quote.van.hourly})`,
+                val: quote.breakdown.labour,
+              },
+              { label: `Distance (${quote.distance_miles} miles)`, val: quote.breakdown.mileage },
               ...(quote.breakdown.packing > 0 ? [{ label: 'Packing service', val: quote.breakdown.packing }] : []),
               ...(quote.breakdown.disassembly > 0 ? [{ label: 'Furniture disassembly', val: quote.breakdown.disassembly }] : []),
             ].map((row) => (
@@ -792,6 +837,7 @@ export default function RemovalsCalculatorPage() {
             )}
           </div>
 
+          {/* ── Items detected ── */}
           <div className="bg-white rounded-2xl shadow-lg p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Items Detected ({totalItems})</h3>
             <div className="max-h-52 overflow-y-auto space-y-1">
@@ -816,8 +862,13 @@ export default function RemovalsCalculatorPage() {
             </div>
           </div>
 
+          {/* ── Van options ── */}
           <div className="bg-white rounded-2xl shadow-lg p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Van Options</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-1">Van Options</h3>
+            {quote.van_count > 1 && (
+              <p className="text-sm text-gray-500 mb-4">This job requires {quote.van_count}× {quote.van.name} to fit all {analysis.totalVolumeM3} m³</p>
+            )}
+            {quote.van_count === 1 && <div className="mb-4" />}
             <div className="space-y-3">
               {quote.all_vans.map((van, idx) => {
                 const isRecommended = van.name === quote.van.name;
@@ -836,9 +887,11 @@ export default function RemovalsCalculatorPage() {
                         <div className="flex items-center gap-2">
                           <h4 className="font-semibold text-gray-900">{van.name}</h4>
                           {isRecommended && (
-                            <span className="text-xs font-bold text-white px-2 py-0.5 rounded-full" style={{ backgroundColor: `#${pc}` }}>BEST FIT</span>
+                            <span className="text-xs font-bold text-white px-2 py-0.5 rounded-full" style={{ backgroundColor: `#${pc}` }}>
+                              {quote.van_count > 1 ? `${quote.van_count}× NEEDED` : 'BEST FIT'}
+                            </span>
                           )}
-                          {!fits && <span className="text-xs text-red-500 font-medium">Too small</span>}
+                          {!fits && !isRecommended && <span className="text-xs text-red-500 font-medium">Too small</span>}
                         </div>
                         <p className="text-xs text-gray-500">{van.label} · {van.crew} crew · up to {van.capacity_m3} m³</p>
                       </div>
@@ -863,6 +916,7 @@ export default function RemovalsCalculatorPage() {
             </div>
           </div>
 
+          {/* ── CTA ── */}
           <div className="bg-white rounded-2xl shadow-lg p-6 text-center space-y-4">
             <h3 className="text-lg font-semibold text-gray-900">Ready to Book Your Move?</h3>
             <p className="text-sm text-gray-500">Contact {partner.company_name} to confirm your date and finalise the price.</p>
