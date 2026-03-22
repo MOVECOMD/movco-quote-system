@@ -1230,6 +1230,15 @@ function PdfBrandingSettings({ branding, companyId, companyName, companyEmail, c
   const [showPhone, setShowPhone] = useState(branding.show_phone !== false);
   const [showEmail, setShowEmail] = useState(branding.show_email !== false);
   const [logoUrl, setLogoUrl] = useState(branding.logo_url || '');
+  const [textColor, setTextColor] = useState(branding.text_color || '#ffffff');
+  const [boxBgColor, setBoxBgColor] = useState(branding.box_bg_color || '#f3f4f6');
+  const [tableHeaderColor, setTableHeaderColor] = useState(branding.table_header_color || '#0a0f1c');
+  const [totalBoxColor, setTotalBoxColor] = useState(branding.total_box_color || '#2563eb');
+  const [bodyTextColor, setBodyTextColor] = useState(branding.body_text_color || '#374151');
+  const [depositAmount, setDepositAmount] = useState(branding.deposit_amount || '');
+  const [paymentTerms, setPaymentTerms] = useState(branding.payment_terms || '');
+  const [bankDetails, setBankDetails] = useState(branding.bank_details || '');
+  const [watermarkDraft, setWatermarkDraft] = useState(branding.watermark_draft !== false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -1244,6 +1253,15 @@ function PdfBrandingSettings({ branding, companyId, companyName, companyEmail, c
     if (!showPhone) config.show_phone = false;
     if (!showEmail) config.show_email = false;
     if (logoUrl) config.logo_url = logoUrl;
+    if (textColor !== '#ffffff') config.text_color = textColor;
+    if (boxBgColor !== '#f3f4f6') config.box_bg_color = boxBgColor;
+    if (tableHeaderColor !== '#0a0f1c') config.table_header_color = tableHeaderColor;
+    if (totalBoxColor !== '#2563eb') config.total_box_color = totalBoxColor;
+    if (bodyTextColor !== '#374151') config.body_text_color = bodyTextColor;
+    if (depositAmount) config.deposit_amount = depositAmount;
+    if (paymentTerms.trim()) config.payment_terms = paymentTerms.trim();
+    if (bankDetails.trim()) config.bank_details = bankDetails.trim();
+    config.watermark_draft = watermarkDraft;
     return config;
   };
 
@@ -1347,7 +1365,17 @@ function PdfBrandingSettings({ branding, companyId, companyName, companyEmail, c
               <input type="color" value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)} className="w-10 h-10 rounded-lg border cursor-pointer" />
               <div>
                 <p className="text-sm font-medium text-gray-700">{primaryColor}</p>
-                <p className="text-xs text-gray-400">Header, headings, table</p>
+                <p className="text-xs text-gray-400">Header background</p>
+              </div>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-2 block">Header Text Colour</label>
+            <div className="flex items-center gap-3">
+              <input type="color" value={textColor} onChange={(e) => setTextColor(e.target.value)} className="w-10 h-10 rounded-lg border cursor-pointer" />
+              <div>
+                <p className="text-sm font-medium text-gray-700">{textColor}</p>
+                <p className="text-xs text-gray-400">Company name & QUOTE text</p>
               </div>
             </div>
           </div>
@@ -1357,7 +1385,47 @@ function PdfBrandingSettings({ branding, companyId, companyName, companyEmail, c
               <input type="color" value={secondaryColor} onChange={(e) => setSecondaryColor(e.target.value)} className="w-10 h-10 rounded-lg border cursor-pointer" />
               <div>
                 <p className="text-sm font-medium text-gray-700">{secondaryColor}</p>
-                <p className="text-xs text-gray-400">Labels, total price box</p>
+                <p className="text-xs text-gray-400">Labels & headings</p>
+              </div>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-2 block">Info Box Background</label>
+            <div className="flex items-center gap-3">
+              <input type="color" value={boxBgColor} onChange={(e) => setBoxBgColor(e.target.value)} className="w-10 h-10 rounded-lg border cursor-pointer" />
+              <div>
+                <p className="text-sm font-medium text-gray-700">{boxBgColor}</p>
+                <p className="text-xs text-gray-400">Customer & move detail boxes</p>
+              </div>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-2 block">Table Header Background</label>
+            <div className="flex items-center gap-3">
+              <input type="color" value={tableHeaderColor} onChange={(e) => setTableHeaderColor(e.target.value)} className="w-10 h-10 rounded-lg border cursor-pointer" />
+              <div>
+                <p className="text-sm font-medium text-gray-700">{tableHeaderColor}</p>
+                <p className="text-xs text-gray-400">Items table header row</p>
+              </div>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-2 block">Total Box Background</label>
+            <div className="flex items-center gap-3">
+              <input type="color" value={totalBoxColor} onChange={(e) => setTotalBoxColor(e.target.value)} className="w-10 h-10 rounded-lg border cursor-pointer" />
+              <div>
+                <p className="text-sm font-medium text-gray-700">{totalBoxColor}</p>
+                <p className="text-xs text-gray-400">Total price box colour</p>
+              </div>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-2 block">Body Text Colour</label>
+            <div className="flex items-center gap-3">
+              <input type="color" value={bodyTextColor} onChange={(e) => setBodyTextColor(e.target.value)} className="w-10 h-10 rounded-lg border cursor-pointer" />
+              <div>
+                <p className="text-sm font-medium text-gray-700">{bodyTextColor}</p>
+                <p className="text-xs text-gray-400">Notes, terms, addresses</p>
               </div>
             </div>
           </div>
@@ -1393,9 +1461,37 @@ function PdfBrandingSettings({ branding, companyId, companyName, companyEmail, c
           <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Terms & Conditions (optional)</label>
           <textarea value={termsText} onChange={(e) => setTermsText(e.target.value)} placeholder="e.g. Payment due within 7 days of move completion. Cancellations require 48 hours notice." rows={3} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
         </div>
+
+        {/* Deposit + Payment Terms */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Deposit Amount</label>
+            <input value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)} placeholder="e.g. £150 or 25%" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            <p className="text-xs text-gray-400 mt-1">Shows on PDF below total</p>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Payment Terms</label>
+            <input value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} placeholder="e.g. 50% deposit on booking" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            <p className="text-xs text-gray-400 mt-1">Shown next to total price</p>
+          </div>
+        </div>
+
+        {/* Bank Details */}
+        <div>
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Bank Details (optional)</label>
+          <textarea value={bankDetails} onChange={(e) => setBankDetails(e.target.value)} placeholder={"Bank: Lloyds\nAccount Name: Your Company\nSort Code: 12-34-56\nAccount No: 12345678"} rows={3} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+          <p className="text-xs text-gray-400 mt-1">Printed at the bottom of the PDF</p>
+        </div>
+
+        {/* Watermark */}
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={watermarkDraft} onChange={(e) => setWatermarkDraft(e.target.checked)} className="w-4 h-4 text-blue-600 rounded" />
+          <span className="text-sm text-gray-700">Show "DRAFT" watermark on draft/pending quotes</span>
+        </label>
       </div>
 
       {/* Actions */}
+
       <div className="flex items-center gap-3">
         <button onClick={handleSave} disabled={saving} className="px-6 py-2.5 bg-blue-600 text-white font-semibold text-sm rounded-lg hover:bg-blue-700 transition disabled:opacity-40">
           {saving ? 'Saving...' : '💾 Save Branding'}

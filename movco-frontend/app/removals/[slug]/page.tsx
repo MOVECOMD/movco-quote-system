@@ -173,7 +173,7 @@ export default function RemovalsCalculatorPage() {
   const calculateQuote = (analysisData: AnalysisResult, partnerData: Partner, extrasData: Extras, propertyTypeVal: string): Quote => {
     const vans = partnerData.van_types as VanType[];
 
-    // ── Box estimates per property type (each box ~0.07 m³) ──
+    // ── Box estimates per property type ──
     const BOX_COUNTS: Record<string, number> = {
       studio: 15, '1bed': 25, '2bed': 40, '3bed': 60, '4bed': 80, office: 30,
     };
@@ -181,14 +181,15 @@ export default function RemovalsCalculatorPage() {
     const boxVolumeM3 = boxCount * 0.07;
     const totalVolumeWithBoxes = analysisData.totalVolumeM3 + boxVolumeM3;
 
-    // Scaled buffer: AI underestimates more on larger moves
-    const volumeMultiplier = totalVolumeWithBoxes < 15 ? 1.6 : totalVolumeWithBoxes < 30 ? 2.0 : 2.4;
+    // Scaled buffer multiplier
+    const volumeMultiplier = totalVolumeWithBoxes < 15 ? 1.8 : totalVolumeWithBoxes < 30 ? 2.2 : totalVolumeWithBoxes < 50 ? 2.6 : 3.0;
     const volumeNeeded = totalVolumeWithBoxes * volumeMultiplier;
 
-    // Exclude 'Large Luton' — stack standard Lutons instead
+    // Luton van capacity
+    const LUTON_CAPACITY = 35;
     const filteredVans = vans.filter((v) => !v.name.toLowerCase().includes('large luton'));
     const sorted = [...filteredVans].sort((a, b) => a.capacity_m3 - b.capacity_m3);
-    const largest = sorted[sorted.length - 1]; // standard Luton
+    const largest = sorted[sorted.length - 1];
 
     // ── Multi-van logic ──
     let selectedVans: VanType[] = [];
@@ -196,7 +197,6 @@ export default function RemovalsCalculatorPage() {
     if (singleFit) {
       selectedVans = [singleFit];
     } else {
-      // Fill with largest van repeatedly until volume is covered
       let remaining = volumeNeeded;
       while (remaining > 0) {
         selectedVans.push(largest);
@@ -206,36 +206,37 @@ export default function RemovalsCalculatorPage() {
 
     const vanCount = selectedVans.length;
     const primaryVan = selectedVans[0];
-    // Sum hourly rates across all vans
-    const combinedHourly = selectedVans.reduce((sum, v) => sum + v.hourly, 0);
-    // Sum crew across all vans
-    const totalCrew = selectedVans.reduce((sum, v) => sum + v.crew, 0);
+    const totalCrew = vanCount + 1; // drivers (1 per van) + 1 labourer always
 
-    // ── Fixed 8-hour day rate ──
-    const hours = 8;
-    const labour = combinedHourly * hours;
-
-    // ── Distance & mileage ──
+    // ── MOVCO pricing rules ──
+    // Per van: £100 | Driver per van: £150 | Labourer: £125 each
+    // Fuel: £1/mile | All × 2 = customer price
+    const drivers   = vanCount;
+    const labourers = 1; // always 1 labourer regardless of van count
     const distanceMiles = analysisData.distance_miles || 15;
-    const mileageCost = distanceMiles * partnerData.pricing.per_mile;
 
-    const packingCost = extrasData.packing ? partnerData.pricing.packing_flat : 0;
+    const vanCost      = vanCount  * 100;
+    const driverCost   = drivers   * 150;
+    const labourCost   = labourers * 125;
+    const mileageCost  = distanceMiles * 1.0;
+    const packingCost  = extrasData.packing    ? partnerData.pricing.packing_flat    : 0;
     const disassemblyCost = extrasData.disassembly ? partnerData.pricing.disassembly_flat : 0;
 
-    const totalLow = Math.round(labour + mileageCost + packingCost + disassemblyCost);
-    const totalHigh = Math.round(totalLow * 1.25);
+    const subtotal = vanCost + driverCost + labourCost + mileageCost + packingCost + disassemblyCost;
+    const totalLow  = Math.round(subtotal * 2);
+    const totalHigh = Math.round(subtotal * 2 * 1.2);
 
     return {
       van: primaryVan,
       all_vans: sorted,
       van_count: vanCount,
-      hours,
+      hours: 8,
       crew: totalCrew,
       distance_miles: distanceMiles,
       low: totalLow,
       high: totalHigh,
       breakdown: {
-        labour,
+        labour: vanCost + driverCost + labourCost,
         mileage: mileageCost,
         packing: packingCost,
         disassembly: disassemblyCost,

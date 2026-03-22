@@ -12,7 +12,7 @@ import { downloadQuotePdf } from '@/lib/generateQuotePdf';
 // TYPES
 // ============================================
 
-type Tab = 'leads' | 'quotes' | 'pipeline' | 'diary' | 'customers' | 'reports' | 'settings';
+type Tab = 'leads' | 'quotes' | 'pipeline' | 'diary' | 'customers' | 'reports' | 'settings' | 'automations';
 
 type Company = {
   id: string;
@@ -147,6 +147,7 @@ type CrmQuote = {
   valid_until: string | null;
   deal_id: string | null;
   created_at: string;
+  additional_services: { name: string; price: number }[] | null;
 };
 
 type QuotePrefill = {
@@ -1120,6 +1121,42 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
         }
       }
     }
+    // Auto-book packing day before if quote has packing service
+      const linkedQuote2 = crmQuotes.find(q => q.deal_id === event.deal_id);
+      const hasPacking = linkedQuote2?.additional_services?.some(s => s.name.toLowerCase().includes('packing'));
+      if (hasPacking && data?.start_time) {
+        const packingDate = new Date(data.start_time);
+        packingDate.setDate(packingDate.getDate() - 1);
+        packingDate.setHours(8, 0, 0, 0);
+        const packingEnd = new Date(packingDate.getTime() + 4 * 3600000);
+        await supabase.from('crm_diary_events').insert({
+          company_id: company.id,
+          title: `Packing — ${event.customer_name || 'Customer'}`,
+          event_type: 'packing',
+          start_time: packingDate.toISOString(),
+          end_time: packingEnd.toISOString(),
+          customer_name: event.customer_name || null,
+          location: event.location || null,
+          deal_id: event.deal_id || null,
+          description: 'Auto-booked: packing day before move',
+          color: '#f97316',
+          completed: false,
+        });
+        setEvents(prev => [...prev, {
+          id: crypto.randomUUID(),
+          title: `Packing — ${event.customer_name || 'Customer'}`,
+          event_type: 'packing',
+          start_time: packingDate.toISOString(),
+          end_time: packingEnd.toISOString(),
+          customer_name: event.customer_name || null,
+          location: event.location || null,
+          deal_id: event.deal_id || null,
+          description: 'Auto-booked: packing day before move',
+          color: '#f97316',
+          completed: false,
+        } as DiaryEvent]);
+        alert(`📦 Packing day auto-booked for ${packingDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })}`);
+      }
     setShowQuickBookModal(false);
   };
 
@@ -1188,6 +1225,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
     { tab: 'customers', label: 'Customers', icon: 'users', crm: true },
     { tab: 'reports', label: 'Reports', icon: 'chart', crm: true },
     { tab: 'leads', label: 'Leads', icon: 'inbox', crm: false },
+    { tab: 'automations', label: 'Automations', icon: 'automations', crm: false },
     { tab: 'settings', label: 'Settings', icon: 'settings', crm: false },
   ];
 
@@ -1222,6 +1260,9 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
               onClick={() => {
                 if (item.tab === 'settings') {
                   router.push('/company-dashboard/settings');
+                  setSidebarOpen(false);
+              } else if (item.tab === 'automations') {
+                  router.push('/company-dashboard/automations');
                   setSidebarOpen(false);
                 } else {
                   setActiveTab(item.tab);
@@ -1455,7 +1496,24 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
           onUpdateStatus={(status) => { updateQuoteStatus(selectedQuote.id, status); setSelectedQuote({ ...selectedQuote, status } as CrmQuote); }}
           onDelete={() => { deleteQuote(selectedQuote.id); setShowQuoteDetail(false); setSelectedQuote(null); }}
           onConvertToDeal={() => { convertQuoteToDeal(selectedQuote); setShowQuoteDetail(false); setSelectedQuote(null); }}
-           onSave={async (fields) => { await updateQuoteFields(selectedQuote.id, fields); setSelectedQuote({ ...selectedQuote, ...fields } as CrmQuote); }}
+          onSave={async (fields) => { await updateQuoteFields(selectedQuote.id, fields); setSelectedQuote({ ...selectedQuote, ...fields } as CrmQuote); }}
+          onBookDiary={(q) => {
+            setShowQuoteDetail(false);
+            setQuotePrefill({
+              customer_name: q.customer_name,
+              customer_email: q.customer_email || '',
+              customer_phone: q.customer_phone || '',
+              moving_from: q.moving_from || '',
+              moving_to: q.moving_to || '',
+              moving_date: q.moving_date || '',
+              notes: q.notes || '',
+              deal_id: q.deal_id || null,
+            });
+            setActiveTab('diary');
+            setEditingEvent(null);
+            setEventPrefillDate(q.moving_date ? new Date(q.moving_date) : new Date());
+            setShowEventModal(true);
+          }}
         />
       )}
       {showCustomerDetail && selectedCustomer && (
@@ -1533,6 +1591,7 @@ function NavIcon({ name }: { name: string }) {
     users: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>),
     chart: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>),
     settings: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>),
+    automations: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>),
   };
   return icons[name] || null;
 }
@@ -1636,6 +1695,19 @@ function QuoteBuilder({ company, onSave, onCancel, prefill, pdfBranding, pricing
   const [customItemVolume, setCustomItemVolume] = useState('');
 
   // Cost breakdown state
+  // Additional services
+  const [additionalServices, setAdditionalServices] = useState<{ name: string; price: number }[]>([]);
+  const PRESET_SERVICES = [
+    { name: 'Packing Service', price: 150 },
+    { name: 'Unpacking Service', price: 150 },
+    { name: 'Furniture Disassembly', price: 100 },
+    { name: 'Furniture Reassembly', price: 100 },
+    { name: 'Mattress Bags', price: 30 },
+    { name: 'Packing Materials', price: 75 },
+    { name: 'Piano Move', price: 200 },
+    { name: 'Short-Term Storage', price: 0 },
+  ];
+  const servicesTotal = additionalServices.reduce((s, x) => s + x.price, 0);
   const [costBreakdown, setCostBreakdown] = useState<{ category: string; description: string; amount: string }[]>([]);
   const [showCostForm, setShowCostForm] = useState(false);
   const [newCostCategory, setNewCostCategory] = useState('fuel');
@@ -1832,6 +1904,7 @@ function QuoteBuilder({ company, onSave, onCancel, prefill, pdfBranding, pricing
       estimated_hours: editHours ? parseFloat(editHours) : null,
       cost_breakdown: costBreakdown.filter(c => parseFloat(c.amount) > 0).map(c => ({ category: c.category, description: c.description, amount: parseFloat(c.amount) })),
       notes: notes || null,
+      additional_services: additionalServices.length > 0 ? additionalServices : null,
       status: 'draft',
       deal_id: prefill?.deal_id || null,
     } as any);
@@ -2020,6 +2093,72 @@ function QuoteBuilder({ company, onSave, onCancel, prefill, pdfBranding, pricing
               <div><label className="text-xs text-gray-500 mb-1 block">Distance (miles)</label><input type="number" value={editDistance} onChange={(e) => { setEditDistance(e.target.value); setCostBreakdown(autoGenerateCosts(editVans, editMovers, editHours, e.target.value)); }} className="w-full px-3 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none" /></div>
               <div><label className="text-xs text-gray-500 mb-1 block">Your Price (£)</label><input type="number" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} className="w-full px-3 py-2.5 border rounded-lg text-sm font-bold text-green-600 focus:ring-2 focus:ring-blue-500 outline-none" /></div>
             </div>
+          </div>
+    {/* ADDITIONAL SERVICES */}
+          <div className="bg-white rounded-xl border p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-bold text-gray-900">Additional Services</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Added to the customer quote price</p>
+              </div>
+              {servicesTotal > 0 && <span className="text-sm font-bold text-blue-600">+£{servicesTotal}</span>}
+            </div>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {PRESET_SERVICES.map((svc, i) => {
+                const active = additionalServices.some(s => s.name === svc.name);
+                return (
+                  <button key={i}
+                    onClick={() => {
+                      if (active) {
+                        setAdditionalServices(prev => prev.filter(s => s.name !== svc.name));
+                        setEditPrice(prev => String((parseFloat(prev) - svc.price).toFixed(2)));
+                      } else {
+                        setAdditionalServices(prev => [...prev, svc]);
+                        setEditPrice(prev => String((parseFloat(prev) + svc.price).toFixed(2)));
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border-2 transition ${active ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-200 text-gray-700 hover:border-blue-400'}`}>
+                    {active ? '✓ ' : ''}{svc.name}{svc.price > 0 ? ` +£${svc.price}` : ' (quote)'}
+                  </button>
+                );
+              })}
+            </div>
+            {additionalServices.length > 0 && (
+              <div className="bg-blue-50 rounded-lg p-3 space-y-2 mt-2">
+                {additionalServices.map((s, i) => (
+                  <div key={i} className="flex items-center justify-between gap-3">
+                    <span className="text-sm text-gray-700 flex-1">{s.name}</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm text-gray-500">£</span>
+                      <input
+                        type="number"
+                        value={s.price}
+                        onChange={(e) => {
+                          const newPrice = parseFloat(e.target.value) || 0;
+                          const diff = newPrice - s.price;
+                          setAdditionalServices(prev => prev.map((x, xi) => xi === i ? { ...x, price: newPrice } : x));
+                          setEditPrice(prev => String((parseFloat(prev) + diff).toFixed(2)));
+                        }}
+                        className="w-20 px-2 py-1 border border-blue-200 rounded-lg text-sm font-semibold text-blue-700 bg-white focus:ring-2 focus:ring-blue-400 outline-none text-right"
+                      />
+                      <button
+                        onClick={() => {
+                          setEditPrice(prev => String((parseFloat(prev) - s.price).toFixed(2)));
+                          setAdditionalServices(prev => prev.filter((_, xi) => xi !== i));
+                        }}
+                        className="w-6 h-6 flex items-center justify-center text-gray-300 hover:text-red-500 transition"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex justify-between pt-2 border-t border-blue-200">
+                  <span className="text-sm font-semibold text-gray-700">Services Total</span>
+                  <span className="text-sm font-bold text-blue-700">+£{additionalServices.reduce((s, x) => s + x.price, 0)}</span>
+                </div>
+              </div>
+            )}
           </div>
 {/* ESTIMATED COSTS */}
           <div className="bg-white rounded-xl border p-6">
@@ -2795,9 +2934,9 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onEditDeal, onDeleteDe
                             </a>
                           )}
                           {deal.customer_email && (
-                            <a href={`mailto:${deal.customer_email}`} onClick={e => e.stopPropagation()} className="w-6 h-6 rounded flex items-center justify-center text-gray-400 hover:text-green-600 hover:bg-green-50 transition" title="Email">
+                            <button onClick={e => { e.stopPropagation(); onBulkEmail([{ name: deal.customer_name, email: deal.customer_email! }]); }} className="w-6 h-6 rounded flex items-center justify-center text-gray-400 hover:text-green-600 hover:bg-green-50 transition" title="Email">
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                            </a>
+                            </button>
                           )}
                           <button onClick={e => { e.stopPropagation(); onEditDeal(deal); }} className="w-6 h-6 rounded flex items-center justify-center text-gray-400 hover:text-orange-600 hover:bg-orange-50 transition" title="Edit">
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
@@ -2832,7 +2971,7 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
   onClickEvent: (e: DiaryEvent) => void;
   onRescheduleEvent: (eventId: string, newDate: Date) => void;
 }) {
-  const [viewMode, setViewMode] = useState<'month' | 'day'>('month');
+  const [viewMode, setViewMode] = useState<'month' | 'week' | 'day'>('month');
   const [dragEventId, setDragEventId] = useState<string | null>(null);
   const [dragOverDay, setDragOverDay] = useState<number | null>(null);
   const [dragOverHour, setDragOverHour] = useState<number | null>(null);
@@ -2897,15 +3036,20 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
   const weeklyRevenue: Record<number, { revenue: number; deals: number; startDate: Date; endDate: Date }> = {};
   const firstOfMonth = new Date(year, month, 1);
   const lastOfMonth = new Date(year, month + 1, 0);
-  let weekStart = new Date(firstOfMonth);
-  const dow = weekStart.getDay();
-  if (dow !== 1) weekStart.setDate(weekStart.getDate() - (dow === 0 ? 6 : dow - 1));
-  let weekNum = 1;
-  while (weekStart <= lastOfMonth) {
-    const weekEnd = new Date(weekStart); weekEnd.setDate(weekEnd.getDate() + 6);
-    weeklyRevenue[weekNum] = { revenue: 0, deals: 0, startDate: new Date(weekStart), endDate: new Date(weekEnd) };
-    monthDeals.forEach((deal) => { const dd = new Date(deal.moving_date!); if (dd >= weekStart && dd <= weekEnd) { weeklyRevenue[weekNum].revenue += deal.estimated_value || 0; weeklyRevenue[weekNum].deals += 1; } });
-    weekStart.setDate(weekStart.getDate() + 7); weekNum++;
+  // Always produce exactly 4 weeks based on actual calendar weeks in the month
+  for (let weekNum = 1; weekNum <= 4; weekNum++) {
+    const startDay = (weekNum - 1) * 7 + 1;
+    const endDay = weekNum === 4 ? lastOfMonth.getDate() : weekNum * 7;
+    const weekStart = new Date(year, month, startDay);
+    const weekEnd = new Date(year, month, endDay);
+    weeklyRevenue[weekNum] = { revenue: 0, deals: 0, startDate: weekStart, endDate: weekEnd };
+    monthDeals.forEach((deal) => {
+      const dd = new Date(deal.moving_date!);
+      if (dd >= weekStart && dd <= weekEnd) {
+        weeklyRevenue[weekNum].revenue += deal.estimated_value || 0;
+        weeklyRevenue[weekNum].deals += 1;
+      }
+    });
   }
 
   const completedJobsThisMonth = events.filter((e) => { if (!e.completed || e.event_type !== 'job') return false; const d = new Date(e.start_time); return d.getMonth() === month && d.getFullYear() === year; }).length;
@@ -2917,6 +3061,7 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
         <div className="flex items-center gap-3">
           <div className="flex bg-gray-100 rounded-lg p-0.5">
             <button onClick={() => setViewMode('month')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${viewMode === 'month' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Month</button>
+            <button onClick={() => setViewMode('week')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${viewMode === 'week' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Week</button>
             <button onClick={() => setViewMode('day')} className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${viewMode === 'day' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Day</button>
           </div>
           <button onClick={() => { onSelectDate(new Date()); setViewMode('day'); }} className="px-3 py-2 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition">Today</button>
@@ -3017,7 +3162,192 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
         </div>
         </>
       )}
+{viewMode === 'week' && (
+        <div className="bg-white rounded-xl border overflow-hidden">
+          {/* Week header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b bg-gray-50">
+            <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() - 7); onSelectDate(d); }} className="p-2 hover:bg-gray-200 rounded-lg text-gray-600 transition">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+            </button>
+            <div className="text-center">
+              {(() => {
+                const ws = new Date(selectedDate);
+                const d = ws.getDay();
+                ws.setDate(ws.getDate() - (d === 0 ? 6 : d - 1));
+                const we = new Date(ws); we.setDate(we.getDate() + 6);
+                return <h3 className="font-bold text-gray-900">{ws.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} — {we.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</h3>;
+              })()}
+            </div>
+            <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() + 7); onSelectDate(d); }} className="p-2 hover:bg-gray-200 rounded-lg text-gray-600 transition">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+            </button>
+          </div>
 
+          {(() => {
+            const ws = new Date(selectedDate);
+            const dow = ws.getDay();
+            ws.setDate(ws.getDate() - (dow === 0 ? 6 : dow - 1));
+            const weekDays = Array.from({ length: 7 }, (_, i) => { const d = new Date(ws); d.setDate(d.getDate() + i); return d; });
+            const weekHours = Array.from({ length: 17 }, (_, i) => i + 6);
+            const eventTypeColors: Record<string, { bg: string; border: string; text: string }> = {
+              job:      { bg: 'bg-blue-100',   border: 'border-blue-400',   text: 'text-blue-800' },
+              survey:   { bg: 'bg-purple-100', border: 'border-purple-400', text: 'text-purple-800' },
+              callback: { bg: 'bg-yellow-100', border: 'border-yellow-400', text: 'text-yellow-800' },
+              delivery: { bg: 'bg-green-100',  border: 'border-green-400',  text: 'text-green-800' },
+              packing:  { bg: 'bg-orange-100', border: 'border-orange-400', text: 'text-orange-800' },
+              other:    { bg: 'bg-gray-100',   border: 'border-gray-400',   text: 'text-gray-800' },
+            };
+            const nowHourFrac = today.getHours() + today.getMinutes() / 60;
+            const ROW_H = 48;
+
+            return (
+              <div className="overflow-auto" style={{ maxHeight: '70vh' }}>
+                {/* Day header row */}
+                <div className="flex sticky top-0 z-20 bg-white border-b">
+                  <div className="w-14 flex-shrink-0" />
+                  {weekDays.map((day, i) => {
+                    const isTodayCol = day.toDateString() === today.toDateString();
+                    return (
+                      <div key={i} onClick={() => { onSelectDate(day); setViewMode('day'); }}
+                        className={`flex-1 text-center py-2 border-l cursor-pointer hover:bg-gray-50 transition ${isTodayCol ? 'bg-blue-50' : ''}`}>
+                        <p className="text-[10px] font-semibold text-gray-500 uppercase">{day.toLocaleDateString('en-GB', { weekday: 'short' })}</p>
+                        <div className={`text-base font-bold mx-auto w-7 h-7 flex items-center justify-center rounded-full ${isTodayCol ? 'bg-blue-600 text-white' : 'text-gray-900'}`}>
+                          {day.getDate()}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Time grid */}
+                <div className="relative flex">
+                  {/* Hour labels */}
+                  <div className="w-14 flex-shrink-0">
+                    {weekHours.map(hour => (
+                      <div key={hour} style={{ height: `${ROW_H}px` }} className="flex items-start justify-end pr-2 pt-0.5">
+                        <span className="text-[10px] text-gray-400 font-medium">
+                          {hour === 12 ? '12 PM' : hour < 12 ? `${hour} AM` : `${hour - 12} PM`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Day columns */}
+                  {weekDays.map((day, i) => {
+                    const isTodayCol = day.toDateString() === today.toDateString();
+                    const dayEvents = events.filter(e => new Date(e.start_time).toDateString() === day.toDateString());
+                    return (
+                      <div key={i} className={`flex-1 border-l relative ${isTodayCol ? 'bg-blue-50/20' : ''}`}
+                        style={{ height: `${weekHours.length * ROW_H}px` }}>
+                        {/* Hour lines */}
+                        {weekHours.map(hour => (
+                          <div key={hour} style={{ top: `${(hour - 6) * ROW_H}px`, height: `${ROW_H}px` }}
+                            className={`absolute w-full border-t border-gray-100 cursor-pointer transition ${dragOverHour === hour && dragEventId ? 'bg-blue-100 ring-1 ring-blue-400' : 'hover:bg-blue-50/30'}`}
+                            onClick={() => { const d = new Date(day); d.setHours(hour, 0, 0, 0); onAddEvent(d); }}
+                            onDragOver={(e) => { e.preventDefault(); setDragOverHour(hour); }}
+                            onDragLeave={() => setDragOverHour(null)}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              setDragOverHour(null);
+                              const evtId = e.dataTransfer.getData('text/plain');
+                              if (evtId) {
+                                const targetDate = new Date(day);
+                                targetDate.setHours(hour, 0, 0, 0);
+                                onRescheduleEvent(evtId, targetDate);
+                              }
+                              setDragEventId(null);
+                            }} />
+                        ))}
+
+                        {/* Current time line */}
+                        {isTodayCol && nowHourFrac >= 6 && nowHourFrac <= 23 && (
+                          <div className="absolute left-0 right-0 z-10 flex items-center pointer-events-none"
+                            style={{ top: `${(nowHourFrac - 6) * ROW_H}px` }}>
+                            <div className="w-2 h-2 bg-red-500 rounded-full -ml-1" />
+                            <div className="flex-1 h-px bg-red-500" />
+                          </div>
+                        )}
+
+                        {/* Events */}
+                        {(() => {
+                          // Build overlap columns
+                          const evtLayout = dayEvents.map((evt, j) => {
+                            const start = new Date(evt.start_time);
+                            const end = evt.end_time ? new Date(evt.end_time) : new Date(start.getTime() + 3600000);
+                            return { evt, j, startH: start.getHours() + start.getMinutes() / 60, endH: end.getHours() + end.getMinutes() / 60 };
+                          });
+                          // Assign columns to overlapping events
+                          const cols: number[] = new Array(evtLayout.length).fill(0);
+                          const totalCols: number[] = new Array(evtLayout.length).fill(1);
+                          for (let a = 0; a < evtLayout.length; a++) {
+                            const usedCols: number[] = [];
+                            for (let b = 0; b < a; b++) {
+                              if (evtLayout[b].startH < evtLayout[a].endH && evtLayout[b].endH > evtLayout[a].startH) {
+                                usedCols.push(cols[b]);
+                              }
+                            }
+                            let col = 0;
+                            while (usedCols.includes(col)) col++;
+                            cols[a] = col;
+                          }
+                          // Calculate total cols per event
+                          for (let a = 0; a < evtLayout.length; a++) {
+                            let max = cols[a];
+                            for (let b = 0; b < evtLayout.length; b++) {
+                              if (b !== a && evtLayout[b].startH < evtLayout[a].endH && evtLayout[b].endH > evtLayout[a].startH) {
+                                max = Math.max(max, cols[b]);
+                              }
+                            }
+                            totalCols[a] = max + 1;
+                          }
+                          return evtLayout.map(({ evt, j, startH, endH }, idx) => {
+                          const top = Math.max(0, (startH - 6) * ROW_H);
+                          const height = Math.max((endH - startH) * ROW_H, 20);
+                          const colors = eventTypeColors[evt.event_type] || eventTypeColors.other;
+                          const colWidth = 100 / totalCols[idx];
+                          const colLeft = cols[idx] * colWidth;
+                          return (
+                            <div key={j}
+                              draggable
+                              onDragStart={(e) => { e.dataTransfer.setData('text/plain', evt.id); e.dataTransfer.effectAllowed = 'move'; setDragEventId(evt.id); }}
+                              onDragEnd={() => { setDragEventId(null); setDragOverHour(null); }}
+                              onClick={(e) => { e.stopPropagation(); onClickEvent(evt); }}
+                              className={`absolute z-10 rounded border-l-2 px-1 py-0.5 cursor-grab active:cursor-grabbing hover:shadow-md transition overflow-hidden ${colors.bg} ${colors.border} ${evt.completed ? 'opacity-50' : ''} ${dragEventId === evt.id ? 'opacity-40' : ''}`}
+                              style={{ top: `${top}px`, height: `${height}px`, left: `${colLeft}%`, width: `${colWidth - 1}%` }}>
+                              <p className={`text-[10px] font-semibold truncate ${colors.text}`}>
+                                {new Date(evt.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} {evt.title}
+                              </p>
+                              {height > 30 && evt.customer_name && <p className={`text-[9px] truncate opacity-75 ${colors.text}`}>{evt.customer_name}</p>}
+                            </div>
+                          );
+                        });
+                        })()}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Weekly revenue summary */}
+          {(() => {
+            const ws = new Date(selectedDate);
+            const dow = ws.getDay();
+            ws.setDate(ws.getDate() - (dow === 0 ? 6 : dow - 1));
+            const we = new Date(ws); we.setDate(we.getDate() + 6);
+            const weekDeals = deals.filter(d => { if (!d.moving_date) return false; const dd = new Date(d.moving_date); return dd >= ws && dd <= we; });
+            const weekRevenue = weekDeals.reduce((s, d) => s + (d.estimated_value || 0), 0);
+            if (weekRevenue === 0) return null;
+            return (
+              <div className="px-5 py-3 bg-green-50 border-t flex items-center justify-between">
+                <span className="text-sm text-green-700 font-medium">{weekDeals.length} deal{weekDeals.length !== 1 ? 's' : ''} this week</span>
+                <span className="text-lg font-bold text-green-600">£{weekRevenue.toLocaleString()}</span>
+              </div>
+            );
+          })()}
+        </div>
+      )}
       {viewMode === 'day' && (
         <div className="bg-white rounded-xl border overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b bg-gray-50">
@@ -3115,6 +3445,7 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
           </div>
         </div>
       )}
+      
     </div>
   );
 }
@@ -3135,6 +3466,7 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
 }) {
 
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
+  const [pipelineCustomer, setPipelineCustomer] = useState<Customer | null>(null);
   const filtered = customers.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()) || (c.email || '').toLowerCase().includes(search.toLowerCase()) || (c.phone || '').includes(search));
   const totalRevenue = customers.reduce((s, c) => s + (c.total_revenue || 0), 0);
 
@@ -3212,6 +3544,9 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                           </button>
                         )}
+                        <button onClick={() => setPipelineCustomer(customer)} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition" title="Add to pipeline">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                        </button>
                         <button onClick={() => onSendQuoteLink(customer)} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition" title="Send quote link">
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
                         </button>
@@ -3269,6 +3604,9 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                     </button>
                   )}
+                  <button onClick={() => setPipelineCustomer(customer)} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition" title="Add to pipeline">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                  </button>
                   <button onClick={() => onSendQuoteLink(customer)} className="w-7 h-7 rounded-md flex items-center justify-center text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 transition" title="Quote link">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
                   </button>
@@ -3283,6 +3621,46 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
               </div>
             );
           })}
+        </div>
+      )}
+      
+{/* Add to Pipeline Modal */}
+      {pipelineCustomer && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setPipelineCustomer(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-bold text-gray-900 text-lg mb-1">Add to Pipeline</h3>
+            <p className="text-sm text-gray-500 mb-4">{pipelineCustomer.name}</p>
+            <div className="space-y-2">
+              {[
+                { id: '6a36fa88-8220-47b1-9f6d-98f63f630943', name: 'New Lead', color: 'bg-indigo-500' },
+                { id: '1fe63154-4ae2-4384-a62e-c65985571197', name: 'In Conversation', color: 'bg-purple-500' },
+                { id: '8be5de73-12ca-4bec-924f-e50060ae5ddc', name: 'Contacted', color: 'bg-yellow-500' },
+                { id: '68cf884a-4330-41ea-b86c-6e7fc861d0ad', name: 'Appointment', color: 'bg-blue-500' },
+                { id: '75d775ab-8670-44f3-a182-ca6411aaed42', name: 'Quote Sent', color: 'bg-blue-400' },
+                { id: '79cc52aa-68bc-4297-bfbb-a23748621e32', name: 'Booked', color: 'bg-green-500' },
+              ].map(stage => (
+                <button key={stage.id}
+                  onClick={async () => {
+                    const { supabase } = await import('@/lib/supabaseClient');
+                    const companyRes = await supabase.from('companies').select('id').limit(1).single();
+                     await supabase.from('crm_deals').insert({
+                      company_id: companyRes.data?.id,
+                      customer_name: pipelineCustomer.name,
+                      customer_email: pipelineCustomer.email,
+                      customer_phone: pipelineCustomer.phone,
+                      stage_id: stage.id,
+                    });
+                    setPipelineCustomer(null);
+                    alert(`${pipelineCustomer.name} added to ${stage.name}`);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition text-left">
+                  <div className={`w-3 h-3 rounded-full ${stage.color}`} />
+                  <span className="font-medium text-gray-800 text-sm">{stage.name}</span>
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setPipelineCustomer(null)} className="mt-4 w-full py-2 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+          </div>
         </div>
       )}
     </div>
@@ -3342,22 +3720,26 @@ function ReportsTab({ leads, deals, customers, events, crmQuotes, company, costs
   const periodCosts = costs.filter(c => filterByPeriod(c.cost_date));
   const periodDeals = deals.filter(d => d.moving_date ? filterByPeriod(d.moving_date) : false);
   const completedDeals = periodDeals.filter(d => {
-    const linkedEvents = events.filter(e => e.deal_id === d.id && e.completed);
+    const linkedEvents = events.filter(e => e.deal_id === d.id && e.completed && e.event_type === 'job');
     return linkedEvents.length > 0;
   });
+
+  // Only show costs for completed jobs — filter costs to only those linked to completed deals
+  const completedDealIds = new Set(completedDeals.map(d => d.id));
+  const periodCostsCompleted = periodCosts.filter(c => !c.deal_id || completedDealIds.has(c.deal_id));
 
   const totalRevenue = completedDeals.reduce((s, d) => {
     // Use linked quote price if available, fall back to deal value
     const linkedQuote = crmQuotes.find(q => q.deal_id === d.id && q.estimated_price);
     return s + (linkedQuote?.estimated_price || d.estimated_value || 0);
   }, 0);
-  const totalCosts = periodCosts.reduce((s, c) => s + Number(c.amount), 0);
+  const totalCosts = periodCostsCompleted.reduce((s, c) => s + Number(c.amount), 0);
   const profit = totalRevenue - totalCosts;
   const margin = totalRevenue > 0 ? ((profit / totalRevenue) * 100).toFixed(1) : '0';
 
   // Cost breakdown by category
   const categoryBreakdown = CATEGORIES.map(cat => {
-    const catCosts = periodCosts.filter(c => c.category === cat.value);
+    const catCosts = periodCostsCompleted.filter(c => c.category === cat.value);
     const total = catCosts.reduce((s, c) => s + Number(c.amount), 0);
     return { ...cat, total, count: catCosts.length };
   }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
@@ -3365,8 +3747,8 @@ function ReportsTab({ leads, deals, customers, events, crmQuotes, company, costs
   const maxCategoryTotal = Math.max(...categoryBreakdown.map(c => c.total), 1);
 
   // Per-job P&L
-  const jobPnl = completedDeals.map(deal => {
-    const dealCosts = costs.filter(c => c.deal_id === deal.id);
+ const jobPnl = completedDeals.map(deal => {
+    const dealCosts = periodCostsCompleted.filter(c => c.deal_id === deal.id);
     const dealCostTotal = dealCosts.reduce((s, c) => s + Number(c.amount), 0);
     const linkedQuote = crmQuotes.find(q => q.deal_id === deal.id && q.estimated_price);
     const dealRevenue = linkedQuote?.estimated_price || deal.estimated_value || 0;
@@ -3376,7 +3758,7 @@ function ReportsTab({ leads, deals, customers, events, crmQuotes, company, costs
   }).sort((a, b) => b.revenue - a.revenue);
 
   // Filtered cost log
-  const filteredCosts = costFilter === 'all' ? periodCosts : periodCosts.filter(c => c.category === costFilter);
+  const filteredCosts = costFilter === 'all' ? periodCostsCompleted : periodCostsCompleted.filter(c => c.category === costFilter);
 
   // Existing overview stats
   const totalDealValue = deals.reduce((s, d) => s + (d.estimated_value || 0), 0);
@@ -3798,6 +4180,10 @@ function PdfBrandingSection({ branding, onSave, companyName, companyEmail, compa
   const [showPhone, setShowPhone] = useState(branding.show_phone !== false);
   const [showEmail, setShowEmail] = useState(branding.show_email !== false);
   const [logoUrl, setLogoUrl] = useState(branding.logo_url || '');
+  const [depositAmount, setDepositAmount] = useState(branding.deposit_amount || '');
+  const [paymentTerms, setPaymentTerms] = useState(branding.payment_terms || '');
+  const [bankDetails, setBankDetails] = useState(branding.bank_details || '');
+  const [watermarkDraft, setWatermarkDraft] = useState(branding.watermark_draft !== false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -3812,7 +4198,18 @@ function PdfBrandingSection({ branding, onSave, companyName, companyEmail, compa
     if (termsText.trim()) config.terms_text = termsText.trim();
     if (!showPhone) config.show_phone = false;
     if (!showEmail) config.show_email = false;
+    if (!showEmail) config.show_email = false;
     if (logoUrl) config.logo_url = logoUrl;
+    if (depositAmount) config.deposit_amount = depositAmount;
+    if (paymentTerms.trim()) config.payment_terms = paymentTerms.trim();
+    if (bankDetails.trim()) config.bank_details = bankDetails.trim();
+    config.watermark_draft = watermarkDraft;
+    await onSave(config);
+    if (logoUrl) config.logo_url = logoUrl;
+    if (depositAmount) config.deposit_amount = depositAmount;
+    if (paymentTerms.trim()) config.payment_terms = paymentTerms.trim();
+    if (bankDetails.trim()) config.bank_details = bankDetails.trim();
+    config.watermark_draft = watermarkDraft;
     await onSave(config);
     setSaving(false);
     setSaved(true);
@@ -3963,6 +4360,61 @@ function PdfBrandingSection({ branding, onSave, companyName, companyEmail, compa
         <div>
           <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Terms & Conditions (optional)</label>
           <textarea value={termsText} onChange={(e) => setTermsText(e.target.value)} placeholder="e.g. Payment due within 7 days of move completion. Cancellations require 48 hours notice." rows={3} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+        </div>
+  {/* Deposit + Payment Terms */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Deposit Amount</label>
+            <input value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)} placeholder="e.g. £150 or 25%" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            <p className="text-xs text-gray-400 mt-1">Shows on PDF below total</p>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Payment Terms</label>
+            <input value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} placeholder="e.g. 50% deposit on booking" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            <p className="text-xs text-gray-400 mt-1">Shown next to total price</p>
+          </div>
+        </div>
+
+        {/* Bank Details */}
+        <div>
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Bank Details (optional)</label>
+          <textarea value={bankDetails} onChange={(e) => setBankDetails(e.target.value)} placeholder={"Bank: Lloyds\nAccount Name: Your Company\nSort Code: 12-34-56\nAccount No: 12345678"} rows={3} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+          <p className="text-xs text-gray-400 mt-1">Printed at the bottom of the PDF</p>
+        </div>
+
+        {/* Watermark */}
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={watermarkDraft} onChange={(e) => setWatermarkDraft(e.target.checked)} className="w-4 h-4 text-blue-600 rounded" />
+          <span className="text-sm text-gray-700">Show "DRAFT" watermark on draft/pending quotes</span>
+        </label>
+        {/* Deposit */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Deposit Amount (£ or %)</label>
+            <input value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)} placeholder="e.g. 150 or 25%" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            <p className="text-xs text-gray-400 mt-1">Shows on PDF below total</p>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Payment Terms</label>
+            <input value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} placeholder="e.g. 50% deposit on booking" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            <p className="text-xs text-gray-400 mt-1">Shown next to total price</p>
+          </div>
+        </div>
+
+        {/* Bank details */}
+        <div>
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block">Bank Details (optional)</label>
+          <textarea value={bankDetails} onChange={(e) => setBankDetails(e.target.value)} placeholder="e.g. Bank: Lloyds&#10;Account Name: MOVCO Ltd&#10;Sort Code: 12-34-56&#10;Account No: 12345678" rows={3} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+          <p className="text-xs text-gray-400 mt-1">Printed at the bottom of the PDF</p>
+        </div>
+
+        {/* Watermark */}
+        <div>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={watermarkDraft} onChange={(e) => setWatermarkDraft(e.target.checked)} className="w-4 h-4 text-blue-600 rounded" />
+            <span className="text-sm text-gray-700">Show "DRAFT" watermark on draft/pending quotes</span>
+          </label>
+          <p className="text-xs text-gray-400 mt-1 ml-6">Large diagonal watermark shown when quote status is draft or pending</p>
         </div>
       </div>
 
@@ -4227,9 +4679,10 @@ function EventDetailPopup({ event, deals, onClose, onCreateQuote, onComplete, on
 // QUOTE DETAIL POPUP — EDITABLE
 // ============================================
 
-function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose, onUpdateStatus, onDelete, onConvertToDeal, onSave }: {
-  quote: CrmQuote; company: Company; pdfBranding?: any; pricingConfig?: any; onClose: () => void;onUpdateStatus: (status: string) => void; onDelete: () => void; onConvertToDeal: () => void;
+function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose, onUpdateStatus, onDelete, onConvertToDeal, onSave, onBookDiary }: {
+  quote: CrmQuote; company: Company; pdfBranding?: any; pricingConfig?: any; onClose: () => void; onUpdateStatus: (status: string) => void; onDelete: () => void; onConvertToDeal: () => void;
   onSave: (fields: Partial<CrmQuote>) => void;
+  onBookDiary?: (quote: CrmQuote) => void;
 }) {
   const statusStyles: Record<string, string> = { draft: 'bg-gray-100 text-gray-700', sent: 'bg-blue-100 text-blue-700', accepted: 'bg-green-100 text-green-700', declined: 'bg-red-100 text-red-700' };
 
@@ -4513,6 +4966,7 @@ function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose,
               💾 Save Changes
             </button>
           )}
+          {onBookDiary && <button onClick={() => onBookDiary(quote)} className="flex items-center gap-1.5 px-4 py-2.5 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition">📅 Book in Diary</button>}
           {quote.status === 'draft' && <button onClick={() => onUpdateStatus('sent')} className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition">📤 Mark as Sent</button>}
           {quote.status === 'sent' && (
             <>

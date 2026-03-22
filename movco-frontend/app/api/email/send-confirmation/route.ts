@@ -76,10 +76,10 @@ function buildConfirmationEmail({
   eventEndTime?: string; location?: string; description?: string; template: EmailTemplate;
 }): { subject: string; html: string } {
   const typeLabels: Record<string, string> = {
-    job: 'Moving Day', survey: 'Home Survey', callback: 'Callback', delivery: 'Delivery', other: 'Appointment',
+    job: 'Moving Day', survey: 'Home Survey', callback: 'Callback', delivery: 'Delivery', packing: 'Packing Day', other: 'Appointment',
   };
   const typeLabel = typeLabels[eventType] || typeLabels.other;
-  const subject = `${typeLabel} Confirmation — ${eventDate}`;
+  const subject = `Your ${typeLabel} is Confirmed — ${eventDate}`;
   const timeDisplay = eventEndTime ? `${eventTime} – ${eventEndTime}` : eventTime;
 
   const vars: Record<string, string> = {
@@ -114,12 +114,12 @@ ${template.logo_url ? `<img src="${template.logo_url}" alt="${companyName}" styl
 <div style="width:40px;height:40px;background:#dbeafe;border-radius:10px;text-align:center;line-height:40px;font-size:18px;flex-shrink:0;">🕐</div>
 <div style="margin-left:12px;"><p style="color:#6b7280;font-size:12px;margin:0;text-transform:uppercase;font-weight:600;">Time</p><p style="color:#111827;font-size:16px;margin:4px 0 0;font-weight:600;">${timeDisplay}</p></div>
 </div>
-<div style="display:flex;margin-bottom:${description ? '16px' : '0'};">
+<div style="display:flex;margin-bottom:0;">
 <div style="width:40px;height:40px;background:#dbeafe;border-radius:10px;text-align:center;line-height:40px;font-size:18px;flex-shrink:0;">📍</div>
 <div style="margin-left:12px;"><p style="color:#6b7280;font-size:12px;margin:0;text-transform:uppercase;font-weight:600;">Location</p><p style="color:#111827;font-size:16px;margin:4px 0 0;font-weight:600;">${location || 'To be confirmed'}</p></div>
 </div>
-${description ? `<div style="display:flex;"><div style="width:40px;height:40px;background:#dbeafe;border-radius:10px;text-align:center;line-height:40px;font-size:18px;flex-shrink:0;">📝</div><div style="margin-left:12px;"><p style="color:#6b7280;font-size:12px;margin:0;text-transform:uppercase;font-weight:600;">Notes</p><p style="color:#374151;font-size:14px;margin:4px 0 0;">${description}</p></div></div>` : ''}
 </div>
+
 <p style="color:#6b7280;font-size:14px;margin:0 0 24px;">${closingText}</p>
 <div style="border-top:1px solid #e5e7eb;padding-top:20px;">
 <p style="color:#111827;font-size:15px;font-weight:600;margin:0 0 8px;">${companyName}</p>
