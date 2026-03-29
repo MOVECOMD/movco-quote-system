@@ -294,7 +294,9 @@ RULES:
         }
 
         if (action.type === 'send_email') {
-          // Find customer by name or email to log note
+          // Try crm_customers first
+          let customerId: string | null = null
+
           const { data: matchedCustomer } = await supabase
             .from('crm_customers')
             .select('id')
@@ -303,12 +305,29 @@ RULES:
             .maybeSingle()
 
           if (matchedCustomer?.id) {
+            customerId = matchedCustomer.id
+          } else {
+            // Fallback — search deals and use customer_id from there
+            const { data: matchedDeal } = await supabase
+              .from('crm_deals')
+              .select('customer_id')
+              .eq('company_id', COMPANY_ID)
+              .or(`customer_email.ilike.%${action.data.to_email}%,customer_name.ilike.%${action.data.to_name}%`)
+              .not('customer_id', 'is', null)
+              .maybeSingle()
+
+            if (matchedDeal?.customer_id) {
+              customerId = matchedDeal.customer_id
+            }
+          }
+
+          if (customerId) {
             await supabase.from('crm_customer_notes').insert({
               company_id: COMPANY_ID,
-              customer_id: matchedCustomer.id,
+              customer_id: customerId,
               note_text: `📧 AI sent email to ${action.data.to_name} — Subject: "${action.data.subject}" — ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`,
             })
-            action.data.customer_id_found = matchedCustomer.id
+            action.data.customer_id_found = customerId
           }
         }
 
