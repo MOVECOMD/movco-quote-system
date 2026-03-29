@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(req: NextRequest) {
-  const { deal, ai_plan, start_time, crew_count, van_count, notes } = await req.json()
-
-  const contact = deal.crm_contacts || {}
+  const { deal, ai_plan, start_time, crew_count, van_count, special_instructions } = await req.json()
 
   const html = `
 <!DOCTYPE html>
@@ -35,11 +33,11 @@ export async function POST(req: NextRequest) {
 <body>
   <div class="header">
     <div>
-      <div class="logo">🚛 MOVCO</div>
-      <div class="doc-title">Crew Day Plan</div>
+      <div class="logo">🚛 Day Plan</div>
+      <div class="doc-title">${deal.customer_name || ''}</div>
     </div>
     <div class="date-badge">
-      ${deal.scheduled_date || 'Date TBC'}<br>
+      ${deal.moving_date ? new Date(deal.moving_date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : 'Date TBC'}<br>
       ${start_time || 'Time TBC'}
     </div>
   </div>
@@ -49,15 +47,19 @@ export async function POST(req: NextRequest) {
     <div class="info-grid">
       <div class="info-box">
         <div class="info-label">Customer Name</div>
-        <div class="info-value">${contact.name || 'Not specified'}</div>
+        <div class="info-value">${deal.customer_name || 'Not specified'}</div>
       </div>
       <div class="info-box">
         <div class="info-label">Phone</div>
-        <div class="info-value">${contact.phone || 'Not specified'}</div>
+        <div class="info-value">${deal.customer_phone || 'Not specified'}</div>
       </div>
-      <div class="info-box" style="grid-column: span 2">
-        <div class="info-label">Address</div>
-        <div class="info-value">${contact.address || deal.address || 'Not specified'}</div>
+      <div class="info-box">
+        <div class="info-label">Moving From</div>
+        <div class="info-value">${deal.moving_from || 'Not specified'}</div>
+      </div>
+      <div class="info-box">
+        <div class="info-label">Moving To</div>
+        <div class="info-value">${deal.moving_to || 'Not specified'}</div>
       </div>
     </div>
   </div>
@@ -82,17 +84,23 @@ export async function POST(req: NextRequest) {
 
   <div class="section">
     <div class="section-title">Day Plan</div>
-    <div class="plan-box">${ai_plan}</div>
+    <div class="plan-box">${ai_plan || 'No plan generated yet.'}</div>
   </div>
 
-  ${notes ? `
+  ${special_instructions ? `
   <div class="section">
-    <div class="section-title">Additional Notes</div>
-    <div class="notes-box">${notes}</div>
+    <div class="section-title">Special Instructions</div>
+    <div class="notes-box">${special_instructions}</div>
+  </div>` : ''}
+
+  ${deal.notes ? `
+  <div class="section">
+    <div class="section-title">Job Notes</div>
+    <div class="notes-box">${deal.notes}</div>
   </div>` : ''}
 
   <div class="footer">
-    <span>MOVCO — Confidential — For crew use only</span>
+    <span>Confidential — For crew use only</span>
     <span>Generated ${new Date().toLocaleDateString('en-GB')}</span>
   </div>
 </body>

@@ -9,34 +9,36 @@ const supabase = createClient(
 export async function POST(req: NextRequest) {
   const { deal_id } = await req.json()
 
-  // Fetch deal + contact data
   const { data: deal } = await supabase
     .from('crm_deals')
-    .select('*, crm_contacts(*)')
+    .select('*')
     .eq('id', deal_id)
     .single()
 
   if (!deal) return NextResponse.json({ error: 'Deal not found' }, { status: 404 })
 
+  const { data: quote } = await supabase
+    .from('crm_quotes')
+    .select('*')
+    .eq('deal_id', deal_id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
   const prompt = `You are a removals operations assistant. Generate a structured day plan for the following job.
 
 Job details:
-- Customer: ${deal.crm_contacts?.name || 'Unknown'}
-- Address: ${deal.crm_contacts?.address || deal.address || 'Not specified'}
-- Phone: ${deal.crm_contacts?.phone || 'Not specified'}
-- Job date: ${deal.scheduled_date || 'Not set'}
-- Crew required: ${deal.crew_count || deal.quote_data?.crew_count || 'Not specified'}
-- Vans required: ${deal.van_count || deal.quote_data?.van_count || 'Not specified'}
+- Customer: ${deal.customer_name || 'Unknown'}
+- Moving from: ${deal.moving_from || 'Not specified'}
+- Moving to: ${deal.moving_to || 'Not specified'}
+- Phone: ${deal.customer_phone || 'Not specified'}
+- Job date: ${deal.moving_date || 'Not set'}
+- Crew required: ${quote?.movers || 'Not specified'}
+- Vans required: ${quote?.van_count || 'Not specified'}
+- Estimated hours: ${quote?.estimated_hours || 'Not specified'}
 - Job notes: ${deal.notes || 'None'}
-- Deal value: ${deal.value ? '£' + deal.value : 'Not specified'}
 
-Generate a clear, practical day plan for the crew. Include:
-1. Suggested start time and arrival time at customer
-2. Key tasks / job reminders
-3. Any operational notes (parking, access, crew briefing points)
-4. A simple timeline for the day
-
-Keep it concise and crew-friendly — this will be printed and handed to the team.`
+Generate a clear, practical hour-by-hour day plan for the crew. Include arrival, loading, travel, unloading and wrap-up. Keep it concise and crew-friendly.`
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -53,10 +55,7 @@ Keep it concise and crew-friendly — this will be printed and handed to the tea
   })
 
   const aiData = await response.json()
-  const aiPlan = aiData.content?.[0]?.text || 'Could not generate plan.'
+  const ai_plan = aiData.content?.[0]?.text || 'Could not generate plan.'
 
-  return NextResponse.json({
-    ai_plan: aiPlan,
-    deal
-  })
+  return NextResponse.json({ ai_plan })
 }
