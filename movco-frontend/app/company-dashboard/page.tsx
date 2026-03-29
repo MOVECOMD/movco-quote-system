@@ -7,12 +7,13 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { downloadQuotePdf } from '@/lib/generateQuotePdf';
+import AiAssistant from '@/components/AiAssistant';
 
 // ============================================
 // TYPES
 // ============================================
 
-type Tab = 'leads' | 'quotes' | 'pipeline' | 'diary' | 'customers' | 'reports' | 'settings' | 'automations';
+type Tab = 'leads' | 'quotes' | 'pipeline' | 'diary' | 'customers' | 'reports' | 'settings' | 'automations' | 'website'| 'social';
 
 type Company = {
   id: string;
@@ -22,6 +23,8 @@ type Company = {
   balance: number;
   coverage_postcodes: string[];
   stripe_customer_id: string | null;
+  template_type?: string;
+  company_name?: string;
 };
 
 type Lead = {
@@ -173,6 +176,7 @@ export default function CompanyDashboardPage() {
   const [company, setCompany] = useState<Company | null>(null);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+const [terminology, setTerminology] = useState<Record<string, string>>({});
 
   // CRM subscription state
   const [crmActive, setCrmActive] = useState(false);
@@ -303,6 +307,16 @@ const [bulkEmailRecipients, setBulkEmailRecipients] = useState<{ name: string; e
 
       setCompany(companyData as Company);
 
+const { data: templateConfig } = await supabase
+  .from('template_configs')
+  .select('terminology')
+  .eq('template_type', companyData.template_type || 'removals')
+  .maybeSingle();
+
+if (templateConfig?.terminology) {
+  setTerminology(templateConfig.terminology);
+}
+
       const { data: subData } = await supabase
         .from('crm_subscriptions')
         .select('*')
@@ -310,7 +324,22 @@ const [bulkEmailRecipients, setBulkEmailRecipients] = useState<{ name: string; e
         .eq('status', 'active')
         .maybeSingle();
 
-      setCrmActive(!!subData);
+      // Also check if user is on a buildyourmanagement trial
+const { data: companyRow } = await supabase
+  .from('companies')
+  .select('plan_status, trial_ends_at')
+  .eq('id', companyData.id)
+  .maybeSingle()
+
+const onActiveTrial = companyRow?.plan_status === 'trial' && 
+  companyRow?.trial_ends_at && 
+  new Date(companyRow.trial_ends_at) > new Date()
+
+setCrmActive(!!subData || !!onActiveTrial)
+
+if (!!subData || !!onActiveTrial) {
+  await loadCRMData(companyData.id)
+}
       setCrmLoading(false);
 
       const { data: leadsData } = await supabase
@@ -1033,7 +1062,8 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
     if (data) setAllCompanyTasks(data);
   };
 
-  const [detailDeal, setDetailDeal] = useState<Deal | null>(null);
+ const [detailDeal, setDetailDeal] = useState<Deal | null>(null);
+const [showDayPlan, setShowDayPlan] = useState(false);
 
   const openCustomerDetail = (customer: Customer, deal?: Deal | null) => {
     setSelectedCustomer(customer);
@@ -1219,14 +1249,16 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
   const isCrmTab = crmTabs.includes(activeTab);
 
   const navItems: { tab: Tab; label: string; icon: string; crm: boolean }[] = [
-    { tab: 'quotes', label: 'Quotes', icon: 'document', crm: true },
-    { tab: 'pipeline', label: 'Pipeline', icon: 'pipeline', crm: true },
-    { tab: 'diary', label: 'Diary', icon: 'calendar', crm: true },
-    { tab: 'customers', label: 'Customers', icon: 'users', crm: true },
-    { tab: 'reports', label: 'Reports', icon: 'chart', crm: true },
-    { tab: 'leads', label: 'Leads', icon: 'inbox', crm: false },
-    { tab: 'automations', label: 'Automations', icon: 'automations', crm: false },
-    { tab: 'settings', label: 'Settings', icon: 'settings', crm: false },
+    { tab: 'quotes',      label: terminology.quotes      || 'Quotes',      icon: 'document',    crm: true },
+    { tab: 'pipeline',    label: terminology.pipeline    || 'Pipeline',    icon: 'pipeline',    crm: true },
+    { tab: 'diary',       label: terminology.diary       || 'Diary',       icon: 'calendar',    crm: true },
+    { tab: 'customers',   label: terminology.customers   || 'Customers',   icon: 'users',       crm: true },
+    { tab: 'reports',     label: terminology.reports     || 'Reports',     icon: 'chart',       crm: true },
+    { tab: 'leads',       label: terminology.leads       || 'Leads',       icon: 'inbox',       crm: false },
+    { tab: 'automations', label: 'Automations',                            icon: 'automations', crm: false },
+    { tab: 'website',     label: 'Website',                                icon: 'website',     crm: false },
+    { tab: 'social',      label: 'Social',                                 icon: 'social',      crm: false },
+    { tab: 'settings',    label: 'Settings',                               icon: 'settings',    crm: false },
   ];
 
   const dealHasBooking = (dealId: string) => events.some((e) => e.deal_id === dealId);
@@ -1245,11 +1277,35 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
       <aside className={`fixed lg:static inset-y-0 left-0 z-50 w-64 bg-[#0a0f1c] text-white flex flex-col transform transition-transform duration-200 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
         <div className="p-5 border-b border-white/10">
           <div className="flex items-center gap-3">
-            <Image src="/movco-logo.png" alt="MOVCO" width={36} height={36} className="rounded-lg" />
-            <div>
-              <h1 className="font-bold text-lg tracking-wide">MOVCO</h1>
-              <p className="text-xs text-gray-400 truncate">{company.name}</p>
-            </div>
+            <div style={{
+  width: '36px', height: '36px', background: '#0F6E56',
+  borderRadius: '8px', display: 'flex', alignItems: 'center',
+  justifyContent: 'center', flexShrink: 0
+}}>
+  <span style={{ fontSize: '18px' }}>
+    {company.template_type === 'plumber' ? '🔧' :
+     company.template_type === 'estate_agent' ? '🏠' :
+     company.template_type === 'cleaning' ? '🧹' :
+     company.template_type === 'vet' ? '🐾' :
+     company.template_type === 'dental' ? '🦷' :
+     company.template_type === 'retail' ? '🛒' :
+     company.template_type === 'salon' ? '💇' : '🚛'}
+  </span>
+</div>
+<div>
+  <h1 className="font-bold text-lg tracking-wide">
+    {company.template_type === 'plumber' ? 'TradesCRM' :
+     company.template_type === 'estate_agent' ? 'PropertyCRM' :
+     company.template_type === 'cleaning' ? 'CleanCRM' :
+     company.template_type === 'vet' ? 'VetCRM' :
+     company.template_type === 'dental' ? 'DentalCRM' :
+     company.template_type === 'retail' ? 'RetailCRM' :
+     company.template_type === 'salon' ? 'SalonCRM' : 'MOVCO'}
+  </h1>
+  <p className="text-xs text-gray-400 truncate">
+    {company.company_name || company.name}
+  </p>
+</div>
           </div>
         </div>
 
@@ -1258,19 +1314,25 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
             <button
               key={item.tab}
               onClick={() => {
-                if (item.tab === 'settings') {
-                  router.push('/company-dashboard/settings');
-                  setSidebarOpen(false);
-              } else if (item.tab === 'automations') {
-                  router.push('/company-dashboard/automations');
-                  setSidebarOpen(false);
-                } else {
-                  setActiveTab(item.tab);
-                  setSidebarOpen(false);
-                  setShowQuoteBuilder(false);
-                  setQuotePrefill(null);
-                }
-              }}
+  if (item.tab === 'settings') {
+    router.push('/company-dashboard/settings');
+    setSidebarOpen(false);
+  } else if (item.tab === 'automations') {
+    router.push('/company-dashboard/automations');
+    setSidebarOpen(false);
+  } else if (item.tab === 'website') {
+    router.push('/company-dashboard/website');
+    setSidebarOpen(false);
+  } else if (item.tab === 'social') {
+    router.push('/company-dashboard/social');
+    setSidebarOpen(false);
+  } else {
+    setActiveTab(item.tab);
+    setSidebarOpen(false);
+    setShowQuoteBuilder(false);
+    setQuotePrefill(null);
+  }
+}}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-150 ${
                 activeTab === item.tab
                   ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/30'
@@ -1475,6 +1537,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
           onEditDeal={() => { setShowDealDetail(false); setEditingDeal(selectedDeal); setShowDealModal(true); }}
           onDeleteDeal={() => deleteDeal(selectedDeal.id)}
           onCreateQuote={() => openQuoteFromDeal(selectedDeal)}
+          onDayPlan={() => { setShowDayPlan(true); }}
         />
       )}
 
@@ -1563,7 +1626,7 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
           onDeleteStage={deletePipelineStage}
         />
       )}
-      {showEventDetail && selectedEvent && (
+        {showEventDetail && selectedEvent && (
         <EventDetailPopup
           event={selectedEvent}
           deals={deals}
@@ -1574,6 +1637,21 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
           onDeleteEvent={() => deleteEvent(selectedEvent.id)}
         />
       )}
+      {showBulkEmail && (
+        <BulkEmailModal
+          recipients={bulkEmailRecipients}
+          emailConnected={emailConnected}
+          companyId={company.id}
+          onClose={() => { setShowBulkEmail(false); setBulkEmailRecipients([]); }}
+        />
+      )}
+      {showDayPlan && selectedDeal && (
+        <DayPlanModal
+          deal={selectedDeal}
+          onClose={() => setShowDayPlan(false)}
+        />
+      )}
+      <AiAssistant />
     </div>
   );
 }
@@ -1592,6 +1670,8 @@ function NavIcon({ name }: { name: string }) {
     chart: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>),
     settings: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>),
     automations: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>),
+    website: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9" /></svg>),
+     social: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" /></svg>),
   };
   return icons[name] || null;
 }
@@ -2835,7 +2915,7 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onEditDeal, onDeleteDe
       </div>
 
       {stages.length === 0 ? (
-        <div className="bg-white rounded-xl border p-12 text-center"><p className="text-gray-500">Pipeline stages will be set up automatically. Add your first deal to get started.</p></div>
+        <div className="bg-white rounded-xl border p-12 text-center"><p className="text-gray-500">Ask the AI assistant to set up your pipeline — just say "set up my pipeline stages" and it will configure them for you.. Add your first deal to get started.</p></div>
       ) : (
         <div className="flex gap-3 overflow-x-auto pb-4 flex-1">
           {stages.map((stage) => {
@@ -4570,7 +4650,7 @@ function CustomerModal({ customer, stages, onSave, onClose }: { customer: Custom
 // DEAL DETAIL POPUP
 // ============================================
 
-function DealDetailPopup({ deal, stages, events, onClose, onBookAppointment, onEditDeal, onDeleteDeal, onCreateQuote }: { deal: Deal; stages: PipelineStage[]; events: DiaryEvent[]; onClose: () => void; onBookAppointment: () => void; onEditDeal: () => void; onDeleteDeal: () => void; onCreateQuote: () => void; }) {
+function DealDetailPopup({ deal, stages, events, onClose, onBookAppointment, onEditDeal, onDeleteDeal, onCreateQuote, onDayPlan }: { deal: Deal; stages: PipelineStage[]; events: DiaryEvent[]; onClose: () => void; onBookAppointment: () => void; onEditDeal: () => void; onDeleteDeal: () => void; onCreateQuote: () => void; onDayPlan: () => void; }) {
   const stage = stages.find((s) => s.id === deal.stage_id);
   const linkedEvents = events.filter((e) => e.deal_id === deal.id);
 
@@ -4588,7 +4668,8 @@ function DealDetailPopup({ deal, stages, events, onClose, onBookAppointment, onE
         </div>
         <div className="p-5 pt-0 flex flex-wrap gap-2">
           <button onClick={onBookAppointment} className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">📅 Schedule</button>
-          <button onClick={onCreateQuote} className="flex items-center gap-1.5 px-4 py-2.5 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition">📸 Create Quote</button>
+         <button onClick={onCreateQuote} className="flex items-center gap-1.5 px-4 py-2.5 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition">📸 Create Quote</button>
+          <button onClick={onDayPlan} className="flex items-center gap-1.5 px-4 py-2.5 bg-orange-500 text-white text-sm font-semibold rounded-lg hover:bg-orange-600 transition">🗓 Day Plan</button>
           <button onClick={onEditDeal} className="flex items-center gap-1.5 px-4 py-2.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition">✏️ Edit</button>
           <button onClick={onDeleteDeal} className="flex items-center gap-1.5 px-4 py-2.5 bg-red-50 text-red-600 text-sm font-medium rounded-lg hover:bg-red-100 transition">🗑️ Delete</button>
         </div>
@@ -5796,10 +5877,11 @@ function ComposeEmailModal({ customer, emailConnected, companyId, onClose }: {
           </div>
         </div>
       </div>
-    );
+   );
   }
+}
 
- function BulkEmailModal({ recipients, emailConnected, companyId, onClose }: {
+function BulkEmailModal({ recipients, emailConnected, companyId, onClose }: {
   recipients: { name: string; email: string }[];
   emailConnected: boolean;
   companyId: string;
@@ -5932,9 +6014,25 @@ function ComposeEmailModal({ customer, emailConnected, companyId, onClose }: {
         )}
       </div>
     </div>
-  );
+);
 }
 
+function ComposeEmailModalMain({ customer, emailConnected, companyId, onClose }: { customer: Customer; emailConnected: boolean; companyId: string; onClose: () => void; }) {
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const applyTemplate = (tpl: typeof EMAIL_TEMPLATES[0]) => { setSubject(tpl.subject); setBody(tpl.body); };
+  const handleSend = async () => {
+    if (!subject.trim() || !body.trim()) { alert('Please enter a subject and message'); return; }
+    setSending(true);
+    try {
+      const res = await fetch('/api/email/send-custom', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company_id: companyId, recipient_email: customer.email, recipient_name: customer.name, subject, body_text: body }) });
+      const data = await res.json();
+      if (data.success) { setSent(true); setTimeout(() => onClose(), 1500); } else { alert(data.error || 'Failed to send email.'); }
+    } catch (err) { alert('Failed to send email.'); }
+    setSending(false);
+  };
   if (sent) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
@@ -6058,6 +6156,8 @@ function ComposeEmailModal({ customer, emailConnected, companyId, onClose }: {
     </div>
   );
 }
+
+
 const STAGE_COLORS = [
   { hex: '#22c55e', name: 'Green' },
   { hex: '#3b82f6', name: 'Blue' },
@@ -6439,4 +6539,190 @@ function StageManagerModal({ stages, deals, onClose, onAddStage, onUpdateStage, 
     </div>
   );
 }
+// ============================================
+// DAY PLAN MODAL
+// ============================================
 
+function DayPlanModal({ deal, onClose }: { deal: Deal; onClose: () => void }) {
+  const [loading, setLoading] = useState(false);
+  const [aiPlan, setAiPlan] = useState('');
+  const [startTime, setStartTime] = useState('08:00');
+  const [crewCount, setCrewCount] = useState<string>(
+    (deal as any).crew_count || (deal as any).quote_data?.crew_count || ''
+  );
+  const [vanCount, setVanCount] = useState<string>(
+    (deal as any).van_count || (deal as any).quote_data?.van_count || ''
+  );
+  const [specialInstructions, setSpecialInstructions] = useState('');
+  const [generated, setGenerated] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  const generate = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/day-plan/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deal_id: deal.id }),
+      });
+      const data = await res.json();
+      setAiPlan(data.ai_plan);
+      setGenerated(true);
+    } catch (e) {
+      console.error(e);
+    }
+    setLoading(false);
+  };
+
+  const exportPdf = async () => {
+    setPdfLoading(true);
+    try {
+      const res = await fetch('/api/day-plan/pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deal,
+          ai_plan: aiPlan,
+          start_time: startTime,
+          crew_count: crewCount,
+          van_count: vanCount,
+          special_instructions: specialInstructions,
+        }),
+      });
+      const { html } = await res.json();
+      const win = window.open('', '_blank');
+      if (win) {
+        win.document.write(html);
+        win.document.close();
+        win.focus();
+        setTimeout(() => win.print(), 500);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    setPdfLoading(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b">
+          <div>
+            <h2 className="text-xl font-bold">🚛 Day Plan</h2>
+            <p className="text-sm text-gray-500 mt-0.5">{deal.customer_name}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
+        </div>
+
+        <div className="p-6 space-y-5">
+
+          {/* Job details row */}
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Start Time</label>
+              <input
+                type="time"
+                value={startTime}
+                onChange={e => setStartTime(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Crew Count</label>
+              <input
+                type="number"
+                value={crewCount}
+                onChange={e => setCrewCount(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                placeholder="e.g. 3"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Van Count</label>
+              <input
+                type="number"
+                value={vanCount}
+                onChange={e => setVanCount(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                placeholder="e.g. 2"
+              />
+            </div>
+          </div>
+
+          {/* Generate button */}
+          {!generated && (
+            <button
+              onClick={generate}
+              disabled={loading}
+              className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold py-3 rounded-lg transition disabled:opacity-60"
+            >
+              {loading ? '✨ Generating plan...' : '✨ Generate Day Plan with AI'}
+            </button>
+          )}
+
+          {/* AI Plan output — editable */}
+          {generated && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                AI Day Plan <span className="text-gray-400 font-normal normal-case">(edit as needed)</span>
+              </label>
+              <textarea
+                value={aiPlan}
+                onChange={e => setAiPlan(e.target.value)}
+                rows={12}
+                className="w-full border rounded-lg px-3 py-3 text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-orange-400"
+              />
+            </div>
+          )}
+
+          {/* Deal Notes — read only */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+              Deal Notes <span className="text-gray-400 font-normal normal-case">(from job record)</span>
+            </label>
+            <div className="w-full border border-dashed border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-600 bg-gray-50 min-h-[60px]">
+              {deal.notes || <span className="text-gray-400 italic">No notes on this deal</span>}
+            </div>
+          </div>
+
+          {/* Special Instructions — manual */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+              Special Instructions <span className="text-gray-400 font-normal normal-case">(for crew — printed on plan)</span>
+            </label>
+            <textarea
+              value={specialInstructions}
+              onChange={e => setSpecialInstructions(e.target.value)}
+              rows={3}
+              placeholder="Parking info, access codes, fragile items, key handover..."
+              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+            />
+          </div>
+
+          {/* Regenerate + Export */}
+          {generated && (
+            <div className="flex gap-3">
+              <button
+                onClick={generate}
+                disabled={loading}
+                className="flex-1 border border-orange-500 text-orange-500 hover:bg-orange-50 font-semibold py-2.5 rounded-lg transition text-sm disabled:opacity-60"
+              >
+                {loading ? 'Regenerating...' : '↺ Regenerate'}
+              </button>
+              <button
+                onClick={exportPdf}
+                disabled={pdfLoading}
+                className="flex-1 bg-gray-900 hover:bg-gray-800 text-white font-semibold py-2.5 rounded-lg transition text-sm disabled:opacity-60"
+              >
+                {pdfLoading ? 'Preparing...' : '⬇ Export PDF'}
+              </button>
+            </div>
+          )}
+
+        </div>
+      </div>
+    </div>
+  );
+}
