@@ -283,7 +283,70 @@ RULES:
             due_date: action.data.due_date,
           })
           if (error) action.data.error = error.message
-          else action.data.created = true
+          else {
+            action.data.created = true
+            await supabase.from('crm_customer_notes').insert({
+              company_id: COMPANY_ID,
+              customer_id: action.data.customer_id,
+              note_text: `✅ AI added task: "${action.data.title}" — due ${new Date(action.data.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+            })
+          }
+        }
+
+        if (action.type === 'send_email') {
+          // Find customer by name or email to log note
+          const { data: matchedCustomer } = await supabase
+            .from('crm_customers')
+            .select('id')
+            .eq('company_id', COMPANY_ID)
+            .or(`email.ilike.%${action.data.to_email}%,name.ilike.%${action.data.to_name}%`)
+            .maybeSingle()
+
+          if (matchedCustomer?.id) {
+            await supabase.from('crm_customer_notes').insert({
+              company_id: COMPANY_ID,
+              customer_id: matchedCustomer.id,
+              note_text: `📧 AI sent email to ${action.data.to_name} — Subject: "${action.data.subject}" — ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+            })
+            action.data.customer_id_found = matchedCustomer.id
+          }
+        }
+
+        if (action.type === 'book_event') {
+          // Find customer by name to log note
+          if (action.data.customer_name) {
+            const { data: matchedCustomer } = await supabase
+              .from('crm_customers')
+              .select('id')
+              .eq('company_id', COMPANY_ID)
+              .ilike('name', `%${action.data.customer_name}%`)
+              .maybeSingle()
+
+            if (matchedCustomer?.id) {
+              await supabase.from('crm_customer_notes').insert({
+                company_id: COMPANY_ID,
+                customer_id: matchedCustomer.id,
+                note_text: `📅 AI booked ${action.data.event_type} — "${action.data.title}" on ${new Date(action.data.start_time).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} at ${new Date(action.data.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`,
+              })
+            }
+          }
+        }
+
+        if (action.type === 'move_deal') {
+          // Find customer linked to deal
+          const { data: deal } = await supabase
+            .from('crm_deals')
+            .select('customer_id')
+            .eq('id', action.data.deal_id)
+            .maybeSingle()
+
+          if (deal?.customer_id) {
+            await supabase.from('crm_customer_notes').insert({
+              company_id: COMPANY_ID,
+              customer_id: deal.customer_id,
+              note_text: `🔀 AI moved deal to "${action.data.new_stage_name}" — ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+            })
+          }
         }
       }
     }
