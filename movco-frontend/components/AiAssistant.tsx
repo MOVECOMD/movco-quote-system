@@ -338,7 +338,7 @@ export default function AiAssistant() {
                   boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
                   whiteSpace: 'pre-line',
                 }}>
-                  {msg.content}
+                  {msg.content.replace(/\{[\s\S]*\}/g, '').trim() || msg.content}
 
                   {/* Multi-action previews */}
                   {msg.actions && !msg.executed && msg.actions.filter(a => a.type !== 'answer').map((action, idx) => getActionPreview(action, idx))}
