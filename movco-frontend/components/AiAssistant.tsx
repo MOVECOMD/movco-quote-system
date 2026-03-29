@@ -204,11 +204,19 @@ export default function AiAssistant() {
     setMessages(prev => prev.map(m =>
       m.id === msgId ? { ...m, executing: false, executed: true, confirmed: true } : m
     ))
+    const needsRefresh = actions.some(a => 
+      ['create_customer', 'create_deal', 'add_note', 'add_task', 'create_pipeline_stage', 'book_event', 'move_deal'].includes(a.type)
+    )
+
     setMessages(prev => [...prev, {
       id: Date.now().toString(),
       role: 'assistant',
-      content: results.join('\n'),
+      content: results.join('\n') + (needsRefresh ? '\n\n✅ Done! The page will refresh in 2 seconds to show your changes.' : ''),
     }])
+
+    if (needsRefresh) {
+      setTimeout(() => window.location.reload(), 2000)
+    }
   }
 
   function getActionPreview(action: Action, idx: number) {

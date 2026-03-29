@@ -224,21 +224,27 @@ RULES:
           else action.data.created = true
         }
 
-        if (action.type === 'create_deal') {
-          const { error, data: newDeal } = await supabase.from('crm_deals').insert({
+        if (action.type === 'create_customer') {
+          const insertData = { ...action.data }
+          delete insertData.created
+          delete insertData.error
+          const { error } = await supabase.from('crm_customers').insert({
             company_id: COMPANY_ID,
-            ...action.data,
-          }).select().single()
-          if (error) action.data.error = error.message
+            ...insertData,
+          })
+          if (error) { console.error('create_customer error:', error); action.data.error = error.message }
           else action.data.created = true
         }
 
-        if (action.type === 'create_customer') {
-          const { error, data: newCustomer } = await supabase.from('crm_customers').insert({
+        if (action.type === 'create_deal') {
+          const insertData = { ...action.data }
+          delete insertData.created
+          delete insertData.error
+          const { error } = await supabase.from('crm_deals').insert({
             company_id: COMPANY_ID,
-            ...action.data,
-          }).select().single()
-          if (error) action.data.error = error.message
+            ...insertData,
+          })
+          if (error) { console.error('create_deal error:', error); action.data.error = error.message }
           else action.data.created = true
         }
 
