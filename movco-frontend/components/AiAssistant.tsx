@@ -116,9 +116,9 @@ export default function AiAssistant() {
       // Support both single action and array of actions
       const actions = data.actions || (data.action ? [data.action] : [])
 
-      // Server-side actions (create/add) are already executed — auto-confirm them
       const serverSideActions = ['create_customer', 'create_deal', 'add_note', 'add_task', 'create_pipeline_stage']
       const hasServerSideOnly = actions.length > 0 && actions.every((a: Action) => serverSideActions.includes(a.type))
+      const hasAnyActions = actions.length > 0
 
       const assistantMsg: Message = {
         id: (Date.now() + 1).toString(),
@@ -130,7 +130,14 @@ export default function AiAssistant() {
 
       setMessages(prev => [...prev, assistantMsg])
 
-      // Auto-show completion message for server-side actions
+      // Auto-execute ALL actions immediately — no confirm needed
+      if (hasAnyActions && !hasServerSideOnly) {
+        setTimeout(() => {
+          executeActions((Date.now() + 1).toString(), actions)
+        }, 500)
+      }
+
+      // Auto-show completion message for server-side only actions
       if (hasServerSideOnly) {
         const results = actions.map((a: Action) => {
           if (a.data?.error) return `✗ Failed: ${a.data.error}`
