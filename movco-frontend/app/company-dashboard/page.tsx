@@ -1602,6 +1602,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
           onSchedule={detailDeal ? () => { setSelectedDeal(detailDeal); setShowCustomerDetail(false); setShowQuickBookModal(true); } : undefined}
           onCreateQuote={detailDeal ? () => { openQuoteFromDeal(detailDeal); setShowCustomerDetail(false); } : undefined}
           onDeleteDeal={detailDeal ? () => { deleteDeal(detailDeal.id); setShowCustomerDetail(false); } : undefined}
+          onDayPlan={detailDeal ? () => { setShowCustomerDetail(false); setSelectedDeal(detailDeal); setShowDayPlan(true); } : undefined}
           events={events}
           quotes={crmQuotes.filter(q => q.customer_name.toLowerCase() === selectedCustomer.name.toLowerCase())}
           onClickQuote={(q) => { setShowCustomerDetail(false); setSelectedQuote(q); setShowQuoteDetail(true); }}
@@ -5116,7 +5117,7 @@ function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose,
 // CUSTOMER DETAIL POPUP
 // ============================================
 
-function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onClose, onAddNote, onDeleteNote, onAddTask, onToggleTask, onDeleteTask, onUploadFile, onDeleteFile, onEditCustomer, onComposeEmail, emailConnected, onSchedule, onCreateQuote, onDeleteDeal, events, quotes, onClickQuote }: {
+function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onClose, onAddNote, onDeleteNote, onAddTask, onToggleTask, onDeleteTask, onUploadFile, onDeleteFile, onEditCustomer, onComposeEmail, emailConnected, onSchedule, onCreateQuote, onDeleteDeal, events, quotes, onClickQuote, onDayPlan }: {
   customer: Customer;
   notes: CustomerNote[];
   tasks: CustomerTask[];
@@ -5140,6 +5141,7 @@ function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onCl
   events?: DiaryEvent[];
   quotes?: CrmQuote[];
   onClickQuote?: (quote: CrmQuote) => void;
+  onDayPlan?: () => void;
 }) {
   const [newNote, setNewNote] = useState('');
   const [saving, setSaving] = useState(false);
@@ -5386,6 +5388,7 @@ function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onCl
             {customer.phone && (
               <a href={`tel:${customer.phone}`} className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition">📞 Call</a>
             )}
+            {onDayPlan && <button onClick={onDayPlan} className="flex items-center gap-1.5 px-3 py-2 bg-orange-500 text-white text-sm font-semibold rounded-lg hover:bg-orange-600 transition">🗓 Day Plan</button>}
             {onDeleteDeal && (
               <button onClick={onDeleteDeal} className="flex items-center gap-1.5 px-3 py-2 bg-red-50 text-red-600 text-sm font-medium rounded-lg hover:bg-red-100 transition ml-auto">🗑️ Delete</button>
             )}
