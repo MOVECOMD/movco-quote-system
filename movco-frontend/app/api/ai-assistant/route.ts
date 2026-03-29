@@ -266,9 +266,54 @@ RULES:
         }
 
         if (action.type === 'add_note') {
+          let customerId = action.data.customer_id
+
+          // Verify customer exists, if not create them from deal data
+          const { data: existingCustomer } = await supabase
+            .from('crm_customers')
+            .select('id')
+            .eq('id', customerId)
+            .maybeSingle()
+
+          if (!existingCustomer) {
+            // Find the deal to get customer details
+            const { data: deal } = await supabase
+              .from('crm_deals')
+              .select('*')
+              .eq('company_id', COMPANY_ID)
+              .ilike('customer_name', `%${action.data.customer_name}%`)
+              .maybeSingle()
+
+            if (deal) {
+              const { data: newCustomer } = await supabase
+                .from('crm_customers')
+                .insert({
+                  company_id: COMPANY_ID,
+                  name: deal.customer_name,
+                  email: deal.customer_email || null,
+                  phone: deal.customer_phone || null,
+                  moving_from: deal.moving_from || null,
+                  moving_to: deal.moving_to || null,
+                  moving_date: deal.moving_date || null,
+                  notes: deal.notes || null,
+                })
+                .select()
+                .single()
+
+              if (newCustomer) {
+                customerId = newCustomer.id
+                // Link customer back to deal
+                await supabase
+                  .from('crm_deals')
+                  .update({ customer_id: newCustomer.id })
+                  .eq('id', deal.id)
+              }
+            }
+          }
+
           const { error } = await supabase.from('crm_customer_notes').insert({
             company_id: COMPANY_ID,
-            customer_id: action.data.customer_id,
+            customer_id: customerId,
             note_text: action.data.note_text,
           })
           if (error) action.data.error = error.message
