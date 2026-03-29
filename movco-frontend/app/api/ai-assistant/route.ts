@@ -209,208 +209,150 @@ RULES:
       parsed = { message: text, actions: [], requires_confirm: false }
     }
 
+    // Helper — get or create customer record
+    const getOrCreateCustomer = async (customerName: string, customerEmail?: string): Promise<string | null> => {
+      if (customerEmail) {
+        const { data } = await supabase.from('crm_customers').select('id').eq('company_id', COMPANY_ID).ilike('email', customerEmail).maybeSingle()
+        if (data?.id) return data.id
+      }
+      const { data: byName } = await supabase.from('crm_customers').select('id').eq('company_id', COMPANY_ID).ilike('name', `%${customerName}%`).maybeSingle()
+      if (byName?.id) return byName.id
+
+      const { data: deal } = await supabase.from('crm_deals').select('id, customer_id, customer_name, customer_email, customer_phone, moving_from, moving_to, moving_date, notes').eq('company_id', COMPANY_ID).ilike('customer_name', `%${customerName}%`).maybeSingle()
+      if (deal?.customer_id) return deal.customer_id
+
+      const { data: newCustomer } = await supabase.from('crm_customers').insert({
+        company_id: COMPANY_ID,
+        name: deal?.customer_name || customerName,
+        email: deal?.customer_email || customerEmail || null,
+        phone: deal?.customer_phone || null,
+        moving_from: deal?.moving_from || null,
+        moving_to: deal?.moving_to || null,
+        moving_date: deal?.moving_date || null,
+        notes: deal?.notes || null,
+      }).select().single()
+
+      if (newCustomer?.id && deal?.id) {
+        await supabase.from('crm_deals').update({ customer_id: newCustomer.id }).eq('id', deal.id)
+      }
+      return newCustomer?.id || null
+    }
+
+    const logNote = async (customerId: string, noteText: string) => {
+      await supabase.from('crm_customer_notes').insert({
+        company_id: COMPANY_ID,
+        customer_id: customerId,
+        note_text: noteText,
+      })
+    }
+
     // Handle server-side actions
     if (parsed.actions && Array.isArray(parsed.actions)) {
       for (const action of parsed.actions) {
+        try {
 
-        if (action.type === 'create_pipeline_stage') {
-          const { name, color } = action.data
-          const { data: existingStages } = await supabase
-            .from('crm_pipeline_stages').select('position').eq('company_id', COMPANY_ID)
-            .order('position', { ascending: false }).limit(1)
-          const nextPosition = (existingStages?.[0]?.position || 0) + 1
-          const { error } = await supabase.from('crm_pipeline_stages').insert({
-            company_id: COMPANY_ID, name, color: color || '#22c55e', position: nextPosition,
-          })
-          if (error) action.data.error = error.message
-          else action.data.created = true
-        }
+          if (action.type === 'create_pipeline_stage') {
+            const { name, color } = action.data
+            const { data: existingStages } = await supabase.from('crm_pipeline_stages').select('position').eq('company_id', COMPANY_ID).order('position', { ascending: false }).limit(1)
+            const nextPosition = (existingStages?.[0]?.position || 0) + 1
+            const { error } = await supabase.from('crm_pipeline_stages').insert({ company_id: COMPANY_ID, name, color: color || '#22c55e', position: nextPosition })
+            if (error) action.data.error = error.message
+            else action.data.created = true
+          }
 
-        if (action.type === 'create_customer') {
-          const insertData = { ...action.data }
-          delete insertData.created
-          delete insertData.error
-          const { error } = await supabase.from('crm_customers').insert({
-            company_id: COMPANY_ID,
-            ...insertData,
-          })
-          if (error) { console.error('create_customer error:', error); action.data.error = error.message }
-          else action.data.created = true
-        }
+          if (action.type === 'create_customer') {
+            const insertData = { ...action.data }
+            delete insertData.created
+            delete insertData.error
+            const { error } = await supabase.from('crm_customers').insert({ company_id: COMPANY_ID, ...insertData })
+            if (error) action.data.error = error.message
+            else action.data.created = true
+          }
 
-        if (action.type === 'create_deal') {
-          const insertData = { ...action.data }
-          delete insertData.created
-          delete insertData.error
+          if (action.type === 'create_deal') {
+            const insertData = { ...action.data }
+            delete insertData.created
+            delete insertData.error
+            const { data: newCustomer } = await supabase.from('crm_customers').insert({
+              company_id: COMPANY_ID,
+              name: insertData.customer_name,
+              email: insertData.customer_email || null,
+              phone: insertData.customer_phone || null,
+              moving_from: insertData.moving_from || null,
+              moving_to: insertData.moving_to || null,
+              moving_date: insertData.moving_date || null,
+              notes: insertData.notes || null,
+            }).select().single()
+            const { error } = await supabase.from('crm_deals').insert({ company_id: COMPANY_ID, ...insertData, customer_id: newCustomer?.id || null })
+            if (error) action.data.error = error.message
+            else action.data.created = true
+          }
 
-          // First create a customer record
-          const { data: newCustomer } = await supabase.from('crm_customers').insert({
-            company_id: COMPANY_ID,
-            name: insertData.customer_name,
-            email: insertData.customer_email || null,
-            phone: insertData.customer_phone || null,
-            moving_from: insertData.moving_from || null,
-            moving_to: insertData.moving_to || null,
-            moving_date: insertData.moving_date || null,
-            notes: insertData.notes || null,
-          }).select().single()
+          if (action.type === 'add_note') {
+            const customerId = await getOrCreateCustomer(action.data.customer_name, action.data.customer_email)
+            if (!customerId) {
+              action.data.error = `Could not find or create customer: ${action.data.customer_name}`
+            } else {
+              const { error } = await supabase.from('crm_customer_notes').insert({
+                company_id: COMPANY_ID,
+                customer_id: customerId,
+                note_text: action.data.note_text,
+              })
+              if (error) action.data.error = error.message
+              else action.data.created = true
+            }
+          }
 
-          // Then create deal with customer_id linked
-          const { error } = await supabase.from('crm_deals').insert({
-            company_id: COMPANY_ID,
-            ...insertData,
-            customer_id: newCustomer?.id || null,
-          })
-          if (error) { console.error('create_deal error:', error); action.data.error = error.message }
-          else action.data.created = true
-        }
-
-        if (action.type === 'add_note') {
-          let customerId = action.data.customer_id
-
-          // Verify customer exists, if not create them from deal data
-          const { data: existingCustomer } = await supabase
-            .from('crm_customers')
-            .select('id')
-            .eq('id', customerId)
-            .maybeSingle()
-
-          if (!existingCustomer) {
-            // Find the deal to get customer details
-            const { data: deal } = await supabase
-              .from('crm_deals')
-              .select('*')
-              .eq('company_id', COMPANY_ID)
-              .ilike('customer_name', `%${action.data.customer_name}%`)
-              .maybeSingle()
-
-            if (deal) {
-              const { data: newCustomer } = await supabase
-                .from('crm_customers')
-                .insert({
-                  company_id: COMPANY_ID,
-                  name: deal.customer_name,
-                  email: deal.customer_email || null,
-                  phone: deal.customer_phone || null,
-                  moving_from: deal.moving_from || null,
-                  moving_to: deal.moving_to || null,
-                  moving_date: deal.moving_date || null,
-                  notes: deal.notes || null,
-                })
-                .select()
-                .single()
-
-              if (newCustomer) {
-                customerId = newCustomer.id
-                // Link customer back to deal
-                await supabase
-                  .from('crm_deals')
-                  .update({ customer_id: newCustomer.id })
-                  .eq('id', deal.id)
+          if (action.type === 'add_task') {
+            const customerId = await getOrCreateCustomer(action.data.customer_name)
+            if (!customerId) {
+              action.data.error = `Could not find customer: ${action.data.customer_name}`
+            } else {
+              const { error } = await supabase.from('crm_customer_tasks').insert({
+                company_id: COMPANY_ID,
+                customer_id: customerId,
+                title: action.data.title,
+                due_date: action.data.due_date,
+              })
+              if (error) action.data.error = error.message
+              else {
+                action.data.created = true
+                await logNote(customerId, `✅ AI added task: "${action.data.title}" — due ${new Date(action.data.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`)
               }
             }
           }
 
-          const { error } = await supabase.from('crm_customer_notes').insert({
-            company_id: COMPANY_ID,
-            customer_id: customerId,
-            note_text: action.data.note_text,
-          })
-          if (error) action.data.error = error.message
-          else action.data.created = true
-        }
-
-        if (action.type === 'add_task') {
-          const { error } = await supabase.from('crm_customer_tasks').insert({
-            company_id: COMPANY_ID,
-            customer_id: action.data.customer_id,
-            title: action.data.title,
-            due_date: action.data.due_date,
-          })
-          if (error) action.data.error = error.message
-          else {
-            action.data.created = true
-            await supabase.from('crm_customer_notes').insert({
-              company_id: COMPANY_ID,
-              customer_id: action.data.customer_id,
-              note_text: `✅ AI added task: "${action.data.title}" — due ${new Date(action.data.due_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`,
-            })
-          }
-        }
-
-        if (action.type === 'send_email') {
-          // Try crm_customers first
-          let customerId: string | null = null
-
-          const { data: matchedCustomer } = await supabase
-            .from('crm_customers')
-            .select('id')
-            .eq('company_id', COMPANY_ID)
-            .or(`email.ilike.%${action.data.to_email}%,name.ilike.%${action.data.to_name}%`)
-            .maybeSingle()
-
-          if (matchedCustomer?.id) {
-            customerId = matchedCustomer.id
-          } else {
-            // Fallback — search deals and use customer_id from there
-            const { data: matchedDeal } = await supabase
-              .from('crm_deals')
-              .select('customer_id')
-              .eq('company_id', COMPANY_ID)
-              .or(`customer_email.ilike.%${action.data.to_email}%,customer_name.ilike.%${action.data.to_name}%`)
-              .not('customer_id', 'is', null)
-              .maybeSingle()
-
-            if (matchedDeal?.customer_id) {
-              customerId = matchedDeal.customer_id
+          if (action.type === 'send_email') {
+            const customerId = await getOrCreateCustomer(action.data.to_name, action.data.to_email)
+            if (customerId) {
+              await logNote(customerId, `📧 AI sent email to ${action.data.to_name} — Subject: "${action.data.subject}" — ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`)
+              action.data.customer_id_found = customerId
             }
           }
 
-          if (customerId) {
-            await supabase.from('crm_customer_notes').insert({
-              company_id: COMPANY_ID,
-              customer_id: customerId,
-              note_text: `📧 AI sent email to ${action.data.to_name} — Subject: "${action.data.subject}" — ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`,
-            })
-            action.data.customer_id_found = customerId
-          }
-        }
-
-        if (action.type === 'book_event') {
-          // Find customer by name to log note
-          if (action.data.customer_name) {
-            const { data: matchedCustomer } = await supabase
-              .from('crm_customers')
-              .select('id')
-              .eq('company_id', COMPANY_ID)
-              .ilike('name', `%${action.data.customer_name}%`)
-              .maybeSingle()
-
-            if (matchedCustomer?.id) {
-              await supabase.from('crm_customer_notes').insert({
-                company_id: COMPANY_ID,
-                customer_id: matchedCustomer.id,
-                note_text: `📅 AI booked ${action.data.event_type} — "${action.data.title}" on ${new Date(action.data.start_time).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} at ${new Date(action.data.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`,
-              })
+          if (action.type === 'book_event') {
+            if (action.data.customer_name) {
+              const customerId = await getOrCreateCustomer(action.data.customer_name)
+              if (customerId) {
+                await logNote(customerId, `📅 AI booked ${action.data.event_type} — "${action.data.title}" on ${new Date(action.data.start_time).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} at ${new Date(action.data.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`)
+              }
             }
           }
-        }
 
-        if (action.type === 'move_deal') {
-          // Find customer linked to deal
-          const { data: deal } = await supabase
-            .from('crm_deals')
-            .select('customer_id')
-            .eq('id', action.data.deal_id)
-            .maybeSingle()
-
-          if (deal?.customer_id) {
-            await supabase.from('crm_customer_notes').insert({
-              company_id: COMPANY_ID,
-              customer_id: deal.customer_id,
-              note_text: `🔀 AI moved deal to "${action.data.new_stage_name}" — ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`,
-            })
+          if (action.type === 'move_deal') {
+            const { data: deal } = await supabase.from('crm_deals').select('customer_id, customer_name').eq('id', action.data.deal_id).maybeSingle()
+            const customerId = deal?.customer_id || (deal?.customer_name ? await getOrCreateCustomer(deal.customer_name) : null)
+            if (customerId) {
+              await logNote(customerId, `🔀 AI moved deal to "${action.data.new_stage_name}" — ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`)
+            }
+            const { error } = await supabase.from('crm_deals').update({ stage_id: action.data.new_stage_id, updated_at: new Date().toISOString() }).eq('id', action.data.deal_id)
+            if (error) action.data.error = error.message
+            else action.data.created = true
           }
+
+        } catch (actionErr: any) {
+          console.error(`Action ${action.type} failed:`, actionErr)
+          action.data.error = actionErr.message
         }
       }
     }
