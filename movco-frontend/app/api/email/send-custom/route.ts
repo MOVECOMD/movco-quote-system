@@ -77,14 +77,14 @@ export async function POST(req: NextRequest) {
     // Get email template for branding
     const { data: config } = await supabaseAdmin
       .from('company_config')
-      .select('email_template')
+      .select('email_template, pdf_template')
       .eq('company_id', company_id)
       .maybeSingle();
 
     const template = config?.email_template || {};
     const headerFrom = template.header_color_from || '#1e40af';
     const headerTo = template.header_color_to || '#4f46e5';
-    const logoUrl = template.logo_url || '';
+    const logoUrl = template.logo_url || config?.pdf_template?.logo_url || '';
     const showPhone = template.show_phone !== false;
     const showEmail = template.show_email !== false;
     const footerText = template.footer_text || 'This email was sent by {company_name} via MOVCO';
@@ -138,7 +138,6 @@ export async function POST(req: NextRequest) {
 
   <!-- Body -->
   <div style="background:white;padding:40px 32px;box-shadow:0 4px 24px rgba(0,0,0,0.06);">
-    <p style="color:#111827;font-size:16px;margin:0 0 20px;font-weight:500;">Hi ${(recipient_name || 'there').split(' ')[0]},</p>
     ${bodyHtml}
     
     <!-- Divider -->
