@@ -177,8 +177,9 @@ RULES:
 - For actions that create/send/move things: requires_confirm: true
 - For read-only answers: requires_confirm: false, use "answer" action type
 - If customer not found for add_note or add_task, say so clearly
-- Keep message to 1-2 friendly sentences, no JSON in message field
-- Always return valid JSON only`
+- Keep message to 1-2 friendly sentences maximum — no bullet points, no bold text, no lists, no JSON in message field
+- Never summarise the action data back in the message field — just confirm it worked in plain conversational English e.g. "Simon Jones has been added as a customer and placed in the New Lead stage."
+- Always return valid JSON only — no markdown code blocks, no backticks around the JSON`
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
