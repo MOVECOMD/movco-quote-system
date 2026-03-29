@@ -1488,6 +1488,8 @@ const [showDayPlan, setShowDayPlan] = useState(false);
                 emailConnected={emailConnected}
                 onComposeEmail={(customer) => { setComposeEmailCustomer(customer); setShowComposeEmail(true); }}
                 onClickCustomer={openCustomerDetail}
+                stages={stages}
+                company={company}
               />
             )}
             {activeTab === 'reports' && (
@@ -3536,7 +3538,7 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
 // CUSTOMERS TAB
 // ============================================
 
-function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEditCustomer, onDeleteCustomer, onSendQuoteLink, crmQuotes, onClickQuote, emailConnected, onComposeEmail, onClickCustomer }: {
+function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEditCustomer, onDeleteCustomer, onSendQuoteLink, crmQuotes, onClickQuote, emailConnected, onComposeEmail, onClickCustomer, stages, company }: {
   customers: Customer[]; search: string; onSearchChange: (s: string) => void;
   onAddCustomer: () => void; onEditCustomer: (c: Customer) => void; onDeleteCustomer: (id: string) => void;
   onSendQuoteLink: (c: Customer) => void;
@@ -3545,6 +3547,8 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
   emailConnected: boolean;
   onComposeEmail: (c: Customer) => void;
   onClickCustomer: (c: Customer) => void;
+  stages: PipelineStage[];
+  company: Company;
 }) {
 
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
@@ -3713,30 +3717,23 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
             <h3 className="font-bold text-gray-900 text-lg mb-1">Add to Pipeline</h3>
             <p className="text-sm text-gray-500 mb-4">{pipelineCustomer.name}</p>
             <div className="space-y-2">
-              {[
-                { id: '6a36fa88-8220-47b1-9f6d-98f63f630943', name: 'New Lead', color: 'bg-indigo-500' },
-                { id: '1fe63154-4ae2-4384-a62e-c65985571197', name: 'In Conversation', color: 'bg-purple-500' },
-                { id: '8be5de73-12ca-4bec-924f-e50060ae5ddc', name: 'Contacted', color: 'bg-yellow-500' },
-                { id: '68cf884a-4330-41ea-b86c-6e7fc861d0ad', name: 'Appointment', color: 'bg-blue-500' },
-                { id: '75d775ab-8670-44f3-a182-ca6411aaed42', name: 'Quote Sent', color: 'bg-blue-400' },
-                { id: '79cc52aa-68bc-4297-bfbb-a23748621e32', name: 'Booked', color: 'bg-green-500' },
-              ].map(stage => (
+              {stages.map(stage => (
                 <button key={stage.id}
                   onClick={async () => {
                     const { supabase } = await import('@/lib/supabaseClient');
-                    const companyRes = await supabase.from('companies').select('id').limit(1).single();
-                     await supabase.from('crm_deals').insert({
-                      company_id: companyRes.data?.id,
+                    await supabase.from('crm_deals').insert({
+                      company_id: company.id,
                       customer_name: pipelineCustomer.name,
                       customer_email: pipelineCustomer.email,
                       customer_phone: pipelineCustomer.phone,
+                      customer_id: pipelineCustomer.id,
                       stage_id: stage.id,
                     });
                     setPipelineCustomer(null);
                     alert(`${pipelineCustomer.name} added to ${stage.name}`);
                   }}
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition text-left">
-                  <div className={`w-3 h-3 rounded-full ${stage.color}`} />
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: stage.color }} />
                   <span className="font-medium text-gray-800 text-sm">{stage.name}</span>
                 </button>
               ))}
