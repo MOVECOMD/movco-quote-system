@@ -1560,6 +1560,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
           onDelete={() => { deleteQuote(selectedQuote.id); setShowQuoteDetail(false); setSelectedQuote(null); }}
           onConvertToDeal={() => { convertQuoteToDeal(selectedQuote); setShowQuoteDetail(false); setSelectedQuote(null); }}
           onSave={async (fields) => { await updateQuoteFields(selectedQuote.id, fields); setSelectedQuote({ ...selectedQuote, ...fields } as CrmQuote); }}
+          onDayPlan={selectedQuote?.deal_id ? () => { setShowQuoteDetail(false); const d = deals.find(x => x.id === selectedQuote!.deal_id); if (d) { setSelectedDeal(d); setShowDayPlan(true); } } : undefined}
           onBookDiary={(q) => {
             setShowQuoteDetail(false);
             setQuotePrefill({
@@ -4760,10 +4761,11 @@ function EventDetailPopup({ event, deals, onClose, onCreateQuote, onComplete, on
 // QUOTE DETAIL POPUP — EDITABLE
 // ============================================
 
-function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose, onUpdateStatus, onDelete, onConvertToDeal, onSave, onBookDiary }: {
+function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose, onUpdateStatus, onDelete, onConvertToDeal, onSave, onBookDiary, onDayPlan }: {
   quote: CrmQuote; company: Company; pdfBranding?: any; pricingConfig?: any; onClose: () => void; onUpdateStatus: (status: string) => void; onDelete: () => void; onConvertToDeal: () => void;
   onSave: (fields: Partial<CrmQuote>) => void;
   onBookDiary?: (quote: CrmQuote) => void;
+  onDayPlan?: () => void;
 }) {
   const statusStyles: Record<string, string> = { draft: 'bg-gray-100 text-gray-700', sent: 'bg-blue-100 text-blue-700', accepted: 'bg-green-100 text-green-700', declined: 'bg-red-100 text-red-700' };
 
@@ -5048,6 +5050,7 @@ function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose,
             </button>
           )}
           {onBookDiary && <button onClick={() => onBookDiary(quote)} className="flex items-center gap-1.5 px-4 py-2.5 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition">📅 Book in Diary</button>}
+          {onDayPlan && <button onClick={onDayPlan} className="flex items-center gap-1.5 px-4 py-2.5 bg-orange-500 text-white text-sm font-semibold rounded-lg hover:bg-orange-600 transition">🗓 Day Plan</button>}
           {quote.status === 'draft' && <button onClick={() => onUpdateStatus('sent')} className="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition">📤 Mark as Sent</button>}
           {quote.status === 'sent' && (
             <>
