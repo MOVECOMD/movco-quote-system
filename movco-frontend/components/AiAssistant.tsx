@@ -11,7 +11,7 @@ const supabase = createClient(
 const COMPANY_ID = 'd83a643c-4f72-4df5-9618-7fe23db7bc01'
 
 type Action = {
-  type: 'send_email' | 'book_event' | 'move_deal' | 'schedule_post' | 'answer' | 'create_pipeline_stage'
+  type: 'send_email' | 'book_event' | 'move_deal' | 'schedule_post' | 'answer' | 'create_pipeline_stage' | 'create_deal' | 'create_customer' | 'add_note' | 'add_task'
   data: any
   label?: string
 }
@@ -116,14 +116,40 @@ export default function AiAssistant() {
       // Support both single action and array of actions
       const actions = data.actions || (data.action ? [data.action] : [])
 
+      // Server-side actions (create/add) are already executed — auto-confirm them
+      const serverSideActions = ['create_customer', 'create_deal', 'add_note', 'add_task', 'create_pipeline_stage']
+      const hasServerSideOnly = actions.length > 0 && actions.every((a: Action) => serverSideActions.includes(a.type))
+
       const assistantMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content: data.message,
         actions: actions.length > 0 ? actions : undefined,
-        requires_confirm: data.requires_confirm,
+        requires_confirm: hasServerSideOnly ? false : data.requires_confirm,
       }
+
       setMessages(prev => [...prev, assistantMsg])
+
+      // Auto-show completion message for server-side actions
+      if (hasServerSideOnly) {
+        const results = actions.map((a: Action) => {
+          if (a.data?.error) return `✗ Failed: ${a.data.error}`
+          if (a.type === 'create_deal') return `✓ ${a.data.customer_name} added to pipeline`
+          if (a.type === 'create_customer') return `✓ ${a.data.name} created as a contact`
+          if (a.type === 'add_note') return `✓ Note added for ${a.data.customer_name}`
+          if (a.type === 'add_task') return `✓ Task added for ${a.data.customer_name}`
+          if (a.type === 'create_pipeline_stage') return `✓ Stage "${a.data.name}" created`
+          return `✓ Done`
+        })
+        setTimeout(() => {
+          setMessages(prev => [...prev, {
+            id: (Date.now() + 2).toString(),
+            role: 'assistant',
+            content: results.join('\n') + '\n\n✅ Page refreshing in 2 seconds...',
+          }])
+          setTimeout(() => window.location.reload(), 2000)
+        }, 300)
+      }
     } catch {
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
