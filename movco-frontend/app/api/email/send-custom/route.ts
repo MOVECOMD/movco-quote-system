@@ -123,33 +123,53 @@ export async function POST(req: NextRequest) {
     const resolvedFooter = footerText.replace(/\{company_name\}/g, companyName);
 
     // Build branded HTML email
-    const html = `<!DOCTYPE html>
+   const html = `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background-color:#f3f4f6;">
-<div style="max-width:600px;margin:0 auto;padding:20px;">
-<div style="background:linear-gradient(135deg,${headerFrom},${headerTo});border-radius:16px 16px 0 0;padding:32px;text-align:center;">
-${logoUrl ? `<img src="${logoUrl}" alt="${companyName}" style="max-width:180px;max-height:60px;object-fit:contain;margin:0 auto 12px;display:block;" />` : ''}
-<h1 style="color:white;margin:0;font-size:24px;font-weight:700;">${companyName}</h1>
-</div>
-<div style="background:white;padding:32px;border-radius:0 0 16px 16px;box-shadow:0 4px 6px rgba(0,0,0,0.05);">
-<p style="color:#374151;font-size:16px;margin:0 0 24px;">Hi ${recipient_name || 'there'},</p>
-${bodyHtml}
-<div style="border-top:1px solid #e5e7eb;padding-top:20px;margin-top:24px;">
-<p style="color:#111827;font-size:15px;font-weight:600;margin:0 0 8px;">${companyName}</p>
-${showPhone && companyPhone ? `<p style="color:#6b7280;font-size:14px;margin:0 0 4px;">📱 ${companyPhone}</p>` : ''}
-${showEmail && companyEmail ? `<p style="color:#6b7280;font-size:14px;margin:0 0 4px;">✉️ ${companyEmail}</p>` : ''}
-${(socialWebsite || socialFacebook || socialInstagram || socialTwitter || socialTiktok) ? `
-<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
-${socialWebsite ? `<a href="${socialWebsite}" style="display:inline-block;padding:6px 12px;background:#f3f4f6;border-radius:8px;color:#374151;font-size:12px;text-decoration:none;font-weight:500;">🌐 Website</a>` : ''}
-${socialFacebook ? `<a href="${socialFacebook}" style="display:inline-block;padding:6px 12px;background:#f3f4f6;border-radius:8px;color:#374151;font-size:12px;text-decoration:none;font-weight:500;">📘 Facebook</a>` : ''}
-${socialInstagram ? `<a href="${socialInstagram}" style="display:inline-block;padding:6px 12px;background:#f3f4f6;border-radius:8px;color:#374151;font-size:12px;text-decoration:none;font-weight:500;">📸 Instagram</a>` : ''}
-${socialTwitter ? `<a href="${socialTwitter}" style="display:inline-block;padding:6px 12px;background:#f3f4f6;border-radius:8px;color:#374151;font-size:12px;text-decoration:none;font-weight:500;">🐦 Twitter</a>` : ''}
-${socialTiktok ? `<a href="${socialTiktok}" style="display:inline-block;padding:6px 12px;background:#f3f4f6;border-radius:8px;color:#374151;font-size:12px;text-decoration:none;font-weight:500;">🎵 TikTok</a>` : ''}
-</div>` : ''}
-</div>
-</div>
-<div style="text-align:center;padding:20px;"><p style="color:#9ca3af;font-size:12px;margin:0;">${resolvedFooter}</p></div>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background-color:#f0f2f5;">
+<div style="max-width:600px;margin:0 auto;padding:32px 16px;">
+
+  <!-- Header -->
+  <div style="background:linear-gradient(135deg,${headerFrom},${headerTo});border-radius:16px 16px 0 0;padding:40px 32px;text-align:center;">
+    ${logoUrl ? `<img src="${logoUrl}" alt="${companyName}" style="max-width:120px;max-height:120px;object-fit:contain;margin:0 auto 16px;display:block;border-radius:50%;background:white;padding:8px;" />` : `<div style="width:80px;height:80px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:32px;">🚛</div>`}
+    <h1 style="color:white;margin:0;font-size:26px;font-weight:800;letter-spacing:-0.5px;">${companyName}</h1>
+    <p style="color:rgba(255,255,255,0.75);margin:6px 0 0;font-size:14px;">Professional Removal Services</p>
+  </div>
+
+  <!-- Body -->
+  <div style="background:white;padding:40px 32px;box-shadow:0 4px 24px rgba(0,0,0,0.06);">
+    <p style="color:#111827;font-size:16px;margin:0 0 20px;font-weight:500;">Hi ${(recipient_name || 'there').split(' ')[0]},</p>
+    ${bodyHtml}
+    
+    <!-- Divider -->
+    <div style="height:1px;background:linear-gradient(to right,transparent,#e5e7eb,transparent);margin:32px 0;"></div>
+    
+    <!-- Signature -->
+    <div style="display:flex;align-items:center;gap:16px;">
+      ${logoUrl ? `<img src="${logoUrl}" alt="${companyName}" style="width:48px;height:48px;border-radius:50%;object-fit:contain;background:#f3f4f6;padding:4px;" />` : ''}
+      <div>
+        <p style="color:#111827;font-size:15px;font-weight:700;margin:0 0 4px;">${companyName}</p>
+        ${showPhone && companyPhone ? `<p style="color:#6b7280;font-size:13px;margin:0 0 2px;">📱 ${companyPhone}</p>` : ''}
+        ${showEmail && companyEmail ? `<p style="color:#6b7280;font-size:13px;margin:0 0 2px;">✉️ ${companyEmail}</p>` : ''}
+      </div>
+    </div>
+
+    <!-- Social links -->
+    ${(socialWebsite || socialFacebook || socialInstagram || socialTwitter || socialTiktok) ? `
+    <div style="margin-top:20px;display:flex;gap:8px;flex-wrap:wrap;">
+      ${socialWebsite ? `<a href="${socialWebsite}" style="display:inline-block;padding:7px 14px;background:#f3f4f6;border-radius:20px;color:#374151;font-size:12px;text-decoration:none;font-weight:600;">🌐 Website</a>` : ''}
+      ${socialFacebook ? `<a href="${socialFacebook}" style="display:inline-block;padding:7px 14px;background:#f3f4f6;border-radius:20px;color:#374151;font-size:12px;text-decoration:none;font-weight:600;">📘 Facebook</a>` : ''}
+      ${socialInstagram ? `<a href="${socialInstagram}" style="display:inline-block;padding:7px 14px;background:#f3f4f6;border-radius:20px;color:#374151;font-size:12px;text-decoration:none;font-weight:600;">📸 Instagram</a>` : ''}
+      ${socialTwitter ? `<a href="${socialTwitter}" style="display:inline-block;padding:7px 14px;background:#f3f4f6;border-radius:20px;color:#374151;font-size:12px;text-decoration:none;font-weight:600;">🐦 Twitter</a>` : ''}
+      ${socialTiktok ? `<a href="${socialTiktok}" style="display:inline-block;padding:7px 14px;background:#f3f4f6;border-radius:20px;color:#374151;font-size:12px;text-decoration:none;font-weight:600;">🎵 TikTok</a>` : ''}
+    </div>` : ''}
+  </div>
+
+  <!-- Footer -->
+  <div style="background:linear-gradient(135deg,${headerFrom},${headerTo});border-radius:0 0 16px 16px;padding:20px 32px;text-align:center;">
+    <p style="color:rgba(255,255,255,0.7);font-size:12px;margin:0;">${resolvedFooter}</p>
+  </div>
+
 </div>
 </body></html>`;
 
