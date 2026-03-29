@@ -28,10 +28,12 @@ type Message = {
 }
 
 const QUICK_COMMANDS = [
-  "Who hasn't been contacted in 7 days?",
+  "What's my revenue this month?",
+  "What jobs are coming up this week?",
+  "Show pipeline value by stage",
+  "What tasks are overdue?",
   "What's booked in the diary this week?",
   "Show me all deals in Quote Sent",
-  "How many jobs completed this month?",
 ]
 
 export default function AiAssistant() {

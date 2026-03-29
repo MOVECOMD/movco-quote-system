@@ -10,12 +10,12 @@ const COMPANY_ID = 'd83a643c-4f72-4df5-9618-7fe23db7bc01'
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-const { messages } = body
-const isOnboarding = body.onboarding === true
+    const { messages } = body
+    const isOnboarding = body.onboarding === true
 
-if (isOnboarding) {
-  const templateLabel = body.template_label || 'business'
-  const onboardingPrompt = `You are a friendly onboarding assistant for buildyourmanagement.co.uk. You are setting up a ${templateLabel} CRM for a new user.
+    if (isOnboarding) {
+      const templateLabel = body.template_label || 'business'
+      const onboardingPrompt = `You are a friendly onboarding assistant for buildyourmanagement.co.uk. You are setting up a ${templateLabel} CRM for a new user.
 
 Ask these questions one at a time in a conversational way:
 1. What areas or postcodes do they cover?
@@ -39,165 +39,155 @@ After all 5 answers, return this JSON:
 
 Keep responses short and friendly. One question at a time. Always return valid JSON with at least a message field. Never include JSON inside the message field.`
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY!,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 500,
-      system: onboardingPrompt,
-      messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
-    }),
-  })
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.ANTHROPIC_API_KEY!,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 500,
+          system: onboardingPrompt,
+          messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
+        }),
+      })
 
-  const data = await res.json()
-  const text = data.content?.[0]?.text || '{}'
-  let parsed
-  try {
-    const clean = text.replace(/```json|```/g, '').trim()
-    parsed = JSON.parse(clean)
-  } catch {
-    parsed = { message: text, onboarding_complete: false }
-  }
-  return NextResponse.json(parsed)
-}
+      const data = await res.json()
+      const text = data.content?.[0]?.text || '{}'
+      let parsed
+      try {
+        const clean = text.replace(/```json|```/g, '').trim()
+        parsed = JSON.parse(clean)
+      } catch {
+        parsed = { message: text, onboarding_complete: false }
+      }
+      return NextResponse.json(parsed)
+    }
 
-    // Fetch live CRM context
-    const [dealsRes, customersRes, eventsRes, postsRes] = await Promise.all([
-      supabase.from('crm_deals').select('id, customer_name, customer_email, customer_phone, stage_id, moving_date, estimated_value, moving_from, moving_to').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }),
-      supabase.from('crm_customers').select('id, name, email, phone, moving_from, moving_to, moving_date').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(50),
-      supabase.from('crm_diary_events').select('id, title, start_time, end_time, event_type, customer_name, location, completed').eq('company_id', COMPANY_ID).order('start_time', { ascending: true }).limit(30),
-      supabase.from('social_posts').select('id, content, platforms, status, scheduled_at').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(10),
+    // Fetch ALL live CRM context including real pipeline stages
+    const [dealsRes, customersRes, eventsRes, stagesRes, tasksRes, quotesRes] = await Promise.all([
+      supabase.from('crm_deals').select('id, customer_name, customer_email, customer_phone, stage_id, moving_date, estimated_value, moving_from, moving_to, notes, created_at').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }),
+      supabase.from('crm_customers').select('id, name, email, phone, moving_from, moving_to, moving_date, notes').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(100),
+      supabase.from('crm_diary_events').select('id, title, start_time, end_time, event_type, customer_name, location, completed, deal_id').eq('company_id', COMPANY_ID).order('start_time', { ascending: true }).limit(50),
+      supabase.from('crm_pipeline_stages').select('id, name, color, position').eq('company_id', COMPANY_ID).order('position'),
+      supabase.from('crm_customer_tasks').select('id, customer_id, title, due_date, completed').eq('company_id', COMPANY_ID).eq('completed', false).order('due_date', { ascending: true }),
+      supabase.from('crm_quotes').select('id, customer_name, estimated_price, status, deal_id, created_at, moving_date').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(20),
     ])
-    console.log('Deals found:', dealsRes.data?.length, 'Error:', dealsRes.error?.message)
 
-    const stages = [
-      { id: '6a36fa88-8220-47b1-9f6d-98f63f630943', name: 'New Lead' },
-      { id: '1fe63154-4ae2-4384-a62e-c65985571197', name: 'In Conversation' },
-      { id: '8be5de73-12ca-4bec-924f-e50060ae5ddc', name: 'Contacted' },
-      { id: '68cf884a-4330-41ea-b86c-6e7fc861d0ad', name: 'Appointment' },
-      { id: '75d775ab-8670-44f3-a182-ca6411aaed42', name: 'Quote Sent' },
-      { id: '79cc52aa-68bc-4297-bfbb-a23748621e32', name: 'Booked' },
-    ]
+    const stages = stagesRes.data || []
+    const today = new Date()
+    const todayStr = today.toISOString().split('T')[0]
 
-    const today = new Date().toISOString().split('T')[0]
+    // Calculate revenue this month
+    const thisMonth = today.getMonth()
+    const thisYear = today.getFullYear()
+    const completedJobsThisMonth = eventsRes.data?.filter(e => {
+      if (!e.completed || e.event_type !== 'job') return false
+      const d = new Date(e.start_time)
+      return d.getMonth() === thisMonth && d.getFullYear() === thisYear
+    }) || []
 
-    const systemPrompt = `You are an AI assistant built into MOVCO, a CRM for removal companies. You help the user manage their business through natural language commands.
+    const dealsWithCompletedJobs = dealsRes.data?.filter(d =>
+      completedJobsThisMonth.some(e => e.deal_id === d.id)
+    ) || []
+    const revenueThisMonth = dealsWithCompletedJobs.reduce((s, d) => s + (d.estimated_value || 0), 0)
 
-Today's date: ${today}
+    // Pipeline value by stage
+    const pipelineByStage = stages.map(stage => ({
+      stage: stage.name,
+      count: dealsRes.data?.filter(d => d.stage_id === stage.id).length || 0,
+      value: dealsRes.data?.filter(d => d.stage_id === stage.id).reduce((s, d) => s + (d.estimated_value || 0), 0) || 0,
+    }))
+
+    // Overdue tasks
+    const overdueTasks = tasksRes.data?.filter(t => new Date(t.due_date) < today) || []
+
+    // Upcoming jobs this week
+    const weekEnd = new Date(today)
+    weekEnd.setDate(weekEnd.getDate() + 7)
+    const upcomingJobs = eventsRes.data?.filter(e => {
+      if (e.event_type !== 'job' || e.completed) return false
+      const d = new Date(e.start_time)
+      return d >= today && d <= weekEnd
+    }) || []
+
+    const systemPrompt = `You are an AI assistant built into MOVCO, a CRM for removal companies. You help the user manage their business through natural language.
+
+Today's date: ${todayStr}
 
 LIVE CRM DATA:
-Deals (${dealsRes.data?.length || 0}): ${JSON.stringify(dealsRes.data?.slice(0, 20) || [])}
-Customers (${customersRes.data?.length || 0}): ${JSON.stringify(customersRes.data?.slice(0, 20) || [])}
-Diary events (upcoming): ${JSON.stringify(eventsRes.data?.slice(0, 15) || [])}
-Recent social posts: ${JSON.stringify(postsRes.data || [])}
-Pipeline stages: ${JSON.stringify(stages)}
+Pipeline stages (THESE ARE THE REAL STAGES — always use these IDs): ${JSON.stringify(stages)}
+Deals (${dealsRes.data?.length || 0} total): ${JSON.stringify(dealsRes.data || [])}
+Customers (${customersRes.data?.length || 0} total): ${JSON.stringify(customersRes.data?.slice(0, 50) || [])}
+Diary events: ${JSON.stringify(eventsRes.data || [])}
+Quotes: ${JSON.stringify(quotesRes.data || [])}
 
-You can execute one OR MULTIPLE actions by returning structured JSON in this exact format:
+PRE-COMPUTED STATS:
+Revenue this month: £${revenueThisMonth.toLocaleString()} (from ${completedJobsThisMonth.length} completed jobs)
+Pipeline value by stage: ${JSON.stringify(pipelineByStage)}
+Overdue tasks (${overdueTasks.length}): ${JSON.stringify(overdueTasks.slice(0, 10))}
+Upcoming jobs this week (${upcomingJobs.length}): ${JSON.stringify(upcomingJobs)}
 
+Return structured JSON in this exact format:
 {
-  "message": "Friendly summary of what you are about to do",
-  "actions": [
-    { "type": "move_deal", "data": { ... } },
-    { "type": "send_email", "data": { ... } }
-  ],
+  "message": "Friendly summary of what you are about to do or the answer",
+  "actions": [ ... ],
   "requires_confirm": true | false
 }
-
-For a single action, still use the "actions" array with one item.
-For read-only answers, use actions: [{ "type": "answer", "data": { "summary": "..." } }]
 
 ACTION FORMATS:
 
 send_email:
-{
-  "type": "send_email",
-  "data": {
-    "to_email": "email@example.com",
-    "to_name": "Customer Name",
-    "subject": "Subject line",
-    "body": "Full email body text"
-  }
-}
+{ "type": "send_email", "data": { "to_email": "email", "to_name": "name", "subject": "subject", "body": "body" } }
 
 book_event:
-{
-  "type": "book_event",
-  "data": {
-    "title": "Event title",
-    "event_type": "survey" | "job" | "callback" | "other",
-    "start_time": "ISO datetime",
-    "end_time": "ISO datetime or null",
-    "customer_name": "Name or null",
-    "location": "Address or null",
-    "deal_id": "uuid or null"
-  }
-}
+{ "type": "book_event", "data": { "title": "title", "event_type": "survey|job|callback|other", "start_time": "ISO", "end_time": "ISO or null", "customer_name": "name or null", "location": "address or null", "deal_id": "uuid or null" } }
 
 move_deal:
-{
-  "type": "move_deal",
-  "data": {
-    "deal_id": "uuid",
-    "deal_name": "Customer name for display",
-    "new_stage_id": "uuid",
-    "new_stage_name": "Stage name for display"
-  }
-}
+{ "type": "move_deal", "data": { "deal_id": "uuid", "deal_name": "name", "new_stage_id": "uuid", "new_stage_name": "stage name" } }
 
-schedule_post:
-{
-  "type": "schedule_post",
-  "data": {
-    "content": "Post text",
-    "platforms": ["facebook", "instagram", "linkedin"],
-    "scheduled_at": "ISO datetime or null for immediate"
-  }
-}
+create_deal:
+{ "type": "create_deal", "data": { "customer_name": "name", "customer_email": "email or null", "customer_phone": "phone or null", "moving_from": "address or null", "moving_to": "address or null", "moving_date": "ISO date or null", "estimated_value": number or null, "stage_id": "uuid of first stage", "notes": "notes or null" } }
+
+create_customer:
+{ "type": "create_customer", "data": { "name": "name", "email": "email or null", "phone": "phone or null", "moving_from": "address or null", "moving_to": "address or null", "moving_date": "ISO date or null", "notes": "notes or null" } }
+
+add_note:
+{ "type": "add_note", "data": { "customer_id": "uuid", "customer_name": "name", "note_text": "the note" } }
+
+add_task:
+{ "type": "add_task", "data": { "customer_id": "uuid", "customer_name": "name", "title": "task title", "due_date": "ISO datetime" } }
 
 create_pipeline_stage:
-{
-  "type": "create_pipeline_stage",
-  "data": {
-    "name": "Stage name",
-    "color": "#22c55e"
-  }
-}
+{ "type": "create_pipeline_stage", "data": { "name": "stage name", "color": "#hex" } }
+
+schedule_post:
+{ "type": "schedule_post", "data": { "content": "post text", "platforms": ["facebook","instagram","linkedin"], "scheduled_at": "ISO or null" } }
 
 answer:
-{
-  "type": "answer",
-  "data": {
-    "summary": "The answer to the question"
-  }
-}
+{ "type": "answer", "data": { "summary": "answer text" } }
+
 RULES:
-- For actions that send or create things (email, event, post, move deal) always set requires_confirm: true
-- For read-only questions set requires_confirm: false and use action type "answer"
-- Match customers/deals from the live data by name — be fuzzy, "John" matches "John Smith"
-- If you cannot find the customer/deal mentioned, say so clearly in message
-- Keep message friendly and concise — 1-2 sentences max
-- For emails, write a professional but warm email body appropriate for a removal company
-- Always return valid JSON, nothing else
-- For create_pipeline_stage, pick a sensible hex color if the user doesn't specify one. Use green (#22c55e) as default.
-- The "message" field must contain plain conversational text only — never include JSON, curly braces, or any structured data inside the message field
-- Never repeat or echo the JSON structure inside the message field
-- Keep the message field to 1-2 friendly sentences maximum`
+- ALWAYS use the real pipeline stage IDs from the data above — never invent stage IDs
+- Match customers/deals by name fuzzy — "John" matches "John Smith"
+- For actions that create/send/move things: requires_confirm: true
+- For read-only answers: requires_confirm: false, use "answer" action type
+- If customer not found for add_note or add_task, say so clearly
+- Keep message to 1-2 friendly sentences, no JSON in message field
+- Always return valid JSON only`
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 
-  'Content-Type': 'application/json',
-  'x-api-key': process.env.ANTHROPIC_API_KEY!,
-  'anthropic-version': '2023-06-01',
-},
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY!,
+        'anthropic-version': '2023-06-01',
+      },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 1500,
+        max_tokens: 2000,
         system: systemPrompt,
         messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
       }),
@@ -211,38 +201,63 @@ RULES:
       const clean = text.replace(/```json|```/g, '').trim()
       parsed = JSON.parse(clean)
     } catch {
-      parsed = { message: text, action: null, requires_confirm: false }
+      parsed = { message: text, actions: [], requires_confirm: false }
     }
 
-    // Handle create_pipeline_stage server-side
+    // Handle server-side actions
     if (parsed.actions && Array.isArray(parsed.actions)) {
       for (const action of parsed.actions) {
+
         if (action.type === 'create_pipeline_stage') {
           const { name, color } = action.data
           const { data: existingStages } = await supabase
-            .from('crm_pipeline_stages')
-            .select('position')
-            .eq('company_id', COMPANY_ID)
-            .order('position', { ascending: false })
-            .limit(1)
-
+            .from('crm_pipeline_stages').select('position').eq('company_id', COMPANY_ID)
+            .order('position', { ascending: false }).limit(1)
           const nextPosition = (existingStages?.[0]?.position || 0) + 1
+          const { error } = await supabase.from('crm_pipeline_stages').insert({
+            company_id: COMPANY_ID, name, color: color || '#22c55e', position: nextPosition,
+          })
+          if (error) action.data.error = error.message
+          else action.data.created = true
+        }
 
-          const { error } = await supabase
-            .from('crm_pipeline_stages')
-            .insert({
-              company_id: COMPANY_ID,
-              name,
-              color: color || '#22c55e',
-              position: nextPosition,
-            })
+        if (action.type === 'create_deal') {
+          const { error, data: newDeal } = await supabase.from('crm_deals').insert({
+            company_id: COMPANY_ID,
+            ...action.data,
+          }).select().single()
+          if (error) action.data.error = error.message
+          else action.data.created = true
+        }
 
-          if (error) {
-            console.error('create_pipeline_stage error:', error)
-            action.data.error = error.message
-          } else {
-            action.data.created = true
-          }
+        if (action.type === 'create_customer') {
+          const { error, data: newCustomer } = await supabase.from('crm_customers').insert({
+            company_id: COMPANY_ID,
+            ...action.data,
+          }).select().single()
+          if (error) action.data.error = error.message
+          else action.data.created = true
+        }
+
+        if (action.type === 'add_note') {
+          const { error } = await supabase.from('crm_customer_notes').insert({
+            company_id: COMPANY_ID,
+            customer_id: action.data.customer_id,
+            note_text: action.data.note_text,
+          })
+          if (error) action.data.error = error.message
+          else action.data.created = true
+        }
+
+        if (action.type === 'add_task') {
+          const { error } = await supabase.from('crm_customer_tasks').insert({
+            company_id: COMPANY_ID,
+            customer_id: action.data.customer_id,
+            title: action.data.title,
+            due_date: action.data.due_date,
+          })
+          if (error) action.data.error = error.message
+          else action.data.created = true
         }
       }
     }
@@ -250,6 +265,6 @@ RULES:
     return NextResponse.json(parsed)
   } catch (err: any) {
     console.error('AI assistant error:', err)
-    return NextResponse.json({ message: 'Something went wrong. Please try again.', action: null, requires_confirm: false }, { status: 500 })
+    return NextResponse.json({ message: 'Something went wrong. Please try again.', actions: [], requires_confirm: false }, { status: 500 })
   }
 }
