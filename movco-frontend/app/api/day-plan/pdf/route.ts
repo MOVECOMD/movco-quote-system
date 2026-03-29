@@ -3,6 +3,25 @@ import { NextRequest, NextResponse } from 'next/server'
 export async function POST(req: NextRequest) {
   const { deal, ai_plan, start_time, crew_count, van_count, special_instructions } = await req.json()
 
+  const renderMarkdown = (text: string) => {
+    return (text || 'No plan generated yet.')
+      .replace(/^# (.*)/gm, '<h1 style="font-size:18px;font-weight:900;margin:16px 0 8px;color:#1a1a1a">$1</h1>')
+      .replace(/^## (.*)/gm, '<h2 style="font-size:15px;font-weight:700;margin:14px 0 6px;color:#1a1a1a">$1</h2>')
+      .replace(/^### (.*)/gm, '<h3 style="font-size:13px;font-weight:700;margin:12px 0 4px;color:#ff6b35">$1</h3>')
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/^\|(.+)\|$/gm, (match: string) => {
+        const cells = match.split('|').filter((c: string) => c.trim() !== '')
+        if (cells.every((c: string) => /^[-\s]+$/.test(c))) return ''
+        return '<div style="display:flex;gap:0;border-bottom:1px solid #e5e5e5;padding:6px 0">' +
+          cells.map((c: string) => `<div style="flex:1;font-size:12px;padding:0 8px">${c.trim()}</div>`).join('') +
+          '</div>'
+      })
+      .replace(/^---$/gm, '<hr style="border:none;border-top:1px solid #ddd;margin:12px 0">')
+      .replace(/^- (.*)/gm, '<div style="padding:2px 0 2px 16px;font-size:13px">• $1</div>')
+      .replace(/\n\n/g, '<div style="height:8px"></div>')
+      .replace(/\n/g, '<br>')
+  }
+
   const html = `
 <!DOCTYPE html>
 <html>
@@ -25,9 +44,13 @@ export async function POST(req: NextRequest) {
     .stat-box { background: #1a1a1a; color: white; border-radius: 8px; padding: 16px; text-align: center; }
     .stat-number { font-size: 32px; font-weight: 900; color: #ff6b35; }
     .stat-label { font-size: 11px; color: #aaa; margin-top: 2px; }
-    .plan-box { background: #f8f8f8; border-radius: 8px; padding: 20px; white-space: pre-wrap; line-height: 1.7; font-size: 13px; }
+    .plan-box { background: #f8f8f8; border-radius: 8px; padding: 20px; line-height: 1.7; font-size: 13px; }
     .notes-box { border-left: 4px solid #ff6b35; padding: 12px 16px; background: #fff9f6; font-size: 13px; line-height: 1.6; }
     .footer { margin-top: 40px; border-top: 1px solid #eee; padding-top: 16px; font-size: 11px; color: #aaa; display: flex; justify-content: space-between; }
+    @media print {
+      body { padding: 20px; }
+      @page { margin: 1cm; }
+    }
   </style>
 </head>
 <body>
@@ -84,7 +107,7 @@ export async function POST(req: NextRequest) {
 
   <div class="section">
     <div class="section-title">Day Plan</div>
-    <div class="plan-box">${ai_plan || 'No plan generated yet.'}</div>
+    <div class="plan-box">${renderMarkdown(ai_plan)}</div>
   </div>
 
   ${special_instructions ? `

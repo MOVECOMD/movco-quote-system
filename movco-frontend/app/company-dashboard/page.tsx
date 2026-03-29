@@ -6601,7 +6601,10 @@ function DayPlanModal({ deal, onClose }: { deal: Deal; onClose: () => void }) {
         win.document.write(html);
         win.document.close();
         win.focus();
-        setTimeout(() => win.print(), 500);
+        setTimeout(() => {
+          win.print();
+          // In print dialog, user can choose "Save as PDF"
+        }, 800);
       }
     } catch (e) {
       console.error(e);
