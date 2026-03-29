@@ -299,19 +299,46 @@ export async function downloadQuotePdf(data: QuotePdfData, filename?: string) {
 
   // ===== TOTAL PRICE =====
   if (data.estimatedPrice) {
-    checkNewPage(45);
+    checkNewPage(60);
+    const exVat = data.estimatedPrice;
+    const vatAmount = exVat * 0.20;
+    const incVat = exVat + vatAmount;
+
+    // Ex-VAT row
+    doc.setFillColor(...lightGray);
+    doc.roundedRect(pageWidth - margin - 80, y, 80, 14, 2, 2, 'F');
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...grayColor);
+    doc.text('SUBTOTAL (ex. VAT)', pageWidth - margin - 42, y + 6, { align: 'right' });
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...primaryColor);
+    doc.text(`£${exVat.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, pageWidth - margin - 2, y + 6, { align: 'right' });
+    y += 16;
+
+    // VAT row
+    doc.setFillColor(...lightGray);
+    doc.roundedRect(pageWidth - margin - 80, y, 80, 14, 2, 2, 'F');
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...grayColor);
+    doc.text('VAT (20%)', pageWidth - margin - 42, y + 6, { align: 'right' });
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...primaryColor);
+    doc.text(`£${vatAmount.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, pageWidth - margin - 2, y + 6, { align: 'right' });
+    y += 16;
+
+    // Total inc VAT
     doc.setFillColor(...accentColor);
     doc.roundedRect(pageWidth - margin - 80, y, 80, 28, 2, 2, 'F');
-
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(255, 255, 255);
-    doc.text('TOTAL', pageWidth - margin - 40, y + 8, { align: 'center' });
-
+    doc.text('TOTAL (inc. VAT)', pageWidth - margin - 40, y + 8, { align: 'center' });
     doc.setFontSize(18);
     doc.setFont('helvetica', 'bold');
     doc.text(
-      `£${data.estimatedPrice.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      `£${incVat.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       pageWidth - margin - 40, y + 22, { align: 'center' }
     );
 
