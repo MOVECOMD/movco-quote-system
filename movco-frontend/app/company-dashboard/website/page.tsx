@@ -257,6 +257,44 @@ export default function WebsiteEditorPage() {
           )}
         </div>
 
+        {/* Domain connection */}
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', background: '#fafafa' }}>
+          <p style={{ fontSize: '11px', fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>Custom Domain</p>
+          <input
+            value={customDomain}
+            onChange={e => setCustomDomain(e.target.value.toLowerCase().replace(/\s/g, ''))}
+            placeholder="www.yourcompany.com"
+            style={{ ...smallInput, width: '100%', marginBottom: '8px', boxSizing: 'border-box' }}
+          />
+          {customDomain && (
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '10px', fontSize: '11px' }}>
+              <p style={{ fontWeight: 700, color: '#0a0f1c', marginBottom: '6px' }}>📋 DNS Settings</p>
+              <p style={{ color: '#666', marginBottom: '8px' }}>Add these records to your domain provider (GoDaddy, Namecheap, etc.):</p>
+              <div style={{ background: '#f8f9fa', borderRadius: '6px', padding: '8px', fontFamily: 'monospace', fontSize: '10px' }}>
+                <div style={{ marginBottom: '6px', paddingBottom: '6px', borderBottom: '1px solid #eee' }}>
+                  <span style={{ color: '#888' }}>Type: </span><strong>CNAME</strong><br />
+                  <span style={{ color: '#888' }}>Name: </span><strong>{customDomain.startsWith('www.') ? 'www' : '@'}</strong><br />
+                  <span style={{ color: '#888' }}>Value: </span><strong>cname.vercel-dns.com</strong><br />
+                  <span style={{ color: '#888' }}>TTL: </span><strong>Auto</strong>
+                </div>
+                <div>
+                  <span style={{ color: '#888' }}>Type: </span><strong>A</strong><br />
+                  <span style={{ color: '#888' }}>Name: </span><strong>@</strong><br />
+                  <span style={{ color: '#888' }}>Value: </span><strong>76.76.21.21</strong><br />
+                  <span style={{ color: '#888' }}>TTL: </span><strong>Auto</strong>
+                </div>
+              </div>
+              <p style={{ color: '#888', fontSize: '10px', marginTop: '8px', lineHeight: 1.5 }}>
+                DNS changes can take up to 24-48hrs to propagate. Once done, save and your site will be live on your domain.
+              </p>
+              <button onClick={() => save()}
+                style={{ marginTop: '8px', width: '100%', padding: '6px', borderRadius: '6px', border: 'none', background: '#0F6E56', color: '#fff', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}>
+                Save Domain
+              </button>
+            </div>
+          )}
+        </div>
+
         <div style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb', background: '#fafafa' }}>
           <p style={{ fontSize: '11px', fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px' }}>Theme colours</p>
           <div style={{ display: 'flex', gap: '12px' }}>
