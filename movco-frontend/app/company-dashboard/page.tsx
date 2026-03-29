@@ -13,7 +13,7 @@ import AiAssistant from '@/components/AiAssistant';
 // TYPES
 // ============================================
 
-type Tab = 'leads' | 'quotes' | 'pipeline' | 'diary' | 'customers' | 'reports' | 'settings' | 'automations' | 'website'| 'social';
+type Tab = 'leads' | 'quotes' | 'pipeline' | 'diary' | 'customers' | 'reports' | 'settings' | 'automations' | 'website' | 'social' | 'whatsapp';
 
 type Company = {
   id: string;
@@ -1258,6 +1258,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
     { tab: 'automations', label: 'Automations',                            icon: 'automations', crm: false },
     { tab: 'website',     label: 'Website',                                icon: 'website',     crm: false },
     { tab: 'social',      label: 'Social',                                 icon: 'social',      crm: false },
+    { tab: 'whatsapp',    label: 'WhatsApp',                               icon: 'whatsapp',    crm: false },
     { tab: 'settings',    label: 'Settings',                               icon: 'settings',    crm: false },
   ];
 
@@ -1325,6 +1326,9 @@ const [showDayPlan, setShowDayPlan] = useState(false);
     setSidebarOpen(false);
   } else if (item.tab === 'social') {
     router.push('/company-dashboard/social');
+    setSidebarOpen(false);
+  } else if (item.tab === 'whatsapp') {
+    router.push('/company-dashboard/whatsapp');
     setSidebarOpen(false);
   } else {
     setActiveTab(item.tab);
@@ -1491,6 +1495,11 @@ const [showDayPlan, setShowDayPlan] = useState(false);
                 stages={stages}
                 company={company}
               />
+            )}
+            {activeTab === 'whatsapp' && (
+              <div style={{ margin: '-32px', height: 'calc(100vh)' }}>
+                <iframe src="/company-dashboard/whatsapp" style={{ width: '100%', height: '100%', border: 'none' }} />
+              </div>
             )}
             {activeTab === 'reports' && (
               <ReportsTab leads={leads} deals={deals} customers={customers} events={events} crmQuotes={crmQuotes} company={company} costs={crmCosts} onAddCost={addCost} onUpdateCost={updateCost} onDeleteCost={deleteCost} />
@@ -1675,7 +1684,7 @@ function NavIcon({ name }: { name: string }) {
     settings: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>),
     automations: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>),
     website: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9" /></svg>),
-     social: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" /></svg>),
+     whatsapp: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>),social: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" /></svg>),
   };
   return icons[name] || null;
 }
