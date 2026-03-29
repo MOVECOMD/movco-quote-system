@@ -240,9 +240,24 @@ RULES:
           const insertData = { ...action.data }
           delete insertData.created
           delete insertData.error
+
+          // First create a customer record
+          const { data: newCustomer } = await supabase.from('crm_customers').insert({
+            company_id: COMPANY_ID,
+            name: insertData.customer_name,
+            email: insertData.customer_email || null,
+            phone: insertData.customer_phone || null,
+            moving_from: insertData.moving_from || null,
+            moving_to: insertData.moving_to || null,
+            moving_date: insertData.moving_date || null,
+            notes: insertData.notes || null,
+          }).select().single()
+
+          // Then create deal with customer_id linked
           const { error } = await supabase.from('crm_deals').insert({
             company_id: COMPANY_ID,
             ...insertData,
+            customer_id: newCustomer?.id || null,
           })
           if (error) { console.error('create_deal error:', error); action.data.error = error.message }
           else action.data.created = true
