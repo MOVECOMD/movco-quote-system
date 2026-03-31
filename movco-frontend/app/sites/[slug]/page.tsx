@@ -16,12 +16,20 @@ export default async function PublicSitePage({ params }: { params: { slug: strin
 
   if (!website) return notFound()
 
-  // If custom HTML is set, serve it directly
+   // If custom HTML is set, serve it via iframe-style injection
   const customHtml = (website as any).custom_html
   if (customHtml) {
-    return new Response(customHtml, {
-      headers: { 'Content-Type': 'text/html' },
-    }) as any
+    return (
+      <html>
+        <head>
+          <meta charSet="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+        </head>
+        <body style={{ margin: 0, padding: 0 }}>
+          <div dangerouslySetInnerHTML={{ __html: customHtml }} />
+        </body>
+      </html>
+    ) as any
   }
 
   const company = (website as any).companies
