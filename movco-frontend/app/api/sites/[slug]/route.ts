@@ -6,11 +6,12 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-export async function GET(req: NextRequest, { params }: { params: { slug: string } }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params
   const { data: website } = await supabase
     .from('company_websites')
     .select('*')
-    .eq('slug', params.slug)
+    .eq('slug', slug)
     .eq('published', true)
     .maybeSingle()
 
