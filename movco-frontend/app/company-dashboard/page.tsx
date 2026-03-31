@@ -14,7 +14,7 @@ import AiAssistant from '@/components/AiAssistant';
 // TYPES
 // ============================================
 
-type Tab = 'leads' | 'quotes' | 'pipeline' | 'diary' | 'customers' | 'reports' | 'settings' | 'automations' | 'website' | 'social' | 'whatsapp' | 'media';
+type Tab = 'leads' | 'quotes' | 'pipeline' | 'diary' | 'customers' | 'reports' | 'settings' | 'automations' | 'website' | 'social' | 'whatsapp';
 
 type Company = {
   id: string;
