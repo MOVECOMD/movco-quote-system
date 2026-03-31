@@ -1565,6 +1565,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
             movingDate: selectedDeal.moving_date || '',
             estimatedPrice: selectedDeal.estimated_value || 0,
             notes: selectedDeal.notes || '',
+            branding: pdfBranding,
           })}
         />
       )}
@@ -1646,6 +1647,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
             movingDate: detailDeal.moving_date || '',
             estimatedPrice: detailDeal.estimated_value || 0,
             notes: detailDeal.notes || '',
+            branding: pdfBranding,
           }) : undefined}
           events={events}
           quotes={crmQuotes.filter(q => q.customer_name.toLowerCase() === selectedCustomer.name.toLowerCase())}
