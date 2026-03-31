@@ -14,7 +14,7 @@ import AiAssistant from '@/components/AiAssistant';
 // TYPES
 // ============================================
 
-type Tab = 'leads' | 'quotes' | 'pipeline' | 'diary' | 'customers' | 'reports' | 'settings' | 'automations' | 'website' | 'social' | 'whatsapp';
+type Tab = 'leads' | 'quotes' | 'pipeline' | 'diary' | 'customers' | 'reports' | 'settings' | 'automations' | 'website' | 'social' | 'whatsapp' | 'media';
 
 type Company = {
   id: string;
@@ -1260,6 +1260,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
     { tab: 'website',     label: 'Website',                                icon: 'website',     crm: false },
     { tab: 'social',      label: 'Social',                                 icon: 'social',      crm: false },
     { tab: 'whatsapp',    label: 'WhatsApp',                               icon: 'whatsapp',    crm: false },
+    { tab: 'media',       label: 'Media Library',                          icon: 'media',       crm: false },
     { tab: 'settings',    label: 'Settings',                               icon: 'settings',    crm: false },
   ];
 
@@ -1330,6 +1331,9 @@ const [showDayPlan, setShowDayPlan] = useState(false);
     setSidebarOpen(false);
   } else if (item.tab === 'whatsapp') {
     router.push('/company-dashboard/whatsapp');
+    setSidebarOpen(false);
+  } else if (item.tab === 'media') {
+    router.push('/company-dashboard/media');
     setSidebarOpen(false);
   } else {
     setActiveTab(item.tab);
@@ -1720,6 +1724,7 @@ function NavIcon({ name }: { name: string }) {
     automations: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>),
     website: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9" /></svg>),
      whatsapp: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>),social: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" /></svg>),
+     media: (<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>),
   };
   return icons[name] || null;
 }
