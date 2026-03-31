@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import AiAssistant from '@/components/AiAssistant'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -433,6 +434,8 @@ export default function WebsiteEditorPage() {
         )}
       </div>
 
+      <AiAssistant />
+
       {/* Right panel — live preview */}
       <div style={{ flex: 1, overflowY: 'auto', background: '#e5e7eb', padding: '16px' }}>
         <div style={{ background: '#fff', borderRadius: '12px', overflow: 'hidden', minHeight: '100%' }}>
@@ -725,3 +728,10 @@ const inlineInput: React.CSSProperties = { flex: 1, padding: '7px 10px', borderR
 const smallPrimaryBtn: React.CSSProperties = { background: '#0F6E56', color: '#fff', border: 'none', borderRadius: '6px', padding: '5px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }
 const iconBtn: React.CSSProperties = { background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '12px', color: '#888', padding: '2px 4px', borderRadius: '4px' }
 const addItemBtn: React.CSSProperties = { background: 'transparent', border: '1px dashed #d1d5db', borderRadius: '6px', padding: '8px', fontSize: '12px', color: '#666', cursor: 'pointer', width: '100%' }
+
+// AI Assistant — available on website editor page
+function WebsiteAiAssistant() {
+  return <AiAssistant />
+}
+
+export { WebsiteAiAssistant }
