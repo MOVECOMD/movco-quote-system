@@ -332,9 +332,9 @@ RULES:
           }
 
           if (action.type === 'send_email') {
+            // Only log the note — actual sending is handled client-side after user confirms
             const customerId = await getOrCreateCustomer(action.data.to_name, action.data.to_email)
             if (customerId) {
-              await logNote(customerId, `📧 AI sent email to ${action.data.to_name} — Subject: "${action.data.subject}" — ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`)
               action.data.customer_id_found = customerId
             }
           }
