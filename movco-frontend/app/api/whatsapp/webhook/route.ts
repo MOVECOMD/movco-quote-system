@@ -15,7 +15,9 @@ export async function GET(req: NextRequest) {
   const token = searchParams.get('hub.verify_token')
   const challenge = searchParams.get('hub.challenge')
 
-  if (mode === 'subscribe' && token === process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN) {
+  const verifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'movco_whatsapp_webhook_2026'
+  if (mode === 'subscribe' && token === verifyToken) {
+
     return new NextResponse(challenge, { status: 200 })
   }
   return new NextResponse('Forbidden', { status: 403 })
