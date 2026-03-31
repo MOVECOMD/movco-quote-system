@@ -166,6 +166,9 @@ create_pipeline_stage:
 schedule_post:
 { "type": "schedule_post", "data": { "content": "post text", "platforms": ["facebook","instagram","linkedin"], "scheduled_at": "ISO or null" } }
 
+edit_website:
+{ "type": "edit_website", "data": { "action": "update_block" | "add_block" | "remove_block" | "update_theme" | "set_custom_html", "block_type": "hero|services|about|reviews|coverage|quote_form|contact|gallery", "block_index": number or null, "block_data": { ...fields to update } | null, "theme": { "primary_color": "#hex", "accent_color": "#hex" } | null, "custom_html": "full HTML string or null" } }
+
 answer:
 { "type": "answer", "data": { "summary": "answer text" } }
 
@@ -182,7 +185,12 @@ RULES:
 - Never summarise the action data back in the message field — just confirm it worked in plain conversational English e.g. "Simon Jones has been added as a customer and placed in the New Lead stage."
 - - Always return valid JSON only — no markdown code blocks, no backticks around the JSON
 - When the user asks to "see preview", "show preview" or "can I see", always return the SAME actions array again with requires_confirm: true — never describe email content as plain text
-- Never write email body content in the message field — emails always go in the actions array only`
+- Never write email body content in the message field — emails always go in the actions array only
+- When user says "change my hero headline to X" use edit_website with action: update_block, block_type: hero, block_data: { headline: "X" }
+- When user says "change my accent colour to X" use edit_website with action: update_theme, theme: { accent_color: "#hex" }
+- When user says "add a X section to my website" use edit_website with action: add_block, block_type: X
+- When user says "remove the X block" use edit_website with action: remove_block, block_type: X
+- When user says "set my website to custom HTML" use edit_website with action: set_custom_html, custom_html: "the HTML"`
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -337,6 +345,84 @@ RULES:
               if (customerId) {
                 await logNote(customerId, `📅 AI booked ${action.data.event_type} — "${action.data.title}" on ${new Date(action.data.start_time).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} at ${new Date(action.data.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`)
               }
+            }
+          }
+
+          if (action.type === 'edit_website') {
+            try {
+              const { data: websiteData } = await supabase
+                .from('company_websites')
+                .select('blocks, theme, custom_html')
+                .eq('company_id', COMPANY_ID)
+                .maybeSingle()
+
+              let blocks: any[] = websiteData?.blocks || []
+              let theme = websiteData?.theme || { primary_color: '#0a0f1c', accent_color: '#0F6E56' }
+              let customHtml = websiteData?.custom_html || null
+
+              const { action: wsAction, block_type, block_index, block_data, theme: newTheme, custom_html } = action.data
+
+              const blockDefaults: Record<string, any> = {
+                hero: { headline: 'Professional Removals', subheadline: 'Trusted, reliable removal services', cta_text: 'Get a Free Quote' },
+                services: { title: 'Our Services', services: [{ title: 'House Removals', description: 'Full house moves' }] },
+                quote_form: { title: 'Get a Free Quote', subtitle: 'Fill in your details below' },
+                about: { title: 'About Us', body: 'Tell your company story here...', highlights: ['Fully insured'] },
+                reviews: { title: 'Customer Reviews', reviews: [{ name: 'Happy Customer', text: 'Great service!', rating: 5 }] },
+                coverage: { title: 'Areas We Cover', areas: ['Your area'] },
+                contact: { title: 'Contact Us' },
+                gallery: { title: 'Our Work', images: [] },
+              }
+
+              if (wsAction === 'update_block') {
+                const idx = (block_index !== null && block_index !== undefined)
+                  ? block_index
+                  : blocks.findIndex((b: any) => b.type === block_type)
+                if (idx !== -1) {
+                  blocks[idx] = { ...blocks[idx], ...(block_data || {}) }
+                  action.data.updated_index = idx
+                } else {
+                  action.data.error = `No ${block_type} block found`
+                }
+              }
+
+              if (wsAction === 'add_block') {
+                blocks.push({ type: block_type, ...(block_data || blockDefaults[block_type] || {}) })
+                action.data.added = true
+              }
+
+              if (wsAction === 'remove_block') {
+                const idx = (block_index !== null && block_index !== undefined)
+                  ? block_index
+                  : blocks.findIndex((b: any) => b.type === block_type)
+                if (idx !== -1) {
+                  blocks.splice(idx, 1)
+                  action.data.removed = true
+                } else {
+                  action.data.error = `No ${block_type} block found`
+                }
+              }
+
+              if (wsAction === 'update_theme' && newTheme) {
+                theme = { ...theme, ...newTheme }
+                action.data.theme_updated = true
+              }
+
+              if (wsAction === 'set_custom_html' && custom_html) {
+                customHtml = custom_html
+                action.data.html_set = true
+              }
+
+              if (!action.data.error) {
+                const { error } = await supabase
+                  .from('company_websites')
+                  .update({ blocks, theme, custom_html: customHtml, updated_at: new Date().toISOString() })
+                  .eq('company_id', COMPANY_ID)
+                if (error) action.data.error = error.message
+                else action.data.created = true
+              }
+
+            } catch (wsErr: any) {
+              action.data.error = wsErr.message
             }
           }
 
