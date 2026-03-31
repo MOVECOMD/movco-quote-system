@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { downloadQuotePdf } from '@/lib/generateQuotePdf';
+import { downloadInvoicePdf } from '@/lib/generateInvoicePdf';
 import AiAssistant from '@/components/AiAssistant';
 
 // ============================================
@@ -1549,6 +1550,22 @@ const [showDayPlan, setShowDayPlan] = useState(false);
           onDeleteDeal={() => deleteDeal(selectedDeal.id)}
           onCreateQuote={() => openQuoteFromDeal(selectedDeal)}
           onDayPlan={() => { setShowDayPlan(true); }}
+          onPrintInvoice={() => downloadInvoicePdf({
+            companyName: company?.name || 'MOVCO',
+            companyEmail: company?.email || '',
+            companyPhone: company?.phone || '',
+            invoiceRef: `INV-${selectedDeal.id.slice(0, 8).toUpperCase()}`,
+            invoiceDate: new Date().toLocaleDateString('en-GB'),
+            dueDate: selectedDeal.moving_date ? new Date(selectedDeal.moving_date).toLocaleDateString('en-GB') : undefined,
+            customerName: selectedDeal.customer_name,
+            customerEmail: selectedDeal.customer_email || '',
+            customerPhone: selectedDeal.customer_phone || '',
+            movingFrom: selectedDeal.moving_from || '',
+            movingTo: selectedDeal.moving_to || '',
+            movingDate: selectedDeal.moving_date || '',
+            estimatedPrice: selectedDeal.estimated_value || 0,
+            notes: selectedDeal.notes || '',
+          })}
         />
       )}
 
@@ -1614,6 +1631,22 @@ const [showDayPlan, setShowDayPlan] = useState(false);
           onCreateQuote={detailDeal ? () => { openQuoteFromDeal(detailDeal); setShowCustomerDetail(false); } : undefined}
           onDeleteDeal={detailDeal ? () => { deleteDeal(detailDeal.id); setShowCustomerDetail(false); } : undefined}
           onDayPlan={detailDeal ? () => { setShowCustomerDetail(false); setSelectedDeal(detailDeal); setShowDayPlan(true); } : undefined}
+          onPrintInvoice={detailDeal ? () => downloadInvoicePdf({
+            companyName: company?.name || 'MOVCO',
+            companyEmail: company?.email || '',
+            companyPhone: company?.phone || '',
+            invoiceRef: `INV-${detailDeal.id.slice(0, 8).toUpperCase()}`,
+            invoiceDate: new Date().toLocaleDateString('en-GB'),
+            dueDate: detailDeal.moving_date ? new Date(detailDeal.moving_date).toLocaleDateString('en-GB') : undefined,
+            customerName: selectedCustomer.name,
+            customerEmail: selectedCustomer.email || '',
+            customerPhone: selectedCustomer.phone || '',
+            movingFrom: selectedCustomer.moving_from || detailDeal.moving_from || '',
+            movingTo: selectedCustomer.moving_to || detailDeal.moving_to || '',
+            movingDate: detailDeal.moving_date || '',
+            estimatedPrice: detailDeal.estimated_value || 0,
+            notes: detailDeal.notes || '',
+          }) : undefined}
           events={events}
           quotes={crmQuotes.filter(q => q.customer_name.toLowerCase() === selectedCustomer.name.toLowerCase())}
           onClickQuote={(q) => { setShowCustomerDetail(false); setSelectedQuote(q); setShowQuoteDetail(true); }}
@@ -4658,7 +4691,7 @@ function CustomerModal({ customer, stages, onSave, onClose }: { customer: Custom
 // DEAL DETAIL POPUP
 // ============================================
 
-function DealDetailPopup({ deal, stages, events, onClose, onBookAppointment, onEditDeal, onDeleteDeal, onCreateQuote, onDayPlan }: { deal: Deal; stages: PipelineStage[]; events: DiaryEvent[]; onClose: () => void; onBookAppointment: () => void; onEditDeal: () => void; onDeleteDeal: () => void; onCreateQuote: () => void; onDayPlan: () => void; }) {
+function DealDetailPopup({ deal, stages, events, onClose, onBookAppointment, onEditDeal, onDeleteDeal, onCreateQuote, onDayPlan, onPrintInvoice }: { deal: Deal; stages: PipelineStage[]; events: DiaryEvent[]; onClose: () => void; onBookAppointment: () => void; onEditDeal: () => void; onDeleteDeal: () => void; onCreateQuote: () => void; onDayPlan: () => void; onPrintInvoice: () => void; }) {
   const stage = stages.find((s) => s.id === deal.stage_id);
   const linkedEvents = events.filter((e) => e.deal_id === deal.id);
 
@@ -4678,6 +4711,7 @@ function DealDetailPopup({ deal, stages, events, onClose, onBookAppointment, onE
           <button onClick={onBookAppointment} className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">📅 Schedule</button>
          <button onClick={onCreateQuote} className="flex items-center gap-1.5 px-4 py-2.5 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition">📸 Create Quote</button>
           <button onClick={onDayPlan} className="flex items-center gap-1.5 px-4 py-2.5 bg-orange-500 text-white text-sm font-semibold rounded-lg hover:bg-orange-600 transition">🗓 Day Plan</button>
+          <button onClick={onPrintInvoice} className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 transition">🧾 Invoice</button>
           <button onClick={onEditDeal} className="flex items-center gap-1.5 px-4 py-2.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition">✏️ Edit</button>
           <button onClick={onDeleteDeal} className="flex items-center gap-1.5 px-4 py-2.5 bg-red-50 text-red-600 text-sm font-medium rounded-lg hover:bg-red-100 transition">🗑️ Delete</button>
         </div>
@@ -5123,7 +5157,7 @@ function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose,
 // CUSTOMER DETAIL POPUP
 // ============================================
 
-function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onClose, onAddNote, onDeleteNote, onAddTask, onToggleTask, onDeleteTask, onUploadFile, onDeleteFile, onEditCustomer, onComposeEmail, emailConnected, onSchedule, onCreateQuote, onDeleteDeal, events, quotes, onClickQuote, onDayPlan }: {
+function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onClose, onAddNote, onDeleteNote, onAddTask, onToggleTask, onDeleteTask, onUploadFile, onDeleteFile, onEditCustomer, onComposeEmail, emailConnected, onSchedule, onCreateQuote, onDeleteDeal, events, quotes, onClickQuote, onDayPlan, onPrintInvoice }: {
   customer: Customer;
   notes: CustomerNote[];
   tasks: CustomerTask[];
@@ -5148,6 +5182,7 @@ function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onCl
   quotes?: CrmQuote[];
   onClickQuote?: (quote: CrmQuote) => void;
   onDayPlan?: () => void;
+  onPrintInvoice?: () => void;
 }) {
   const [newNote, setNewNote] = useState('');
   const [saving, setSaving] = useState(false);
@@ -5395,6 +5430,7 @@ function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onCl
               <a href={`tel:${customer.phone}`} className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition">📞 Call</a>
             )}
             {onDayPlan && <button onClick={onDayPlan} className="flex items-center gap-1.5 px-3 py-2 bg-orange-500 text-white text-sm font-semibold rounded-lg hover:bg-orange-600 transition">🗓 Day Plan</button>}
+            {onPrintInvoice && <button onClick={onPrintInvoice} className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 transition">🧾 Invoice</button>}
             {onDeleteDeal && (
               <button onClick={onDeleteDeal} className="flex items-center gap-1.5 px-3 py-2 bg-red-50 text-red-600 text-sm font-medium rounded-lg hover:bg-red-100 transition ml-auto">🗑️ Delete</button>
             )}
