@@ -56,33 +56,22 @@ export default function MediaLibraryPage() {
     setUploading(true)
     setUploadProgress(0)
     try {
-      const ext = file.name.split('.').pop()
-      const fileName = `${COMPANY_ID}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+      setUploadProgress(20)
 
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('crm-files')
-        .upload(fileName, file, { upsert: false })
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('company_id', COMPANY_ID)
+      formData.append('tags', JSON.stringify(selectedTags))
 
-      if (uploadError) throw uploadError
+      setUploadProgress(50)
 
-      setUploadProgress(60)
-
-      const { data: urlData } = supabase.storage
-        .from('crm-files')
-        .getPublicUrl(fileName)
-
-      setUploadProgress(80)
-
-      const { error: dbError } = await supabase.from('media_library').insert({
-        company_id: COMPANY_ID,
-        file_name: file.name,
-        file_url: urlData.publicUrl,
-        file_type: file.type,
-        file_size: file.size,
-        tags: selectedTags,
+      const res = await fetch('/api/media/upload', {
+        method: 'POST',
+        body: formData,
       })
 
-      if (dbError) throw dbError
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Upload failed')
 
       setUploadProgress(100)
       await fetchFiles()
