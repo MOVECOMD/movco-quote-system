@@ -122,7 +122,7 @@ LIVE CRM DATA:
 Pipeline stages (THESE ARE THE REAL STAGES — always use these IDs): ${JSON.stringify(stages)}
 Current website: slug=${websiteRes.data?.slug || 'none'}, published=${websiteRes.data?.published || false}
 Current website blocks: ${JSON.stringify(websiteRes.data?.blocks || [])}
-Current website custom HTML (FULL — use this as the base for any HTML edits, never replace it entirely): ${websiteRes.data?.custom_html ? websiteRes.data.custom_html.substring(0, 8000) : 'none'}
+Current website custom HTML (FULL — use this as the base for any HTML edits, never replace it entirely): ${websiteRes.data?.custom_html ? websiteRes.data.custom_html.substring(0, 20000) : 'none'}
 Deals (${dealsRes.data?.length || 0} total): ${JSON.stringify(dealsRes.data || [])}
 Customers (${customersRes.data?.length || 0} total): ${JSON.stringify(customersRes.data?.slice(0, 50) || [])}
 Diary events: ${JSON.stringify(eventsRes.data || [])}
@@ -208,7 +208,7 @@ RULES:
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 2000,
+        max_tokens: 8000,
         system: systemPrompt,
         messages: messages.map((m: any) => ({ role: m.role, content: m.content })),
       }),
