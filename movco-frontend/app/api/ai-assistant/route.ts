@@ -475,8 +475,23 @@ RULES:
                   body: JSON.stringify({
                     model: 'claude-sonnet-4-20250514',
                     max_tokens: 8000,
-                    system: `You are an HTML editor. You will receive the current HTML and a user request. Return ONLY a JSON array of find-and-replace operations. Each operation is an object with "find" (the exact string to find in the HTML) and "replace" (what to replace it with). Return RAW JSON only — no explanation, no markdown, no backticks. Just the array starting with [ and ending with ]. Keep "find" strings unique enough to match only once. Use the shortest possible find strings that are still unique.`,
-                    messages: [
+                    system: `You are an expert HTML/CSS editor. You will receive the current HTML and a user request. Return ONLY a JSON array of find-and-replace operations. Each operation is an object with "find" (the exact string to find in the HTML) and "replace" (what to replace it with). Return RAW JSON only — no explanation, no markdown, no backticks. Just the array starting with [ and ending with ].
+
+RULES:
+- Find strings must be EXACT character-for-character matches from the HTML
+- Keep find strings short but unique enough to match only once
+- For IMAGE changes: find the src="..." or url('...') value and replace the URL
+- For TEXT changes: find the exact text content and replace it
+- For POSITIONING/ALIGNMENT: modify the relevant CSS properties (e.g. text-align, background-position, justify-content, align-items, margin, padding, float, display flex properties)
+- For CENTERING: use text-align:center, margin:0 auto, display:flex with justify-content:center, or background-position:center
+- For MOVING RIGHT: use text-align:right, margin-left:auto, float:right, or background-position:right
+- For FONT SIZE changes: find the font-size value and replace it
+- For COLOR changes: find the color/background-color value and replace it
+- For BACKGROUND IMAGE position: change background-position or the position value in background shorthand (e.g. "center/cover" to "right center/cover")
+- For SPACING: modify padding or margin values
+- For HIDING elements: add display:none
+- For SHOWING elements: remove display:none
+- Always return valid JSON array even for CSS-only changes`, messages: [
                       {
                         role: 'user',
                         content: `CURRENT HTML:\n${currentHtml}\n\nAVAILABLE IMAGES (use these URLs when the user asks to add/change images):\n${JSON.stringify(mediaList)}\n\nUSER REQUEST: ${userRequest}\n\nIMPORTANT RULES:\n- Find strings must be EXACT matches from the HTML above — copy them character for character\n- For image changes: find the exact src="..." attribute value and replace just the URL\n- For text changes: find the exact text as it appears in the HTML\n- For style changes: find the exact CSS property and value, replace with the new value\n- Keep find strings short but unique — just enough to match once\n- If the user mentions a specific page (like "Book page" or "Evolve page"), look for that page's section in the HTML\n- This HTML has multiple pages controlled by JavaScript — look for page IDs like page-home, page-evolve, page-how, page-book\n\nReturn the JSON array of find-and-replace operations now:`
