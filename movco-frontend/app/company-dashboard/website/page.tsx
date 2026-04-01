@@ -84,6 +84,7 @@ const [showMediaModal, setShowMediaModal] = useState(false)
 const [mediaFiles, setMediaFiles] = useState<any[]>([])
 const [mediaLoading, setMediaLoading] = useState(false)
 const [mediaCallback, setMediaCallback] = useState<((url: string) => void) | null>(null)
+const [importing, setImporting] = useState(false)
 
   useEffect(() => {
     loadExisting()
@@ -95,7 +96,31 @@ const [mediaCallback, setMediaCallback] = useState<((url: string) => void) | nul
       setRenderedHtml(html)
     }
   }, [blocks, theme, company])
+async function importHtmlToBlocks() {
+    if (!customHtml) return alert('No custom HTML to import')
+    if (!confirm('This will analyse your custom HTML and convert it into editable blocks. Your original HTML will be kept as a backup. Continue?')) return
 
+    setImporting(true)
+    try {
+      const res = await fetch('/api/website/import-blocks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ custom_html: customHtml }),
+      })
+      const data = await res.json()
+
+      if (!res.ok) throw new Error(data.error)
+      if (!data.blocks || data.blocks.length === 0) throw new Error('No blocks were extracted')
+
+      setBlocks(data.blocks)
+      setEditorMode('blocks')
+      setSelectedBlock(0)
+      alert(`Successfully imported ${data.blocks.length} blocks! Click each block to edit it. Save when you are happy.`)
+    } catch (err: any) {
+      alert('Import failed: ' + err.message)
+    }
+    setImporting(false)
+  }
   async function loadExisting() {
     setLoading(true)
     const { data: comp } = await supabase
@@ -461,6 +486,20 @@ const [mediaCallback, setMediaCallback] = useState<((url: string) => void) | nul
                 When Custom HTML is saved and published, it takes priority over blocks. Switch back to Block editor to use blocks instead.
               </p>
             </div>
+            {customHtml && (
+              <button
+                onClick={importHtmlToBlocks}
+                disabled={importing}
+                style={{
+                  width: '100%', padding: '10px', borderRadius: '8px', border: '2px dashed #8b5cf6',
+                  background: importing ? '#f3f4f6' : '#faf5ff', color: '#7c3aed',
+                  fontSize: '12px', fontWeight: 700, cursor: importing ? 'wait' : 'pointer',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {importing ? '⏳ Analysing HTML and extracting blocks...' : '🔮 Import HTML into Editable Blocks'}
+              </button>
+            )}
           </div>
         )}
       </div>
