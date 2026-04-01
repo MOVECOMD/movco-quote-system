@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import AiAssistant from '@/components/AiAssistant'
+import { renderSiteHtml } from '../../../lib/renderSiteHtml'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -77,6 +78,7 @@ export default function WebsiteEditorPage() {
   const [company, setCompany] = useState<any>(null)
   const [editorMode, setEditorMode] = useState<'blocks' | 'html'>('blocks')
   const [customHtml, setCustomHtml] = useState('')
+  const [renderedHtml, setRenderedHtml] = useState('')
 const [showMediaModal, setShowMediaModal] = useState(false)
 const [mediaFiles, setMediaFiles] = useState<any[]>([])
 const [mediaLoading, setMediaLoading] = useState(false)
@@ -85,6 +87,13 @@ const [mediaCallback, setMediaCallback] = useState<((url: string) => void) | nul
   useEffect(() => {
     loadExisting()
   }, [])
+  // Auto-render blocks to HTML whenever blocks or theme change
+  useEffect(() => {
+    if (blocks.length > 0) {
+      const html = renderSiteHtml(blocks, theme, company || {})
+      setRenderedHtml(html)
+    }
+  }, [blocks, theme, company])
 
   async function loadExisting() {
     setLoading(true)
@@ -133,7 +142,7 @@ const [mediaCallback, setMediaCallback] = useState<((url: string) => void) | nul
         theme,
         published: shouldPublish,
         custom_domain: customDomain || null,
-        custom_html: customHtml || null,
+        custom_html: editorMode === 'html' ? customHtml : '[FROM_BLOCKS]',
       }),
     })
     const data = await res.json()
@@ -500,11 +509,13 @@ const [mediaCallback, setMediaCallback] = useState<((url: string) => void) | nul
         </div>
       )}
 
-      {/* Right panel — live preview */}
+      {/* Right panel — live preview (always rendered HTML) */}
       <div style={{ flex: 1, overflowY: 'auto', background: '#e5e7eb', padding: '16px' }}>
         <div style={{ background: '#fff', borderRadius: '12px', overflow: 'hidden', minHeight: '100%' }}>
           {editorMode === 'html' && customHtml ? (
             <iframe srcDoc={customHtml} style={{ width: '100%', minHeight: '800px', border: 'none' }} title="HTML Preview" />
+          ) : renderedHtml ? (
+            <iframe srcDoc={renderedHtml} style={{ width: '100%', minHeight: '800px', border: 'none' }} title="Site Preview" />
           ) : (
             <LivePreview blocks={blocks} theme={theme} company={company} />
           )}
@@ -516,9 +527,48 @@ const [mediaCallback, setMediaCallback] = useState<((url: string) => void) | nul
 
 function BlockEditor({ block, onChange, onBrowseMedia }: { block: Block; onChange: (u: any) => void; onBrowseMedia?: (cb: (url: string) => void) => void }) {
   const label = BLOCK_TYPES.find(b => b.type === block.type)?.label || block.type
+  const [htmlMode, setHtmlMode] = useState(!!block.custom_html)
+
   return (
     <div>
-      <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#0a0f1c', marginBottom: '20px' }}>Edit: {label}</h3>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#0a0f1c', margin: 0 }}>Edit: {label}</h3>
+        <button
+          onClick={() => {
+            setHtmlMode(!htmlMode)
+            if (htmlMode) onChange({ custom_html: '' })
+          }}
+          style={{
+            padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 600,
+            background: htmlMode ? '#0F6E56' : '#f0f0f0',
+            color: htmlMode ? '#fff' : '#666',
+            border: 'none', cursor: 'pointer',
+          }}
+        >
+          {htmlMode ? '</> HTML Mode' : '</> Edit as HTML'}
+        </button>
+      </div>
+
+      {htmlMode ? (
+        <div>
+          <p style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>
+            Write custom HTML for this section. It will replace the visual editor output.
+          </p>
+          <textarea
+            value={block.custom_html || ''}
+            onChange={e => onChange({ custom_html: e.target.value })}
+            placeholder={`<div class="my-custom-section">\n  <!-- Your HTML here -->\n</div>`}
+            spellCheck={false}
+            style={{
+              width: '100%', minHeight: '300px', padding: '12px', borderRadius: '8px',
+              border: '1px solid #e5e7eb', fontSize: '12px', fontFamily: 'monospace',
+              resize: 'vertical', lineHeight: 1.6, color: '#333', background: '#fafafa',
+              boxSizing: 'border-box',
+            }}
+          />
+        </div>
+      ) : (
+        <>
       {block.type === 'hero' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <Field label="Headline" value={block.headline || ''} onChange={v => onChange({ headline: v })} />
@@ -624,8 +674,11 @@ function BlockEditor({ block, onChange, onBrowseMedia }: { block: Block; onChang
                 🖼️ Browse Library
               </button>
             )}
+
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   )
