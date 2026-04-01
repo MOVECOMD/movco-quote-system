@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import { useAuth } from '@/context/AuthContext'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-const COMPANY_ID = 'd83a643c-4f72-4df5-9618-7fe23db7bc01'
+
 
 const TAGS = ['All', 'Logo', 'Team', 'Job Photos', 'Social Media', 'Website', 'Documents', 'Other']
 
@@ -24,6 +25,7 @@ interface MediaFile {
 }
 
 export default function MediaLibraryPage() {
+  const { companyId: COMPANY_ID } = useAuth()
   const [files, setFiles] = useState<MediaFile[]>([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
@@ -61,7 +63,7 @@ export default function MediaLibraryPage() {
 
       const formData = new FormData()
       formData.append('file', file)
-      formData.append('company_id', COMPANY_ID)
+      formData.append('company_id', COMPANY_ID || '')
       formData.append('tags', JSON.stringify(selectedTags))
 
       setUploadProgress(50)

@@ -6,24 +6,28 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-const COMPANY_ID = 'd83a643c-4f72-4df5-9618-7fe23db7bc01'
+
 
 export async function GET(req: NextRequest) {
+  const companyId = req.nextUrl.searchParams.get('company_id')
+  if (!companyId) return NextResponse.json({ error: 'Missing company_id' }, { status: 400 })
   const { data } = await supabase
     .from('social_connections')
     .select('*')
-    .eq('company_id', COMPANY_ID)
+    .eq('company_id', companyId)
   return NextResponse.json({ connections: data || [] })
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { platform, access_token, refresh_token, page_id, page_name, expires_at } = await req.json()
+    const body = await req.json()
+    const { platform, access_token, refresh_token, page_id, page_name, expires_at, company_id } = body
+    if (!company_id) return NextResponse.json({ error: 'Missing company_id' }, { status: 400 })
 
     const { data: existing } = await supabase
       .from('social_connections')
       .select('id')
-      .eq('company_id', COMPANY_ID)
+      .eq('company_id', req.nextUrl.searchParams.get('company_id')!)
       .eq('platform', platform)
       .maybeSingle()
 
@@ -35,7 +39,7 @@ export async function POST(req: NextRequest) {
     } else {
       await supabase
         .from('social_connections')
-        .insert({ company_id: COMPANY_ID, platform, access_token, refresh_token, page_id, page_name, expires_at, connected: true })
+        .insert({ company_id, platform, access_token, refresh_token, page_id, page_name, expires_at, connected: true })
     }
 
     return NextResponse.json({ success: true })
@@ -51,7 +55,7 @@ export async function DELETE(req: NextRequest) {
   await supabase
     .from('social_connections')
     .update({ connected: false, access_token: null, refresh_token: null })
-    .eq('company_id', COMPANY_ID)
+    .eq('company_id', req.nextUrl.searchParams.get('company_id')!)
     .eq('platform', platform)
 
   return NextResponse.json({ success: true })

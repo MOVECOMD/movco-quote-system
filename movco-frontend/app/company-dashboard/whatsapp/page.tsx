@@ -2,13 +2,14 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import { useAuth } from '@/context/AuthContext'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-const COMPANY_ID = 'd83a643c-4f72-4df5-9618-7fe23db7bc01'
+
 
 type WaMessage = {
   id: string
@@ -41,6 +42,7 @@ type Conversation = {
 }
 
 export default function WhatsAppPage() {
+  const { companyId: COMPANY_ID } = useAuth()
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null)
   const [templates, setTemplates] = useState<Template[]>([])

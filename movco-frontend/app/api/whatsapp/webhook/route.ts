@@ -6,7 +6,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const COMPANY_ID = 'd83a643c-4f72-4df5-9618-7fe23db7bc01'
+
 
 // Webhook verification (Meta requires this)
 export async function GET(req: NextRequest) {
@@ -32,6 +32,16 @@ export async function POST(req: NextRequest) {
     const value = changes?.value
 
     if (!value?.messages) return NextResponse.json({ status: 'ok' })
+
+    // Look up company from WhatsApp connection
+    const { data: waConn } = await supabase
+      .from('social_connections')
+      .select('company_id')
+      .eq('platform', 'whatsapp')
+      .eq('connected', true)
+      .maybeSingle()
+    const COMPANY_ID = waConn?.company_id
+    if (!COMPANY_ID) return NextResponse.json({ status: 'no company found' })
 
     for (const message of value.messages) {
       if (message.type !== 'text') continue

@@ -8,7 +8,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-const COMPANY_ID = 'd83a643c-4f72-4df5-9618-7fe23db7bc01'
+import { useAuth } from '@/context/AuthContext'
 
 type Action = {
   type: 'send_email' | 'book_event' | 'move_deal' | 'schedule_post' | 'answer' | 'create_pipeline_stage' | 'create_deal' | 'create_customer' | 'add_note' | 'add_task' | 'edit_website'
@@ -37,6 +37,7 @@ const QUICK_COMMANDS = [
 ]
 
 export default function AiAssistant() {
+  const { companyId: COMPANY_ID } = useAuth()
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
@@ -121,7 +122,8 @@ export default function AiAssistant() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: newMessages.map(m => ({ role: m.role, content: m.content }))
+          messages: newMessages.map(m => ({ role: m.role, content: m.content })),
+          company_id: COMPANY_ID,
         }),
       })
       const data = await res.json()

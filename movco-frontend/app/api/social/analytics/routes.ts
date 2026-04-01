@@ -6,7 +6,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const COMPANY_ID = 'd83a643c-4f72-4df5-9618-7fe23db7bc01'
+
 
 async function fetchFacebookAnalytics(connection: any) {
   if (!connection?.access_token || !connection?.page_id) return null
@@ -47,6 +47,9 @@ async function fetchLinkedInAnalytics(connection: any) {
 
 export async function GET(req: NextRequest) {
   try {
+    const COMPANY_ID = req.nextUrl.searchParams.get('company_id')
+    if (!COMPANY_ID) return NextResponse.json({ error: 'Missing company_id' }, { status: 400 })
+
     const { data: connections } = await supabase
       .from('social_connections')
       .select('*')

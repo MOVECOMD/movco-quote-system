@@ -11,11 +11,13 @@ interface AuthContextType {
   session: Session | null;
   loading: boolean;
   companyUser: CompanyUser | null;
+  companyId: string | null;
   signUp: (email: string, password: string, name: string, phone: string) => Promise<any>;
   signIn: (email: string, password: string) => Promise<any>;
   signOut: () => Promise<void>;
   refreshCompanyUser: () => Promise<void>;
 }
+
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -24,23 +26,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [companyUser, setCompanyUser] = useState<CompanyUser | null>(null);
+  const [companyId, setCompanyId] = useState<string | null>(null);
   const lastLoadedUserId = useRef<string | null>(null);
 
   const loadCompanyUser = useCallback(async (userId: string) => {
-    // Skip if we already loaded for this user (prevents duplicate calls)
     if (lastLoadedUserId.current === userId) return;
     lastLoadedUserId.current = userId;
 
     try {
-      const { data } = await supabase
+      // 1. Check company_users table (team members)
+      const { data: cuData } = await supabase
         .from('company_users')
         .select('*')
         .eq('user_id', userId)
         .eq('status', 'active')
         .maybeSingle();
-      setCompanyUser(data as CompanyUser | null);
+      setCompanyUser(cuData as CompanyUser | null);
+
+      if (cuData?.company_id) {
+        setCompanyId(cuData.company_id);
+        return;
+      }
+
+      // 2. Check companies table (owner)
+      const { data: companyData } = await supabase
+        .from('companies')
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (companyData?.id) {
+        setCompanyId(companyData.id);
+      } else {
+        setCompanyId(null);
+      }
     } catch {
       setCompanyUser(null);
+      setCompanyId(null);
     }
   }, []);
 
@@ -129,11 +151,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     lastLoadedUserId.current = null;
     setCompanyUser(null);
+    setCompanyId(null);
     await supabase.auth.signOut();
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, companyUser, signUp, signIn, signOut, refreshCompanyUser }}>
+    <AuthContext.Provider value={{ user, session, loading, companyUser, companyId, signUp, signIn, signOut, refreshCompanyUser }}>
       {children}
     </AuthContext.Provider>
   );

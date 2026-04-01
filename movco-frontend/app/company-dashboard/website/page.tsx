@@ -4,13 +4,14 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import AiAssistant from '@/components/AiAssistant'
 import { renderSiteHtml } from '../../../lib/renderSiteHtml'
+import { useAuth } from '@/context/AuthContext'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-const COMPANY_ID = 'd83a643c-4f72-4df5-9618-7fe23db7bc01'
+
 
 const BLOCK_TYPES = [
   { type: 'hero', label: 'Hero section', icon: '⚡', description: 'Headline, subheadline and CTA button' },
@@ -66,6 +67,7 @@ const TEMPLATES = [
 type Block = { type: string; [key: string]: any }
 
 export default function WebsiteEditorPage() {
+  const { companyId: COMPANY_ID } = useAuth()
   const [step, setStep] = useState<'template' | 'editor'>('template')
   const [blocks, setBlocks] = useState<Block[]>([])
   const [selectedBlock, setSelectedBlock] = useState<number | null>(null)

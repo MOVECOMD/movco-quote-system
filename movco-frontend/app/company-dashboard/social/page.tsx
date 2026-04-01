@@ -2,13 +2,14 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
+import { useAuth } from '@/context/AuthContext'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-const COMPANY_ID = 'd83a643c-4f72-4df5-9618-7fe23db7bc01'
+
 
 const PLATFORMS = [
   { id: 'facebook', label: 'Facebook', color: '#1877F2', icon: 'f' },
@@ -46,6 +47,7 @@ type Post = {
 }
 
 export default function SocialPage() {
+  const { companyId: COMPANY_ID } = useAuth()
   const [tab, setTab] = useState<'compose' | 'scheduled' | 'analytics'>('compose')
   const [connections, setConnections] = useState<Connection[]>([])
   const [posts, setPosts] = useState<Post[]>([])

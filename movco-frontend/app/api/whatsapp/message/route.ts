@@ -6,12 +6,14 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const COMPANY_ID = 'd83a643c-4f72-4df5-9618-7fe23db7bc01'
+
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const customer_id = searchParams.get('customer_id')
   const phone = searchParams.get('phone')
+  const COMPANY_ID = searchParams.get('company_id')
+  if (!COMPANY_ID) return NextResponse.json({ error: 'Missing company_id' }, { status: 400 })
 
   let query = supabase
     .from('whatsapp_messages')

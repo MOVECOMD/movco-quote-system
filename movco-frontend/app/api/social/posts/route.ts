@@ -6,7 +6,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const COMPANY_ID = 'd83a643c-4f72-4df5-9618-7fe23db7bc01'
+// company_id now comes from request params
 
 async function postToFacebook(content: string, connection: any) {
   if (!connection?.access_token || !connection?.page_id) {
@@ -86,12 +86,13 @@ async function postToLinkedIn(content: string, connection: any) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { post_id, content, platforms } = await req.json()
+    const { post_id, content, platforms, company_id } = await req.json()
+    if (!company_id) return NextResponse.json({ error: 'Missing company_id' }, { status: 400 })
 
     const { data: connections } = await supabase
       .from('social_connections')
       .select('*')
-      .eq('company_id', COMPANY_ID)
+      .eq('company_id', req.nextUrl.searchParams.get('company_id')!)
       .eq('connected', true)
 
     const connMap: Record<string, any> = {}

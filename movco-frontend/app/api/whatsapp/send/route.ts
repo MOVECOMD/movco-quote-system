@@ -6,11 +6,12 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const COMPANY_ID = 'd83a643c-4f72-4df5-9618-7fe23db7bc01'
+
 
 export async function POST(req: NextRequest) {
   try {
-    const { to_phone, to_name, customer_id, message_text, template_name } = await req.json()
+    const { to_phone, to_name, customer_id, message_text, template_name, company_id: COMPANY_ID } = await req.json()
+    if (!COMPANY_ID) return NextResponse.json({ error: 'Missing company_id' }, { status: 400 })
 
     if (!to_phone || !message_text) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })

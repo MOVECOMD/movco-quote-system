@@ -5,13 +5,17 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
-const COMPANY_ID = 'd83a643c-4f72-4df5-9618-7fe23db7bc01'
+// COMPANY_ID now comes from the request body
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     const { messages } = body
     const isOnboarding = body.onboarding === true
+    const COMPANY_ID = body.company_id
+    if (!COMPANY_ID && !isOnboarding) {
+      return NextResponse.json({ message: 'Missing company_id', actions: [], requires_confirm: false }, { status: 400 })
+    }
 
     if (isOnboarding) {
       const templateLabel = body.template_label || 'business'
