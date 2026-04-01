@@ -456,6 +456,8 @@ RULES:
               if (wsAction === 'edit_html') {
                 const currentHtml = websiteData?.custom_html || ''
                 const userRequest = messages[messages.length - 1]?.content || 'edit the HTML'
+                console.log('EDIT_HTML: Current HTML length:', currentHtml.length)
+                console.log('EDIT_HTML: User request:', userRequest)
 
                 const htmlRes = await fetch('https://api.anthropic.com/v1/messages', {
                   method: 'POST',
@@ -482,11 +484,18 @@ RULES:
                 // Clean any accidental markdown fences
                 newHtml = newHtml.replace(/^```html?\s*/i, '').replace(/```\s*$/g, '').trim()
 
+                console.log('EDIT_HTML: New HTML length:', newHtml.length)
+                console.log('EDIT_HTML: First 200 chars:', newHtml.substring(0, 200))
+                console.log('EDIT_HTML: Has DOCTYPE:', newHtml.includes('<!DOCTYPE'))
+                console.log('EDIT_HTML: Has html tag:', newHtml.includes('<html'))
+
                 if (newHtml && (newHtml.includes('<!DOCTYPE') || newHtml.includes('<html'))) {
                   customHtml = newHtml
                   action.data.html_set = true
+                  console.log('EDIT_HTML: SUCCESS — saving', newHtml.length, 'chars')
                 } else {
                   action.data.error = 'HTML generation failed — no valid HTML returned'
+                  console.log('EDIT_HTML: FAILED — invalid HTML response')
                 }
               }
 
