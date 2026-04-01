@@ -116,8 +116,9 @@ export default function AiAssistant() {
       // Support both single action and array of actions
       const actions = data.actions || (data.action ? [data.action] : [])
 
-      const serverSideActions = ['create_customer', 'create_deal', 'add_note', 'add_task', 'create_pipeline_stage', 'edit_website']
+      const serverSideActions = ['create_customer', 'create_deal', 'add_note', 'add_task', 'create_pipeline_stage']
       const hasServerSideOnly = actions.length > 0 && actions.every((a: Action) => serverSideActions.includes(a.type))
+      const hasWebsiteEdit = actions.some((a: Action) => a.type === 'edit_website')
       const hasAnyActions = actions.length > 0
 
       const assistantMsg: Message = {
@@ -131,7 +132,17 @@ export default function AiAssistant() {
       setMessages(prev => [...prev, assistantMsg])
 
       // Auto-execute ALL actions immediately — no confirm needed
-      if (hasAnyActions && !hasServerSideOnly) {
+      if (hasWebsiteEdit) {
+        setTimeout(() => {
+          setMessages(prev => [...prev, {
+            id: (Date.now() + 2).toString(),
+            role: 'assistant',
+            content: '✅ Website updated! Reloading in 2 seconds...',
+          }])
+          setTimeout(() => window.location.reload(), 2000)
+        }, 500)
+      }
+      if (hasAnyActions && !hasServerSideOnly && !hasWebsiteEdit) {
         setTimeout(() => {
           executeActions((Date.now() + 1).toString(), actions)
         }, 500)
