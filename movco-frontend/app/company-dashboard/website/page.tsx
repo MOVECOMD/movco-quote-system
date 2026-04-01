@@ -21,6 +21,7 @@ const BLOCK_TYPES = [
   { type: 'coverage', label: 'Coverage areas', icon: '📍', description: 'Areas you serve' },
   { type: 'contact', label: 'Contact', icon: '✉️', description: 'Contact form and details' },
   { type: 'gallery', label: 'Gallery', icon: '🖼️', description: 'Photo gallery' },
+  { type: 'custom', label: 'Custom Section', icon: '🧩', description: 'Custom HTML section' },
 ]
 
 const TEMPLATES = [
