@@ -295,7 +295,7 @@ const [mediaCallback, setMediaCallback] = useState<((url: string) => void) | nul
               <div style={{ background: '#f8f9fa', borderRadius: '6px', padding: '8px', fontFamily: 'monospace', fontSize: '10px' }}>
                 <div style={{ marginBottom: '6px', paddingBottom: '6px', borderBottom: '1px solid #eee' }}>
                   <span style={{ color: '#888' }}>Type: </span><strong>CNAME</strong><br />
-                  <span style={{ color: '#888' }}>Name: </span><strong>{customDomain.startsWith('www.') ? 'www' : '@'}</strong><br />
+                  <span style={{ color: '#888' }}>Name: </span><strong>www</strong><br />
                   <span style={{ color: '#888' }}>Value: </span><strong>cname.vercel-dns.com</strong><br />
                   <span style={{ color: '#888' }}>TTL: </span><strong>Auto</strong>
                 </div>
