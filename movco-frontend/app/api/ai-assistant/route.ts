@@ -474,12 +474,12 @@ RULES:
                   },
                   body: JSON.stringify({
                     model: 'claude-sonnet-4-20250514',
-                    max_tokens: 4000,
+                    max_tokens: 8000,
                     system: `You are an HTML editor. You will receive the current HTML and a user request. Return ONLY a JSON array of find-and-replace operations. Each operation is an object with "find" (the exact string to find in the HTML) and "replace" (what to replace it with). Return RAW JSON only — no explanation, no markdown, no backticks. Just the array starting with [ and ending with ]. Keep "find" strings unique enough to match only once. Use the shortest possible find strings that are still unique.`,
                     messages: [
                       {
                         role: 'user',
-                        content: `CURRENT HTML (first 8000 chars):\n${currentHtml.substring(0, 8000)}\n\nAVAILABLE IMAGES:\n${JSON.stringify(mediaList)}\n\nUSER REQUEST: ${userRequest}\n\nReturn the JSON array of find-and-replace operations now:`
+                        content: `CURRENT HTML:\n${currentHtml}\n\nAVAILABLE IMAGES (use these URLs when the user asks to add/change images):\n${JSON.stringify(mediaList)}\n\nUSER REQUEST: ${userRequest}\n\nIMPORTANT RULES:\n- Find strings must be EXACT matches from the HTML above — copy them character for character\n- For image changes: find the exact src="..." attribute value and replace just the URL\n- For text changes: find the exact text as it appears in the HTML\n- For style changes: find the exact CSS property and value, replace with the new value\n- Keep find strings short but unique — just enough to match once\n- If the user mentions a specific page (like "Book page" or "Evolve page"), look for that page's section in the HTML\n- This HTML has multiple pages controlled by JavaScript — look for page IDs like page-home, page-evolve, page-how, page-book\n\nReturn the JSON array of find-and-replace operations now:`
                       }
                     ],
                   }),
