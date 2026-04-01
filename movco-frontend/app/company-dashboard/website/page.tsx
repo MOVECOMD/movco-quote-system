@@ -103,7 +103,10 @@ const [mediaCallback, setMediaCallback] = useState<((url: string) => void) | nul
       setPublished(data.website.published || false)
       setCustomDomain(data.website.custom_domain || '')
       setTheme(data.website.theme || { primary_color: '#0a0f1c', accent_color: '#0F6E56' })
-      if (data.website.custom_html) setCustomHtml(data.website.custom_html)
+      if (data.website.custom_html) {
+        setCustomHtml(data.website.custom_html)
+        setEditorMode('html')
+      }
       setStep('editor')
     }
     setLoading(false)

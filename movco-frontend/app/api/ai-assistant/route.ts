@@ -57,12 +57,22 @@ Keep responses short and friendly. One question at a time. Always return valid J
       const data = await res.json()
       const text = data.content?.[0]?.text || '{}'
       let parsed
+    try {
+      const clean = text.replace(/```json|```/g, '').trim()
+      parsed = JSON.parse(clean)
+    } catch {
       try {
-        const clean = text.replace(/```json|```/g, '').trim()
-        parsed = JSON.parse(clean)
+        const firstBrace = text.indexOf('{')
+        const lastBrace = text.lastIndexOf('}')
+        if (firstBrace !== -1 && lastBrace > firstBrace) {
+          parsed = JSON.parse(text.substring(firstBrace, lastBrace + 1))
+        } else {
+          throw new Error('No JSON found')
+        }
       } catch {
         parsed = { message: text, onboarding_complete: false }
       }
+    }
       return NextResponse.json(parsed)
     }
 
@@ -223,7 +233,18 @@ RULES:
       const clean = text.replace(/```json|```/g, '').trim()
       parsed = JSON.parse(clean)
     } catch {
-      parsed = { message: text, actions: [], requires_confirm: false }
+      try {
+        const firstBrace = text.indexOf('{')
+        const lastBrace = text.lastIndexOf('}')
+        if (firstBrace !== -1 && lastBrace > firstBrace) {
+          parsed = JSON.parse(text.substring(firstBrace, lastBrace + 1))
+        } else {
+          throw new Error('No JSON found')
+        }
+      } catch {
+        console.error('JSON parse failed:', text.substring(0, 500))
+        parsed = { message: text.replace(/[{}"\\]/g, ' ').substring(0, 300).trim(), actions: [], requires_confirm: false }
+      }
     }
 
     // Helper — get or create customer record

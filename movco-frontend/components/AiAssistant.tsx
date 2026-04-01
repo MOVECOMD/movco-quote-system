@@ -134,10 +134,16 @@ export default function AiAssistant() {
       const hasWebsiteEdit = actions.some((a: Action) => a.type === 'edit_website')
       const hasAnyActions = actions.length > 0
 
+      const cleanMsg = (data.message || '✓ Done')
+        .replace(/\{[\s\S]*"actions"[\s\S]*\}/g, '')
+        .replace(/<!DOCTYPE[\s\S]*?<\/html>/gi, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim() || '✓ Done'
+
       const assistantMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: data.message || '✓ Done',
+        content: cleanMsg,
         actions: actions.length > 0 ? actions : undefined,
         requires_confirm: hasServerSideOnly ? false : data.requires_confirm,
       }
