@@ -408,7 +408,7 @@ export default function AiAssistant() {
                   {msg.content
                     .replace(/```json[\s\S]*?```/g, '')
                     .replace(/```[\s\S]*?```/g, '')
-                    .replace(/^\s*\{[\s\S]*\}\s*$/gm, '')
+                    .replace(/^\s*[\[\{][\s\S]*[\]\}]\s*$/g, '')
                     .trim() || msg.content}
 
                   {/* Multi-action previews */}
