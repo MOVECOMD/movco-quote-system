@@ -406,17 +406,14 @@ export default function AiAssistant() {
                   whiteSpace: 'pre-line',
                 }}>
                   {(() => {
-                    const cleaned = msg.content
+                    // Strip any JSON object from the message
+                    const stripped = msg.content
                       .replace(/```json[\s\S]*?```/g, '')
                       .replace(/```[\s\S]*?```/g, '')
+                      .replace(/\{[\s\S]*"actions"[\s\S]*\}/g, '')
+                      .replace(/\{[\s\S]*"message"[\s\S]*\}/g, '')
                       .trim()
-                    // If the entire message is JSON, don't show it
-                    try {
-                      JSON.parse(cleaned)
-                      return msg.content.split('\n')[0] || '✓ Done'
-                    } catch {
-                      return cleaned || '✓ Done'
-                    }
+                    return stripped || msg.content.split('\n')[0] || '✓ Done'
                   })()}
 
                   {/* Multi-action previews */}
