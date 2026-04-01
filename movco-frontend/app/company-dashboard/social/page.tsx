@@ -63,7 +63,10 @@ export default function SocialPage() {
   const [posting, setPosting] = useState(false)
   const [postResult, setPostResult] = useState<any>(null)
   const [aiLoading, setAiLoading] = useState(false)
-  const [charCount, setCharCount] = useState(0)
+const [charCount, setCharCount] = useState(0)
+const [showMediaModal, setShowMediaModal] = useState(false)
+const [mediaFiles, setMediaFiles] = useState<any[]>([])
+const [mediaLoading, setMediaLoading] = useState(false)
 
   useEffect(() => {
     loadAll()
@@ -161,8 +164,32 @@ Keep it under 200 characters, professional but friendly, no hashtags needed. Jus
       setContent(fallback)
       setCharCount(fallback.length)
     }
-    setAiLoading(false)
+     setAiLoading(false)
   }
+
+  async function openMediaLibrary() {
+    setShowMediaModal(true)
+    setMediaLoading(true)
+    const { data } = await supabase
+      .from('media_library')
+      .select('*')
+      .eq('company_id', COMPANY_ID)
+      .order('created_at', { ascending: false })
+      .limit(50)
+    setMediaFiles(data || [])
+    setMediaLoading(false)
+  }
+
+  function insertMediaUrl(url: string) {
+    const insertion = `\n${url}`
+    setContent(prev => {
+      const newVal = prev + insertion
+      setCharCount(newVal.length)
+      return newVal
+    })
+    setShowMediaModal(false)
+  }
+
 
   async function handlePost() {
     if (!content.trim()) return alert('Please write something to post')
@@ -336,10 +363,16 @@ Keep it under 200 characters, professional but friendly, no hashtags needed. Jus
             <div style={card}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                 <p style={sectionLabel}>Post content</p>
-                <button onClick={generateAiPost} disabled={aiLoading}
-                  style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '20px', border: '1px solid #7F77DD', background: '#EEEDFE', color: '#534AB7', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>
-                  {aiLoading ? '...' : '✨ AI suggest'}
-                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+  <button onClick={generateAiPost} disabled={aiLoading}
+    style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '20px', border: '1px solid #7F77DD', background: '#EEEDFE', color: '#534AB7', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>
+    {aiLoading ? '...' : '✨ AI suggest'}
+  </button>
+  <button onClick={openMediaLibrary}
+    style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '20px', border: '1px solid #d1d5db', background: '#f9fafb', color: '#555', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>
+    🖼️ Browse Library
+  </button>
+</div>
               </div>
               <textarea
                 value={content}
@@ -627,7 +660,7 @@ function PostCard({ post, onDelete, getPlatformColor, getPlatformLabel }: {
           ? `Posted ${new Date(post.posted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
           : `Created ${new Date(post.created_at).toLocaleDateString('en-GB')}`
         }
-      </p>
+          </p>
     </div>
   )
 }

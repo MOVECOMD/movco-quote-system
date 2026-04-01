@@ -77,6 +77,10 @@ export default function WebsiteEditorPage() {
   const [company, setCompany] = useState<any>(null)
   const [editorMode, setEditorMode] = useState<'blocks' | 'html'>('blocks')
   const [customHtml, setCustomHtml] = useState('')
+const [showMediaModal, setShowMediaModal] = useState(false)
+const [mediaFiles, setMediaFiles] = useState<any[]>([])
+const [mediaLoading, setMediaLoading] = useState(false)
+const [mediaCallback, setMediaCallback] = useState<((url: string) => void) | null>(null)
 
   useEffect(() => {
     loadExisting()
@@ -171,6 +175,20 @@ export default function WebsiteEditorPage() {
 
   function updateBlock(idx: number, updates: any) {
     setBlocks(prev => prev.map((b, i) => i === idx ? { ...b, ...updates } : b))
+  }
+
+  async function openMediaLibrary(callback: (url: string) => void) {
+    setMediaCallback(() => callback)
+    setShowMediaModal(true)
+    setMediaLoading(true)
+    const { data } = await supabase
+      .from('media_library')
+      .select('*')
+      .eq('company_id', COMPANY_ID)
+      .order('created_at', { ascending: false })
+      .limit(50)
+    setMediaFiles(data || [])
+    setMediaLoading(false)
   }
 
   if (loading) {
@@ -387,7 +405,7 @@ export default function WebsiteEditorPage() {
                 <p style={{ fontSize: '14px' }}>Click a block on the left to edit its content</p>
               </div>
             ) : (
-              <BlockEditor block={blocks[selectedBlock]} onChange={updates => updateBlock(selectedBlock, updates)} />
+              <BlockEditor block={blocks[selectedBlock]} onChange={updates => updateBlock(selectedBlock, updates)} onBrowseMedia={openMediaLibrary} />
             )}
           </div>
         )}
@@ -436,6 +454,49 @@ export default function WebsiteEditorPage() {
 
       <AiAssistant />
 
+      {/* Media Library Modal */}
+      {showMediaModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+          <div style={{ background: '#fff', borderRadius: '16px', width: '100%', maxWidth: '680px', maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid #e5e7eb' }}>
+              <h3 style={{ fontSize: '16px', fontWeight: 600, margin: 0, color: '#0a0f1c' }}>Media Library</h3>
+              <button onClick={() => setShowMediaModal(false)} style={{ background: 'transparent', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#888' }}>✕</button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px' }}>
+              {mediaLoading ? (
+                <p style={{ textAlign: 'center', color: '#888', padding: '40px 0' }}>Loading...</p>
+              ) : mediaFiles.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 0' }}>
+                  <p style={{ fontSize: '15px', color: '#333', marginBottom: '8px' }}>No files yet</p>
+                  <p style={{ fontSize: '13px', color: '#888' }}>Upload images in the Media Library page first</p>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '12px' }}>
+                  {mediaFiles.map(file => (
+                    <div key={file.id} onClick={() => { mediaCallback && mediaCallback(file.url); setShowMediaModal(false) }}
+                      style={{ cursor: 'pointer', borderRadius: '10px', overflow: 'hidden', border: '2px solid transparent', transition: 'border-color 0.15s' }}
+                      onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.borderColor = '#0F6E56'}
+                      onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.borderColor = 'transparent'}>
+                      {file.type?.startsWith('image/') ? (
+                        <img src={file.url} alt={file.name} style={{ width: '100%', height: '100px', objectFit: 'cover', display: 'block', background: '#f0f0f0' }} />
+                      ) : (
+                        <div style={{ width: '100%', height: '100px', background: '#f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '28px' }}>📄</div>
+                      )}
+                      <div style={{ padding: '6px 8px', background: '#f8f9fa' }}>
+                        <p style={{ fontSize: '11px', fontWeight: 500, margin: 0, color: '#333', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{ padding: '12px 20px', borderTop: '1px solid #e5e7eb', background: '#f8f9fa' }}>
+              <p style={{ fontSize: '12px', color: '#888', margin: 0 }}>Click any image to use it</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Right panel — live preview */}
       <div style={{ flex: 1, overflowY: 'auto', background: '#e5e7eb', padding: '16px' }}>
         <div style={{ background: '#fff', borderRadius: '12px', overflow: 'hidden', minHeight: '100%' }}>
@@ -450,7 +511,7 @@ export default function WebsiteEditorPage() {
   )
 }
 
-function BlockEditor({ block, onChange }: { block: Block; onChange: (u: any) => void }) {
+function BlockEditor({ block, onChange, onBrowseMedia }: { block: Block; onChange: (u: any) => void; onBrowseMedia?: (cb: (url: string) => void) => void }) {
   const label = BLOCK_TYPES.find(b => b.type === block.type)?.label || block.type
   return (
     <div>
@@ -552,7 +613,15 @@ function BlockEditor({ block, onChange }: { block: Block; onChange: (u: any) => 
                 style={{ color: '#e24b4a', background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px' }}>✕</button>
             </div>
           ))}
-          <button onClick={() => onChange({ images: [...(block.images || []), ''] })} style={addItemBtn}>+ Add image URL</button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={() => onChange({ images: [...(block.images || []), ''] })} style={{ ...addItemBtn, flex: 1 }}>+ Add image URL</button>
+            {onBrowseMedia && (
+              <button onClick={() => onBrowseMedia(url => onChange({ images: [...(block.images || []), url] }))}
+                style={{ ...addItemBtn, flex: 1, borderStyle: 'solid', borderColor: '#0F6E56', color: '#0F6E56', background: '#E1F5EE' }}>
+                🖼️ Browse Library
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>
