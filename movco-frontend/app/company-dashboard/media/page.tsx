@@ -43,12 +43,13 @@ export default function MediaLibraryPage() {
 
   async function fetchFiles() {
     setLoading(true)
-    const { data } = await supabase
-      .from('media_library')
-      .select('*')
-      .eq('company_id', COMPANY_ID)
-      .order('created_at', { ascending: false })
-    setFiles(data || [])
+    try {
+      const res = await fetch(`/api/media/list?company_id=${COMPANY_ID}`)
+      const data = await res.json()
+      setFiles(data.files || [])
+    } catch {
+      setFiles([])
+    }
     setLoading(false)
   }
 
@@ -85,12 +86,11 @@ export default function MediaLibraryPage() {
   }
 
   async function deleteFile(file: MediaFile) {
-    const url = new URL(file.file_url)
-    const path = url.pathname.split('/object/public/crm-files/')[1]
-    if (path) {
-      await supabase.storage.from('crm-files').remove([path])
-    }
-    await supabase.from('media_library').delete().eq('id', file.id)
+    await fetch('/api/media/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_id: file.id, file_url: file.file_url }),
+    })
     setDeleteConfirm(null)
     fetchFiles()
   }
