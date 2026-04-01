@@ -459,6 +459,8 @@ RULES:
                 console.log('EDIT_HTML: Current HTML length:', currentHtml.length)
                 console.log('EDIT_HTML: User request:', userRequest)
 
+                const mediaList = (mediaRes.data || []).map((m: any) => ({ name: m.name, url: m.url }))
+
                 const htmlRes = await fetch('https://api.anthropic.com/v1/messages', {
                   method: 'POST',
                   headers: {
@@ -468,34 +470,53 @@ RULES:
                   },
                   body: JSON.stringify({
                     model: 'claude-sonnet-4-20250514',
-                    max_tokens: 64000,
-                    system: `You are an HTML editor. You will receive the current HTML of a website and a user request. Return ONLY the complete modified HTML. No explanation, no markdown, no code fences, no backticks. Just the raw HTML starting with <!DOCTYPE html> and ending with </html>. Make ONLY the requested change. Keep everything else byte-for-byte identical. Do NOT truncate, summarise or shorten the HTML — return the COMPLETE document even if it is very long.`, messages: [
+                    max_tokens: 4000,
+                    system: `You are an HTML editor. You will receive the current HTML and a user request. Return ONLY a JSON array of find-and-replace operations. Each operation is an object with "find" (the exact string to find in the HTML) and "replace" (what to replace it with). Return RAW JSON only — no explanation, no markdown, no backticks. Just the array starting with [ and ending with ]. Keep "find" strings unique enough to match only once. Use the shortest possible find strings that are still unique.`,
+                    messages: [
                       {
                         role: 'user',
-                        content: `CURRENT HTML:\n${currentHtml}\n\nAVAILABLE IMAGES:\n${JSON.stringify((mediaRes.data || []).map((m: any) => ({ name: m.name, url: m.url })))}\n\nUSER REQUEST: ${userRequest}\n\nWhen the user asks to add a photo or image, use the matching image URL from the available images list above. Return the complete modified HTML now:`
+                        content: `CURRENT HTML (first 8000 chars):\n${currentHtml.substring(0, 8000)}\n\nAVAILABLE IMAGES:\n${JSON.stringify(mediaList)}\n\nUSER REQUEST: ${userRequest}\n\nReturn the JSON array of find-and-replace operations now:`
                       }
                     ],
                   }),
                 })
 
                 const htmlData = await htmlRes.json()
-                let newHtml = htmlData.content?.[0]?.text || ''
+                let responseText = htmlData.content?.[0]?.text || ''
+                console.log('EDIT_HTML: Response:', responseText.substring(0, 500))
 
-                // Clean any accidental markdown fences
-                newHtml = newHtml.replace(/^```html?\s*/i, '').replace(/```\s*$/g, '').trim()
+                responseText = responseText.replace(/^```json?\s*/i, '').replace(/```\s*$/g, '').trim()
 
-                console.log('EDIT_HTML: New HTML length:', newHtml.length)
-                console.log('EDIT_HTML: First 200 chars:', newHtml.substring(0, 200))
-                console.log('EDIT_HTML: Has DOCTYPE:', newHtml.includes('<!DOCTYPE'))
-                console.log('EDIT_HTML: Has html tag:', newHtml.includes('<html'))
+                try {
+                  let firstBracket = responseText.indexOf('[')
+                  let lastBracket = responseText.lastIndexOf(']')
+                  if (firstBracket === -1 || lastBracket === -1) throw new Error('No JSON array found')
+                  
+                  const operations = JSON.parse(responseText.substring(firstBracket, lastBracket + 1))
+                  let modifiedHtml = currentHtml
 
-                if (newHtml && (newHtml.includes('<!DOCTYPE') || newHtml.includes('<html'))) {
-                  customHtml = newHtml
-                  action.data.html_set = true
-                  console.log('EDIT_HTML: SUCCESS — saving', newHtml.length, 'chars')
-                } else {
-                  action.data.error = 'HTML generation failed — no valid HTML returned'
-                  console.log('EDIT_HTML: FAILED — invalid HTML response')
+                  for (const op of operations) {
+                    if (op.find && op.replace !== undefined) {
+                      if (modifiedHtml.includes(op.find)) {
+                        modifiedHtml = modifiedHtml.replace(op.find, op.replace)
+                        console.log('EDIT_HTML: Applied:', op.find.substring(0, 60), '→', op.replace.substring(0, 60))
+                      } else {
+                        console.log('EDIT_HTML: Not found:', op.find.substring(0, 80))
+                      }
+                    }
+                  }
+
+                  if (modifiedHtml !== currentHtml) {
+                    customHtml = modifiedHtml
+                    action.data.html_set = true
+                    console.log('EDIT_HTML: SUCCESS —', operations.length, 'replacements applied')
+                  } else {
+                    action.data.error = 'No changes could be applied'
+                    console.log('EDIT_HTML: FAILED — no replacements matched')
+                  }
+                } catch (parseErr: any) {
+                  console.log('EDIT_HTML: Parse error:', parseErr.message)
+                  action.data.error = 'Failed to parse edit instructions'
                 }
               }
 
