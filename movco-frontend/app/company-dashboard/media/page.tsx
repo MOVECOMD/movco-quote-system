@@ -40,8 +40,9 @@ export default function MediaLibraryPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    if (!COMPANY_ID) return
     fetchFiles()
-  }, [])
+  }, [COMPANY_ID])
 
   async function fetchFiles() {
     setLoading(true)
