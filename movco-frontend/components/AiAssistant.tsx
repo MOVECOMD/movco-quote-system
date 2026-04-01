@@ -118,6 +118,7 @@ export default function AiAssistant() {
     setLoading(true)
 
     try {
+      console.log('SENDING COMPANY_ID:', COMPANY_ID)
       const res = await fetch('/api/ai-assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
