@@ -190,7 +190,10 @@ RULES:
 - When user says "change my accent colour to X" use edit_website with action: update_theme, theme: { accent_color: "#hex" }
 - When user says "add a X section to my website" use edit_website with action: add_block, block_type: X
 - When user says "remove the X block" use edit_website with action: remove_block, block_type: X
-- When user says "set my website to custom HTML" use edit_website with action: set_custom_html, custom_html: "the HTML"`
+- When user says "set my website to custom HTML" use edit_website with action: set_custom_html, custom_html: "the HTML"
+- When user says "build me a website" or "create a website for" or "make a site for", use edit_website with action: build_page — generate ALL appropriate blocks from scratch based on their description and populate them with real content based on what they tell you. Set block_data to an array of fully populated block objects.
+- When user says "suggest improvements" or "review my website" or "how can I improve my site", use edit_website with action: suggest_improvements — read the current blocks and return specific actionable suggestions in the message field. No blocks need updating yet.
+- When user says "edit my HTML" or "update my HTML" or "change X in my HTML", use edit_website with action: edit_html — read the existing custom_html and return a modified version with the requested changes applied. Set custom_html to the full updated HTML string.`
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -412,7 +415,32 @@ RULES:
                 action.data.html_set = true
               }
 
-              if (!action.data.error) {
+              if (wsAction === 'build_page') {
+                // block_data is an array of fully populated blocks
+                if (Array.isArray(block_data)) {
+                  blocks = block_data
+                  action.data.built = true
+                } else {
+                  action.data.error = 'No blocks returned from AI'
+                }
+              }
+
+              if (wsAction === 'suggest_improvements') {
+                // Read-only — just returns message, no DB write needed
+                action.data.suggestions_only = true
+              }
+
+              if (wsAction === 'edit_html') {
+                // AI returns modified HTML in custom_html field
+                if (action.data.custom_html) {
+                  customHtml = action.data.custom_html
+                  action.data.html_set = true
+                } else {
+                  action.data.error = 'No HTML returned'
+                }
+              }
+
+              if (!action.data.error && wsAction !== 'suggest_improvements') {
                 const { error } = await supabase
                   .from('company_websites')
                   .update({ blocks, theme, custom_html: customHtml, updated_at: new Date().toISOString() })
