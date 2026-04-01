@@ -11,7 +11,7 @@ const supabase = createClient(
 const COMPANY_ID = 'd83a643c-4f72-4df5-9618-7fe23db7bc01'
 
 type Action = {
-  type: 'send_email' | 'book_event' | 'move_deal' | 'schedule_post' | 'answer' | 'create_pipeline_stage' | 'create_deal' | 'create_customer' | 'add_note' | 'add_task'
+  type: 'send_email' | 'book_event' | 'move_deal' | 'schedule_post' | 'answer' | 'create_pipeline_stage' | 'create_deal' | 'create_customer' | 'add_note' | 'add_task' | 'edit_website'
   data: any
   label?: string
 }
@@ -116,7 +116,7 @@ export default function AiAssistant() {
       // Support both single action and array of actions
       const actions = data.actions || (data.action ? [data.action] : [])
 
-      const serverSideActions = ['create_customer', 'create_deal', 'add_note', 'add_task', 'create_pipeline_stage']
+      const serverSideActions = ['create_customer', 'create_deal', 'add_note', 'add_task', 'create_pipeline_stage', 'edit_website']
       const hasServerSideOnly = actions.length > 0 && actions.every((a: Action) => serverSideActions.includes(a.type))
       const hasAnyActions = actions.length > 0
 
@@ -228,6 +228,21 @@ export default function AiAssistant() {
           } else {
             results.push(`✓ Stage "${action.data.name}" processed`)
           }
+
+        } else if (action.type === 'edit_website') {
+          if (action.data.error) {
+            results.push(`✗ Website update failed: ${action.data.error}`)
+          } else if (action.data.suggestions_only) {
+            results.push(`💡 Suggestions ready`)
+          } else if (action.data.built) {
+            results.push(`✓ Website built successfully`)
+          } else if (action.data.html_set) {
+            results.push(`✓ HTML updated`)
+          } else if (action.data.theme_updated) {
+            results.push(`✓ Theme updated`)
+          } else {
+            results.push(`✓ Website updated`)
+          }
         }
       } catch (err: any) {
         results.push(`✗ Error: ${err.message}`)
@@ -238,7 +253,7 @@ export default function AiAssistant() {
       m.id === msgId ? { ...m, executing: false, executed: true, confirmed: true } : m
     ))
     const needsRefresh = actions.some(a => 
-      ['create_customer', 'create_deal', 'add_note', 'add_task', 'create_pipeline_stage', 'book_event', 'move_deal'].includes(a.type)
+      ['create_customer', 'create_deal', 'add_note', 'add_task', 'create_pipeline_stage', 'book_event', 'move_deal', 'edit_website'].includes(a.type)
     )
 
     setMessages(prev => [...prev, {
