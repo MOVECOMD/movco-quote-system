@@ -415,8 +415,8 @@ RULES:
                 action.data.theme_updated = true
               }
 
-              if (wsAction === 'set_custom_html' && custom_html) {
-                customHtml = custom_html
+              if (wsAction === 'edit_html' && action.data.custom_html) {
+                customHtml = action.data.custom_html
                 action.data.html_set = true
               }
 
