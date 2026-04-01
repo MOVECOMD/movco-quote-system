@@ -347,7 +347,11 @@ export default function AiAssistant() {
           width: '56px', height: '56px', borderRadius: '50%',
           background: open ? '#085041' : '#0F6E56',
           border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 4px 16px rgba(15,110,86,0.4)', transition: 'all 0.2s',
+          boxShadow: loading && open
+            ? '0 4px 16px rgba(15,110,86,0.4), 0 0 20px rgba(15,110,86,0.5), 0 0 40px rgba(15,110,86,0.2)'
+            : '0 4px 16px rgba(15,110,86,0.4)',
+          transition: 'all 0.3s',
+          animation: loading && open ? 'buttonPulse 2s ease-in-out infinite' : 'none',
         }}
         title="AI Assistant"
       >
@@ -363,15 +367,30 @@ export default function AiAssistant() {
       </button>
 
       {/* Chat panel */}
+      {/* Glow effect behind chat panel */}
+      {open && loading && (
+        <div style={{
+          position: 'fixed', bottom: '80px', right: '12px', zIndex: 998,
+          width: '444px', height: '624px', maxHeight: 'calc(100vh - 108px)',
+          borderRadius: '20px',
+          background: 'radial-gradient(ellipse at center, rgba(15,110,86,0.35) 0%, rgba(15,110,86,0) 70%)',
+          animation: 'chatGlow 2s ease-in-out infinite',
+          pointerEvents: 'none',
+        }} />
+      )}
+
       {open && (
         <div style={{
           position: 'fixed', bottom: '92px', right: '24px', zIndex: 999,
           width: '420px', height: '600px', maxHeight: 'calc(100vh - 120px)',
           background: '#ffffff',
-          border: '1px solid #e5e7eb',
+          border: loading ? '1px solid rgba(15,110,86,0.4)' : '1px solid #e5e7eb',
           borderRadius: '16px', display: 'flex', flexDirection: 'column',
-          boxShadow: '0 8px 40px rgba(0,0,0,0.2)',
+          boxShadow: loading
+            ? '0 8px 40px rgba(0,0,0,0.2), 0 0 30px rgba(15,110,86,0.25), 0 0 60px rgba(15,110,86,0.1)'
+            : '0 8px 40px rgba(0,0,0,0.2)',
           overflow: 'hidden',
+          transition: 'box-shadow 0.3s ease, border-color 0.3s ease',
         }}>
 
           {/* Header */}
@@ -555,6 +574,14 @@ export default function AiAssistant() {
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.6; }
+        }
+        @keyframes chatGlow {
+          0%, 100% { opacity: 0.4; transform: scale(1); }
+          50% { opacity: 1; transform: scale(1.02); }
+        }
+        @keyframes buttonPulse {
+          0%, 100% { box-shadow: 0 4px 16px rgba(15,110,86,0.4), 0 0 20px rgba(15,110,86,0.3); }
+          50% { box-shadow: 0 4px 16px rgba(15,110,86,0.6), 0 0 30px rgba(15,110,86,0.5), 0 0 50px rgba(15,110,86,0.2); }
         }
       `}</style>
     </>
