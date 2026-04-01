@@ -187,7 +187,8 @@ RULES:
 - If customer not found for add_note or add_task, say so clearly
 - Keep message to 1-2 friendly sentences maximum — no bullet points, no bold text, no lists, no JSON in message field
 - Never summarise the action data back in the message field — just confirm it worked in plain conversational English e.g. "Simon Jones has been added as a customer and placed in the New Lead stage."
-- - Always return valid JSON only — no markdown code blocks, no backticks around the JSON
+- CRITICAL: Return ONLY the raw JSON object. No text before it. No text after it. No markdown. No backticks. No code blocks. No explanation. Just the JSON starting with { and ending with }. Any text outside the JSON will break the system.
+- Always return valid JSON only — no markdown code blocks, no backticks around the JSON
 - When the user asks to "see preview", "show preview" or "can I see", always return the SAME actions array again with requires_confirm: true — never describe email content as plain text
 - Never write email body content in the message field — emails always go in the actions array only
 - When user says "change my hero headline to X" use edit_website with action: update_block, block_type: hero, block_data: { headline: "X" }
