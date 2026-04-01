@@ -57,22 +57,22 @@ Keep responses short and friendly. One question at a time. Always return valid J
       const data = await res.json()
       const text = data.content?.[0]?.text || '{}'
       let parsed
-    try {
-      const clean = text.replace(/```json|```/g, '').trim()
-      parsed = JSON.parse(clean)
-    } catch {
       try {
-        const firstBrace = text.indexOf('{')
-        const lastBrace = text.lastIndexOf('}')
-        if (firstBrace !== -1 && lastBrace > firstBrace) {
-          parsed = JSON.parse(text.substring(firstBrace, lastBrace + 1))
-        } else {
-          throw new Error('No JSON found')
-        }
+        const clean = text.replace(/```json|```/g, '').trim()
+        parsed = JSON.parse(clean)
       } catch {
-        parsed = { message: text, onboarding_complete: false }
+        try {
+          const firstBrace = text.indexOf('{')
+          const lastBrace = text.lastIndexOf('}')
+          if (firstBrace !== -1 && lastBrace > firstBrace) {
+            parsed = JSON.parse(text.substring(firstBrace, lastBrace + 1))
+          } else {
+            throw new Error('No JSON found')
+          }
+        } catch {
+          parsed = { message: text, onboarding_complete: false }
+        }
       }
-    }
       return NextResponse.json(parsed)
     }
 
@@ -132,7 +132,7 @@ LIVE CRM DATA:
 Pipeline stages (THESE ARE THE REAL STAGES — always use these IDs): ${JSON.stringify(stages)}
 Current website: slug=${websiteRes.data?.slug || 'none'}, published=${websiteRes.data?.published || false}
 Current website blocks: ${JSON.stringify(websiteRes.data?.blocks || [])}
-Current website custom HTML (FULL — use this as the base for any HTML edits, never replace it entirely): ${websiteRes.data?.custom_html ? websiteRes.data.custom_html.substring(0, 20000) : 'none'}
+Current website has custom HTML: ${websiteRes.data?.custom_html ? 'YES' : 'NO'}
 Deals (${dealsRes.data?.length || 0} total): ${JSON.stringify(dealsRes.data || [])}
 Customers (${customersRes.data?.length || 0} total): ${JSON.stringify(customersRes.data?.slice(0, 50) || [])}
 Diary events: ${JSON.stringify(eventsRes.data || [])}
@@ -181,7 +181,7 @@ schedule_post:
 { "type": "schedule_post", "data": { "content": "post text", "platforms": ["facebook","instagram","linkedin"], "scheduled_at": "ISO or null" } }
 
 edit_website:
-{ "type": "edit_website", "data": { "action": "update_block" | "add_block" | "remove_block" | "update_theme" | "set_custom_html", "block_type": "hero|services|about|reviews|coverage|quote_form|contact|gallery", "block_index": number or null, "block_data": { ...fields to update } | null, "theme": { "primary_color": "#hex", "accent_color": "#hex" } | null, "custom_html": "full HTML string or null" } }
+{ "type": "edit_website", "data": { "action": "update_block" | "add_block" | "remove_block" | "update_theme" | "edit_html", "block_type": "hero|services|about|reviews|coverage|quote_form|contact|gallery", "block_index": number or null, "block_data": { ...fields to update } | null, "theme": { "primary_color": "#hex", "accent_color": "#hex" } | null } }
 
 answer:
 { "type": "answer", "data": { "summary": "answer text" } }
@@ -205,10 +205,9 @@ RULES:
 - When user says "change my accent colour to X" use edit_website with action: update_theme, theme: { accent_color: "#hex" }
 - When user says "add a X section to my website" use edit_website with action: add_block, block_type: X
 - When user says "remove the X block" use edit_website with action: remove_block, block_type: X
-- When user says "set my website to custom HTML" use edit_website with action: set_custom_html, custom_html: "the HTML"
 - When user says "build me a website" or "create a website for" or "make a site for", use edit_website with action: build_page — generate ALL appropriate blocks from scratch based on their description and populate them with real content based on what they tell you. Set block_data to an array of fully populated block objects.
 - When user says "suggest improvements" or "review my website" or "how can I improve my site", use edit_website with action: suggest_improvements — read the current blocks and return specific actionable suggestions in the message field. No blocks need updating yet.
-- WWhen user says "edit my HTML" or "update my HTML" or "change X in my HTML" or "add X to my navigation" or "add a page", use edit_website with action: edit_html — you MUST use the "Current website custom HTML" provided above as your base. Make ONLY the requested changes to it. Never generate new HTML from scratch. Return the complete modified HTML in the custom_html field.`
+- When user says "edit my HTML" or "update my HTML" or "change X in my HTML" or "add X to my navigation" or "add a page", use edit_website with action: edit_html — do NOT include any custom_html field in your JSON response. The server will handle the HTML generation in a separate step. Just return the action with type edit_website and data.action = "edit_html". Nothing else is needed in the data object except action.`
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -361,7 +360,6 @@ RULES:
           }
 
           if (action.type === 'send_email') {
-            // Only log the note — actual sending is handled client-side after user confirms
             const customerId = await getOrCreateCustomer(action.data.to_name, action.data.to_email)
             if (customerId) {
               action.data.customer_id_found = customerId
@@ -389,7 +387,7 @@ RULES:
               let theme = websiteData?.theme || { primary_color: '#0a0f1c', accent_color: '#0F6E56' }
               let customHtml = websiteData?.custom_html || null
 
-              const { action: wsAction, block_type, block_index, block_data, theme: newTheme, custom_html } = action.data
+              const { action: wsAction, block_type, block_index, block_data, theme: newTheme } = action.data
 
               const blockDefaults: Record<string, any> = {
                 hero: { headline: 'Professional Removals', subheadline: 'Trusted, reliable removal services', cta_text: 'Get a Free Quote' },
@@ -436,13 +434,7 @@ RULES:
                 action.data.theme_updated = true
               }
 
-              if (wsAction === 'edit_html' && action.data.custom_html) {
-                customHtml = action.data.custom_html
-                action.data.html_set = true
-              }
-
               if (wsAction === 'build_page') {
-                // block_data is an array of fully populated blocks
                 if (Array.isArray(block_data)) {
                   blocks = block_data
                   action.data.built = true
@@ -452,17 +444,47 @@ RULES:
               }
 
               if (wsAction === 'suggest_improvements') {
-                // Read-only — just returns message, no DB write needed
                 action.data.suggestions_only = true
               }
 
+              // ── TWO-STEP HTML EDIT ──
+              // The first AI call returns the action WITHOUT the HTML.
+              // We now make a SECOND call asking Claude for JUST the raw HTML.
               if (wsAction === 'edit_html') {
-                // AI returns modified HTML in custom_html field
-                if (action.data.custom_html) {
-                  customHtml = action.data.custom_html
+                const currentHtml = websiteData?.custom_html || ''
+                const userRequest = messages[messages.length - 1]?.content || 'edit the HTML'
+
+                const htmlRes = await fetch('https://api.anthropic.com/v1/messages', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': process.env.ANTHROPIC_API_KEY!,
+                    'anthropic-version': '2023-06-01',
+                  },
+                  body: JSON.stringify({
+                    model: 'claude-sonnet-4-20250514',
+                    max_tokens: 16000,
+                    system: `You are an HTML editor. You will receive the current HTML of a website and a user request. Return ONLY the complete modified HTML. No explanation, no markdown, no code fences, no backticks. Just the raw HTML starting with <!DOCTYPE html> and ending with </html>. Make only the changes the user requested. Keep everything else identical.`,
+                    messages: [
+                      {
+                        role: 'user',
+                        content: `CURRENT HTML:\n${currentHtml}\n\nUSER REQUEST: ${userRequest}\n\nReturn the complete modified HTML now:`
+                      }
+                    ],
+                  }),
+                })
+
+                const htmlData = await htmlRes.json()
+                let newHtml = htmlData.content?.[0]?.text || ''
+
+                // Clean any accidental markdown fences
+                newHtml = newHtml.replace(/^```html?\s*/i, '').replace(/```\s*$/g, '').trim()
+
+                if (newHtml && (newHtml.includes('<!DOCTYPE') || newHtml.includes('<html'))) {
+                  customHtml = newHtml
                   action.data.html_set = true
                 } else {
-                  action.data.error = 'No HTML returned'
+                  action.data.error = 'HTML generation failed — no valid HTML returned'
                 }
               }
 
@@ -498,7 +520,7 @@ RULES:
       }
     }
 
-    // Strip large HTML from actions before sending to client to prevent display issues
+    // Strip large HTML from actions before sending to client
     if (parsed.actions) {
       parsed.actions = parsed.actions.map((a: any) => {
         if (a.type === 'edit_website' && a.data?.custom_html) {
