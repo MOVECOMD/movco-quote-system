@@ -207,7 +207,8 @@ RULES:
 - Always return valid JSON only — no markdown code blocks, no backticks around the JSON
 - When the user asks to "see preview", "show preview" or "can I see", always return the SAME actions array again with requires_confirm: true — never describe email content as plain text
 - Never write email body content in the message field — emails always go in the actions array only
-- When user says "change my hero headline to X" use edit_website with action: update_block, block_type: hero, block_data: { headline: "X" }
+- When the website has custom HTML (check "Current website has custom HTML: YES" above), ALWAYS use edit_website with action: edit_html for ANY website change — headlines, images, colours, fonts, layout, adding sections, everything. Do NOT use update_block, add_block, or remove_block when custom HTML exists.
+- When the website does NOT have custom HTML, use edit_website with action: update_block for block changes. Example: "change my hero headline to X" → action: update_block, block_type: hero, block_data: { headline: "X" }
 - When user says "change my accent colour to X" use edit_website with action: update_theme, theme: { accent_color: "#hex" }
 - When user says "add a X section to my website" use edit_website with action: add_block, block_type: X
 - When user says "remove the X block" use edit_website with action: remove_block, block_type: X
