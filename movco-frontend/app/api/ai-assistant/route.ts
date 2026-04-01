@@ -466,9 +466,8 @@ RULES:
                   },
                   body: JSON.stringify({
                     model: 'claude-sonnet-4-20250514',
-                    max_tokens: 16000,
-                    system: `You are an HTML editor. You will receive the current HTML of a website and a user request. Return ONLY the complete modified HTML. No explanation, no markdown, no code fences, no backticks. Just the raw HTML starting with <!DOCTYPE html> and ending with </html>. Make only the changes the user requested. Keep everything else identical.`,
-                    messages: [
+                    max_tokens: 64000,
+                    system: `You are an HTML editor. You will receive the current HTML of a website and a user request. Return ONLY the complete modified HTML. No explanation, no markdown, no code fences, no backticks. Just the raw HTML starting with <!DOCTYPE html> and ending with </html>. Make ONLY the requested change. Keep everything else byte-for-byte identical. Do NOT truncate, summarise or shorten the HTML — return the COMPLETE document even if it is very long.`, messages: [
                       {
                         role: 'user',
                         content: `CURRENT HTML:\n${currentHtml}\n\nAVAILABLE IMAGES:\n${JSON.stringify((mediaRes.data || []).map((m: any) => ({ name: m.name, url: m.url })))}\n\nUSER REQUEST: ${userRequest}\n\nWhen the user asks to add a photo or image, use the matching image URL from the available images list above. Return the complete modified HTML now:`
