@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
   try {
     const { company_id, trigger_type, trigger_config, deal_id } = await req.json()
 
-    if (!company_id || !trigger_type || !deal_id) {
+    if (!company_id || !trigger_type) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
@@ -30,14 +30,37 @@ export async function POST(req: NextRequest) {
     const enrollments = []
 
     for (const sequence of sequences) {
-      // For stage_change triggers, check the stage_id matches
+      // ── TRIGGER MATCHING ──
+
       if (trigger_type === 'stage_change') {
         const configStageId = sequence.trigger_config?.stage_id
         if (configStageId && configStageId !== trigger_config?.stage_id) continue
       }
 
-      // For days_before_move, skip here — handled by cron scanning moving dates
-      if (trigger_type === 'days_before_move') continue
+      if (trigger_type === 'new_deal') {
+        // No extra filtering — triggers on any new deal
+      }
+
+      if (trigger_type === 'quote_sent') {
+        // Triggers when a quote is sent
+      }
+
+      if (trigger_type === 'quote_accepted') {
+        // Triggers when quote status changes to accepted
+      }
+
+      if (trigger_type === 'quote_declined') {
+        // Triggers when quote status changes to declined
+      }
+
+      if (trigger_type === 'manual') {
+        // Always enrolls — manually triggered by user
+      }
+
+      // Skip cron-based triggers — handled by the process route
+      if (['days_before_move', 'no_response'].includes(trigger_type)) continue
+
+      if (!deal_id) continue
 
       // Check not already enrolled and active in this sequence
       const { data: existing } = await supabase
@@ -60,8 +83,8 @@ export async function POST(req: NextRequest) {
       const firstStep = steps[0]
       const delayMs =
         firstStep.delay_unit === 'days'
-          ? firstStep.delay_value * 24 * 60 * 60 * 1000
-          : firstStep.delay_value * 60 * 60 * 1000
+          ? (firstStep.delay_value || 0) * 24 * 60 * 60 * 1000
+          : (firstStep.delay_value || 0) * 60 * 60 * 1000
 
       const next_send_at = new Date(Date.now() + delayMs).toISOString()
 
@@ -79,6 +102,13 @@ export async function POST(req: NextRequest) {
         .from('automation_enrollments')
         .insert(enrollments)
       if (enrollError) throw enrollError
+
+      // Update sequence stats
+      for (const e of enrollments) {
+        await supabase.from('automation_sequences').update({
+          last_triggered_at: new Date().toISOString(),
+        }).eq('id', e.sequence_id)
+      }
     }
 
     return NextResponse.json({ enrolled: enrollments.length })
