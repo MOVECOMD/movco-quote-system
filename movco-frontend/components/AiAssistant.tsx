@@ -158,9 +158,10 @@ export default function AiAssistant() {
           setMessages(prev => [...prev, {
             id: (Date.now() + 2).toString(),
             role: 'assistant',
-            content: '✅ Website updated! Reloading in 2 seconds...',
+            content: '✅ Website updated! Refresh the preview to see changes.',
           }])
-          setTimeout(() => window.location.reload(), 2000)
+          // Dispatch event so the website editor can refetch without full page reload
+          window.dispatchEvent(new Event('website-updated'))
         }, 500)
       }
       if (hasAnyActions && !hasServerSideOnly && !hasWebsiteEdit) {

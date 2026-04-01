@@ -90,6 +90,11 @@ const [importing, setImporting] = useState(false)
 
   useEffect(() => {
     loadExisting()
+
+    // Listen for AI assistant website updates
+    const handleUpdate = () => loadExisting()
+    window.addEventListener('website-updated', handleUpdate)
+    return () => window.removeEventListener('website-updated', handleUpdate)
   }, [])
   // Auto-render blocks to HTML whenever blocks or theme change
   useEffect(() => {
