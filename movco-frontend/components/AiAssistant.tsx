@@ -62,6 +62,19 @@ export default function AiAssistant() {
     try {
       const res = await fetch(`/api/email/status?company_id=${COMPANY_ID}`)
       const data = await res.json()
+      // Strip custom_html from display to prevent HTML leaking into chat
+      if (data.actions) {
+        data.actions = data.actions.map((a: any) => {
+          if (a.type === 'edit_website' && a.data?.custom_html) {
+            a.data.custom_html = '[HTML_SAVED]'
+          }
+          return a
+        })
+      }
+      // Use only the message field, never raw content
+      if (data.message) {
+        data.message = data.message
+      }
       setEmailConnected(data.connected)
     } catch { }
   }
@@ -124,7 +137,7 @@ export default function AiAssistant() {
       const assistantMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: data.message,
+        content: data.message || '✓ Done',
         actions: actions.length > 0 ? actions : undefined,
         requires_confirm: hasServerSideOnly ? false : data.requires_confirm,
       }
@@ -408,6 +421,8 @@ export default function AiAssistant() {
                   {msg.content
                     .replace(/```json[\s\S]*?```/g, '')
                     .replace(/```[\s\S]*?```/g, '')
+                    .replace(/"custom_html":\s*"[^"\\]*(?:\\.[^"\\]*)*"/g, '"custom_html":"[HTML_SAVED]"')
+                    .replace(/<!DOCTYPE[\s\S]*?<\/html>/gi, '[HTML_SAVED]')
                     .trim() || msg.content}
 
                   {/* Multi-action previews */}
