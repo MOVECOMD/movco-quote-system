@@ -67,13 +67,14 @@ Keep responses short and friendly. One question at a time. Always return valid J
     }
 
     // Fetch ALL live CRM context including real pipeline stages
-    const [dealsRes, customersRes, eventsRes, stagesRes, tasksRes, quotesRes] = await Promise.all([
+    const [dealsRes, customersRes, eventsRes, stagesRes, tasksRes, quotesRes, websiteRes] = await Promise.all([
       supabase.from('crm_deals').select('id, customer_name, customer_email, customer_phone, stage_id, moving_date, estimated_value, moving_from, moving_to, notes, created_at').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }),
       supabase.from('crm_customers').select('id, name, email, phone, moving_from, moving_to, moving_date, notes').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(100),
       supabase.from('crm_diary_events').select('id, title, start_time, end_time, event_type, customer_name, location, completed, deal_id').eq('company_id', COMPANY_ID).order('start_time', { ascending: true }).limit(50),
       supabase.from('crm_pipeline_stages').select('id, name, color, position').eq('company_id', COMPANY_ID).order('position'),
       supabase.from('crm_customer_tasks').select('id, customer_id, title, due_date, completed').eq('company_id', COMPANY_ID).eq('completed', false).order('due_date', { ascending: true }),
       supabase.from('crm_quotes').select('id, customer_name, estimated_price, status, deal_id, created_at, moving_date').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(20),
+      supabase.from('company_websites').select('blocks, theme, custom_html, slug, published').eq('company_id', COMPANY_ID).maybeSingle(),
     ])
 
     const stages = stagesRes.data || []
@@ -119,6 +120,9 @@ Today's date: ${todayStr}
 
 LIVE CRM DATA:
 Pipeline stages (THESE ARE THE REAL STAGES — always use these IDs): ${JSON.stringify(stages)}
+Current website: slug=${websiteRes.data?.slug || 'none'}, published=${websiteRes.data?.published || false}
+Current website blocks: ${JSON.stringify(websiteRes.data?.blocks || [])}
+Current website custom HTML (FULL — use this as the base for any HTML edits, never replace it entirely): ${websiteRes.data?.custom_html ? websiteRes.data.custom_html.substring(0, 8000) : 'none'}
 Deals (${dealsRes.data?.length || 0} total): ${JSON.stringify(dealsRes.data || [])}
 Customers (${customersRes.data?.length || 0} total): ${JSON.stringify(customersRes.data?.slice(0, 50) || [])}
 Diary events: ${JSON.stringify(eventsRes.data || [])}
@@ -193,7 +197,7 @@ RULES:
 - When user says "set my website to custom HTML" use edit_website with action: set_custom_html, custom_html: "the HTML"
 - When user says "build me a website" or "create a website for" or "make a site for", use edit_website with action: build_page — generate ALL appropriate blocks from scratch based on their description and populate them with real content based on what they tell you. Set block_data to an array of fully populated block objects.
 - When user says "suggest improvements" or "review my website" or "how can I improve my site", use edit_website with action: suggest_improvements — read the current blocks and return specific actionable suggestions in the message field. No blocks need updating yet.
-- When user says "edit my HTML" or "update my HTML" or "change X in my HTML", use edit_website with action: edit_html — read the existing custom_html and return a modified version with the requested changes applied. Set custom_html to the full updated HTML string.`
+- WWhen user says "edit my HTML" or "update my HTML" or "change X in my HTML" or "add X to my navigation" or "add a page", use edit_website with action: edit_html — you MUST use the "Current website custom HTML" provided above as your base. Make ONLY the requested changes to it. Never generate new HTML from scratch. Return the complete modified HTML in the custom_html field.`
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
