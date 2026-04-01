@@ -77,7 +77,7 @@ Keep responses short and friendly. One question at a time. Always return valid J
     }
 
     // Fetch ALL live CRM context including real pipeline stages
-    const [dealsRes, customersRes, eventsRes, stagesRes, tasksRes, quotesRes, websiteRes] = await Promise.all([
+    const [dealsRes, customersRes, eventsRes, stagesRes, tasksRes, quotesRes, websiteRes, mediaRes] = await Promise.all([
       supabase.from('crm_deals').select('id, customer_name, customer_email, customer_phone, stage_id, moving_date, estimated_value, moving_from, moving_to, notes, created_at').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }),
       supabase.from('crm_customers').select('id, name, email, phone, moving_from, moving_to, moving_date, notes').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(100),
       supabase.from('crm_diary_events').select('id, title, start_time, end_time, event_type, customer_name, location, completed, deal_id').eq('company_id', COMPANY_ID).order('start_time', { ascending: true }).limit(50),
@@ -85,6 +85,7 @@ Keep responses short and friendly. One question at a time. Always return valid J
       supabase.from('crm_customer_tasks').select('id, customer_id, title, due_date, completed').eq('company_id', COMPANY_ID).eq('completed', false).order('due_date', { ascending: true }),
       supabase.from('crm_quotes').select('id, customer_name, estimated_price, status, deal_id, created_at, moving_date').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(20),
       supabase.from('company_websites').select('blocks, theme, custom_html, slug, published').eq('company_id', COMPANY_ID).maybeSingle(),
+      supabase.from('media_library').select('id, name, url, type').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(30),
     ])
 
     const stages = stagesRes.data || []
@@ -133,6 +134,7 @@ Pipeline stages (THESE ARE THE REAL STAGES — always use these IDs): ${JSON.str
 Current website: slug=${websiteRes.data?.slug || 'none'}, published=${websiteRes.data?.published || false}
 Current website blocks: ${JSON.stringify(websiteRes.data?.blocks || [])}
 Current website has custom HTML: ${websiteRes.data?.custom_html ? 'YES' : 'NO'}
+Media library (images the client has uploaded — use these URLs when they ask to add photos): ${JSON.stringify((mediaRes.data || []).map((m: any) => ({ name: m.name, url: m.url, type: m.type })))}
 Deals (${dealsRes.data?.length || 0} total): ${JSON.stringify(dealsRes.data || [])}
 Customers (${customersRes.data?.length || 0} total): ${JSON.stringify(customersRes.data?.slice(0, 50) || [])}
 Diary events: ${JSON.stringify(eventsRes.data || [])}
@@ -207,6 +209,7 @@ RULES:
 - When user says "remove the X block" use edit_website with action: remove_block, block_type: X
 - When user says "build me a website" or "create a website for" or "make a site for", use edit_website with action: build_page — generate ALL appropriate blocks from scratch based on their description and populate them with real content based on what they tell you. Set block_data to an array of fully populated block objects.
 - When user says "suggest improvements" or "review my website" or "how can I improve my site", use edit_website with action: suggest_improvements — read the current blocks and return specific actionable suggestions in the message field. No blocks need updating yet.
+- When user asks to "add a photo", "put my logo in", "add an image of", or any image-related request, use edit_website with action: edit_html. The server will pass the client's uploaded media library to the HTML editor so it can find and insert the right image.
 - When user says "edit my HTML" or "update my HTML" or "change X in my HTML" or "add X to my navigation" or "add a page", use edit_website with action: edit_html — do NOT include any custom_html field in your JSON response. The server will handle the HTML generation in a separate step. Just return the action with type edit_website and data.action = "edit_html". Nothing else is needed in the data object except action.`
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -468,7 +471,7 @@ RULES:
                     messages: [
                       {
                         role: 'user',
-                        content: `CURRENT HTML:\n${currentHtml}\n\nUSER REQUEST: ${userRequest}\n\nReturn the complete modified HTML now:`
+                        content: `CURRENT HTML:\n${currentHtml}\n\nAVAILABLE IMAGES:\n${JSON.stringify((mediaRes.data || []).map((m: any) => ({ name: m.name, url: m.url })))}\n\nUSER REQUEST: ${userRequest}\n\nWhen the user asks to add a photo or image, use the matching image URL from the available images list above. Return the complete modified HTML now:`
                       }
                     ],
                   }),
