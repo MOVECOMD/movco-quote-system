@@ -89,13 +89,14 @@ const [mediaCallback, setMediaCallback] = useState<((url: string) => void) | nul
 const [importing, setImporting] = useState(false)
 
   useEffect(() => {
+    if (!COMPANY_ID) return
     loadExisting()
 
     // Listen for AI assistant website updates
     const handleUpdate = () => loadExisting()
     window.addEventListener('website-updated', handleUpdate)
     return () => window.removeEventListener('website-updated', handleUpdate)
-  }, [])
+  }, [COMPANY_ID])
   // Auto-render blocks to HTML whenever blocks or theme change
   useEffect(() => {
     if (blocks.length > 0) {
