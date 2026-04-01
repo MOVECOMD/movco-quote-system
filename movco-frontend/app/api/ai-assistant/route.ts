@@ -477,6 +477,15 @@ RULES:
       }
     }
 
+    // Strip large HTML from actions before sending to client to prevent display issues
+    if (parsed.actions) {
+      parsed.actions = parsed.actions.map((a: any) => {
+        if (a.type === 'edit_website' && a.data?.custom_html) {
+          return { ...a, data: { ...a.data, custom_html: '[HTML_SAVED]' } }
+        }
+        return a
+      })
+    }
     return NextResponse.json(parsed)
   } catch (err: any) {
     console.error('AI assistant error:', err)

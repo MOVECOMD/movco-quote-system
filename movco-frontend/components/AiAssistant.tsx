@@ -405,16 +405,10 @@ export default function AiAssistant() {
                   boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
                   whiteSpace: 'pre-line',
                 }}>
-                  {(() => {
-                    // Strip any JSON object from the message
-                    const stripped = msg.content
-                      .replace(/```json[\s\S]*?```/g, '')
-                      .replace(/```[\s\S]*?```/g, '')
-                      .replace(/\{[\s\S]*"actions"[\s\S]*\}/g, '')
-                      .replace(/\{[\s\S]*"message"[\s\S]*\}/g, '')
-                      .trim()
-                    return stripped || msg.content.split('\n')[0] || '✓ Done'
-                  })()}
+                  {msg.content
+                    .replace(/```json[\s\S]*?```/g, '')
+                    .replace(/```[\s\S]*?```/g, '')
+                    .trim() || msg.content}
 
                   {/* Multi-action previews */}
                   {msg.actions && !msg.executed && msg.actions.filter(a => a.type !== 'answer').map((action, idx) => getActionPreview(action, idx))}
