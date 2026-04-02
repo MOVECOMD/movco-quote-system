@@ -81,17 +81,19 @@ Keep responses short and friendly. One question at a time. Always return valid J
     }
 
     // Fetch ALL live CRM context including real pipeline stages
-    const [dealsRes, customersRes, eventsRes, stagesRes, tasksRes, quotesRes, websiteRes, mediaRes] = await Promise.all([
+    const [dealsRes, customersRes, eventsRes, pipelinesRes, stagesRes, tasksRes, quotesRes, websiteRes, mediaRes] = await Promise.all([
       supabase.from('crm_deals').select('id, customer_name, customer_email, customer_phone, stage_id, moving_date, estimated_value, moving_from, moving_to, notes, created_at').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }),
       supabase.from('crm_customers').select('id, name, email, phone, moving_from, moving_to, moving_date, notes').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(100),
       supabase.from('crm_diary_events').select('id, title, start_time, end_time, event_type, customer_name, location, completed, deal_id').eq('company_id', COMPANY_ID).order('start_time', { ascending: true }).limit(50),
-      supabase.from('crm_pipeline_stages').select('id, name, color, position').eq('company_id', COMPANY_ID).order('position'),
+      supabase.from('crm_pipelines').select('id, name, color, position, is_default').eq('company_id', COMPANY_ID).order('position'),
+      supabase.from('crm_pipeline_stages').select('id, name, color, position, pipeline_id').eq('company_id', COMPANY_ID).order('position'),
       supabase.from('crm_customer_tasks').select('id, customer_id, title, due_date, completed').eq('company_id', COMPANY_ID).eq('completed', false).order('due_date', { ascending: true }),
       supabase.from('crm_quotes').select('id, customer_name, estimated_price, status, deal_id, created_at, moving_date').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(20),
       supabase.from('company_websites').select('blocks, theme, custom_html, slug, published').eq('company_id', COMPANY_ID).maybeSingle(),
       supabase.from('media_library').select('id, name, url, type').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(30),
     ])
 
+    const allPipelines = pipelinesRes.data || []
     const stages = stagesRes.data || []
     const today = new Date()
     const todayStr = today.toISOString().split('T')[0]
@@ -134,7 +136,8 @@ Keep responses short and friendly. One question at a time. Always return valid J
 Today's date: ${todayStr}
 
 LIVE CRM DATA:
-Pipeline stages (THESE ARE THE REAL STAGES — always use these IDs): ${JSON.stringify(stages)}
+Pipelines: ${JSON.stringify(allPipelines)}
+Pipeline stages (THESE ARE THE REAL STAGES — always use these IDs, each stage has a pipeline_id): ${JSON.stringify(stages)}
 Current website: slug=${websiteRes.data?.slug || 'none'}, published=${websiteRes.data?.published || false}
 Current website blocks: ${JSON.stringify(websiteRes.data?.blocks || [])}
 Current website has custom HTML: ${websiteRes.data?.custom_html ? 'YES' : 'NO'}
@@ -180,8 +183,11 @@ add_note:
 add_task:
 { "type": "add_task", "data": { "customer_id": "uuid", "customer_name": "name", "title": "task title", "due_date": "ISO datetime" } }
 
+create_pipeline:
+{ "type": "create_pipeline", "data": { "name": "pipeline name", "color": "#hex" } }
+
 create_pipeline_stage:
-{ "type": "create_pipeline_stage", "data": { "name": "stage name", "color": "#hex" } }
+{ "type": "create_pipeline_stage", "data": { "name": "stage name", "color": "#hex", "pipeline_id": "uuid of pipeline" } }
 
 update_event_types:
 { "type": "update_event_types", "data": { "action": "add" | "remove" | "rename", "key": "event_type_key", "label": "Display Name", "color": "#hex", "new_label": "New Name (for rename only)" } }
@@ -200,6 +206,9 @@ answer:
 
 RULES:
 - ALWAYS use the real pipeline stage IDs from the data above — never invent stage IDs
+- When creating a stage, always include the pipeline_id — use the default pipeline if the user doesn't specify
+- When creating a deal, use the stage_id from the correct pipeline — check which pipeline the user is referring to
+- When asked to "create a pipeline" or "add a new pipeline", use the create_pipeline action
 - You CAN and SHOULD execute create_customer, create_deal, add_note and add_task actions — they are fully connected to the live database. Never tell the user to do it manually.
 - When a user asks to add a contact or create a deal, always return the appropriate action JSON — do not apologise or say you cannot do it
 - Match customers/deals by name fuzzy — "John" matches "John Smith"
@@ -302,11 +311,25 @@ RULES:
       for (const action of parsed.actions) {
         try {
 
+          if (action.type === 'create_pipeline') {
+            const { name, color } = action.data;
+            const maxPos = allPipelines.length > 0 ? Math.max(...allPipelines.map((p: any) => p.position)) : 0;
+            const { data: newPipeline, error } = await supabase
+              .from('crm_pipelines')
+              .insert({ company_id: COMPANY_ID, name, color: color || '#3b82f6', position: maxPos + 1, is_default: allPipelines.length === 0 })
+              .select()
+              .single();
+            if (error) action.data.error = error.message;
+            else action.data.created = true;
+          }
+
           if (action.type === 'create_pipeline_stage') {
-            const { name, color } = action.data
-            const { data: existingStages } = await supabase.from('crm_pipeline_stages').select('position').eq('company_id', COMPANY_ID).order('position', { ascending: false }).limit(1)
+            const { name, color, pipeline_id } = action.data
+            // Use provided pipeline_id, or fall back to default pipeline
+            const targetPipelineId = pipeline_id || allPipelines.find((p: any) => p.is_default)?.id || allPipelines[0]?.id
+            const { data: existingStages } = await supabase.from('crm_pipeline_stages').select('position').eq('company_id', COMPANY_ID).eq('pipeline_id', targetPipelineId).order('position', { ascending: false }).limit(1)
             const nextPosition = (existingStages?.[0]?.position || 0) + 1
-            const { error } = await supabase.from('crm_pipeline_stages').insert({ company_id: COMPANY_ID, name, color: color || '#22c55e', position: nextPosition })
+            const { error } = await supabase.from('crm_pipeline_stages').insert({ company_id: COMPANY_ID, pipeline_id: targetPipelineId, name, color: color || '#22c55e', position: nextPosition })
             if (error) action.data.error = error.message
             else action.data.created = true
           }
