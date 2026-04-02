@@ -383,17 +383,29 @@ RULES:
             }
           }
 
+          // ══════════════════════════════════════════════════
+          // EDIT WEBSITE — with undo snapshots + better errors
+          // ══════════════════════════════════════════════════
           if (action.type === 'edit_website') {
             try {
               const { data: websiteData } = await supabase
                 .from('company_websites')
-                .select('blocks, theme, custom_html')
+                .select('blocks, theme, custom_html, undo_snapshot')
                 .eq('company_id', COMPANY_ID)
                 .maybeSingle()
 
               let blocks: any[] = websiteData?.blocks || []
               let theme = websiteData?.theme || { primary_color: '#0a0f1c', accent_color: '#0F6E56' }
               let customHtml = websiteData?.custom_html || null
+
+              // ── UNDO SNAPSHOT — save current state before making ANY changes ──
+              const undoSnapshot = {
+                blocks: JSON.parse(JSON.stringify(blocks)),
+                theme: JSON.parse(JSON.stringify(theme)),
+                custom_html: customHtml,
+                timestamp: new Date().toISOString(),
+                description: messages[messages.length - 1]?.content || 'AI edit',
+              }
 
               const { action: wsAction, block_type, block_index, block_data, theme: newTheme } = action.data
 
@@ -416,7 +428,7 @@ RULES:
                   blocks[idx] = { ...blocks[idx], ...(block_data || {}) }
                   action.data.updated_index = idx
                 } else {
-                  action.data.error = `No ${block_type} block found`
+                  action.data.error = `Could not find a "${block_type}" section on your website to update. Your current sections are: ${blocks.map((b: any) => b.type).join(', ') || 'none'}.`
                 }
               }
 
@@ -433,7 +445,7 @@ RULES:
                   blocks.splice(idx, 1)
                   action.data.removed = true
                 } else {
-                  action.data.error = `No ${block_type} block found`
+                  action.data.error = `Could not find a "${block_type}" section to remove. Your current sections are: ${blocks.map((b: any) => b.type).join(', ') || 'none'}.`
                 }
               }
 
@@ -447,7 +459,7 @@ RULES:
                   blocks = block_data
                   action.data.built = true
                 } else {
-                  action.data.error = 'No blocks returned from AI'
+                  action.data.error = 'No blocks were generated — try describing your business in more detail.'
                 }
               }
 
@@ -455,102 +467,136 @@ RULES:
                 action.data.suggestions_only = true
               }
 
-              // ── TWO-STEP HTML EDIT ──
-              // The first AI call returns the action WITHOUT the HTML.
-              // We now make a SECOND call asking Claude for JUST the raw HTML.
+              // ── TWO-STEP HTML EDIT WITH BETTER ERROR REPORTING ──
               if (wsAction === 'edit_html') {
                 const currentHtml = websiteData?.custom_html || ''
                 const userRequest = messages[messages.length - 1]?.content || 'edit the HTML'
                 console.log('EDIT_HTML: Current HTML length:', currentHtml.length)
                 console.log('EDIT_HTML: User request:', userRequest)
 
-                const mediaList = (mediaRes.data || []).map((m: any) => ({ name: m.name, url: m.url }))
+                if (!currentHtml) {
+                  action.data.error = 'Your website doesn\'t have any custom HTML yet. Try "build me a website" first, or switch to Custom HTML mode in the editor and paste your HTML.'
+                } else {
+                  const mediaList = (mediaRes.data || []).map((m: any) => ({ name: m.name, url: m.url }))
 
-                const htmlRes = await fetch('https://api.anthropic.com/v1/messages', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': process.env.ANTHROPIC_API_KEY!,
-                    'anthropic-version': '2023-06-01',
-                  },
-                  body: JSON.stringify({
-                    model: 'claude-sonnet-4-20250514',
-                    max_tokens: 8000,
-                    system: `You are an expert HTML/CSS editor. You will receive the current HTML and a user request. Return ONLY a JSON array of find-and-replace operations. Each operation is an object with "find" (the exact string to find in the HTML) and "replace" (what to replace it with). Return RAW JSON only — no explanation, no markdown, no backticks. Just the array starting with [ and ending with ].
+                  const htmlRes = await fetch('https://api.anthropic.com/v1/messages', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'x-api-key': process.env.ANTHROPIC_API_KEY!,
+                      'anthropic-version': '2023-06-01',
+                    },
+                    body: JSON.stringify({
+                      model: 'claude-sonnet-4-20250514',
+                      max_tokens: 8000,
+                      system: `You are an expert HTML/CSS editor. You will receive the current HTML and a user request. Return ONLY a JSON array of find-and-replace operations. Each operation is an object with "find" (the exact string to find in the HTML) and "replace" (what to replace it with). Return RAW JSON only — no explanation, no markdown, no backticks. Just the array starting with [ and ending with ].
 
 RULES:
 - Find strings must be EXACT character-for-character matches from the HTML
 - Keep find strings short but unique enough to match only once
 - For IMAGE changes: find the src="..." or url('...') value and replace the URL
 - For TEXT changes: find the exact text content and replace it
-- For POSITIONING/ALIGNMENT: modify the relevant CSS properties (e.g. text-align, background-position, justify-content, align-items, margin, padding, float, display flex properties)
-- For CENTERING: use text-align:center, margin:0 auto, display:flex with justify-content:center, or background-position:center
-- For MOVING RIGHT: use text-align:right, margin-left:auto, float:right, or background-position:right
+- For POSITIONING/ALIGNMENT: modify the relevant CSS properties
 - For FONT SIZE changes: find the font-size value and replace it
 - For COLOR changes: find the color/background-color value and replace it
-- For BACKGROUND IMAGE position: change background-position or the position value in background shorthand (e.g. "center/cover" to "right center/cover")
+- For BACKGROUND IMAGE position: change background-position value
 - For SPACING: modify padding or margin values
 - For HIDING elements: add display:none
 - For SHOWING elements: remove display:none
-- Always return valid JSON array even for CSS-only changes`, messages: [
-                      {
-                        role: 'user',
-                        content: `CURRENT HTML:\n${currentHtml}\n\nAVAILABLE IMAGES (use these URLs when the user asks to add/change images):\n${JSON.stringify(mediaList)}\n\nUSER REQUEST: ${userRequest}\n\nIMPORTANT RULES:\n- Find strings must be EXACT matches from the HTML above — copy them character for character\n- For image changes: find the exact src="..." attribute value and replace just the URL\n- For text changes: find the exact text as it appears in the HTML\n- For style changes: find the exact CSS property and value, replace with the new value\n- Keep find strings short but unique — just enough to match once\n- If the user mentions a specific page (like "Book page" or "Evolve page"), look for that page's section in the HTML\n- This HTML has multiple pages controlled by JavaScript — look for page IDs like page-home, page-evolve, page-how, page-book\n\nReturn the JSON array of find-and-replace operations now:`
-                      }
-                    ],
-                  }),
-                })
+- Always return valid JSON array even for CSS-only changes
+- IMPORTANT: If you cannot find an exact match, use a SHORTER find string — even just the unique text or CSS value is fine`,
+                      messages: [
+                        {
+                          role: 'user',
+                          content: `CURRENT HTML:\n${currentHtml}\n\nAVAILABLE IMAGES (use these URLs when the user asks to add/change images):\n${JSON.stringify(mediaList)}\n\nUSER REQUEST: ${userRequest}\n\nIMPORTANT RULES:\n- Find strings must be EXACT matches from the HTML above — copy them character for character\n- For image changes: find the exact src="..." attribute value and replace just the URL\n- For text changes: find the exact text as it appears in the HTML\n- For style changes: find the exact CSS property and value, replace with the new value\n- Keep find strings short but unique — just enough to match once\n- If the user mentions a specific page (like "Book page" or "Evolve page"), look for that page's section in the HTML\n- This HTML may have multiple pages controlled by JavaScript — look for page IDs\n\nReturn the JSON array of find-and-replace operations now:`
+                        }
+                      ],
+                    }),
+                  })
 
-                const htmlData = await htmlRes.json()
-                let responseText = htmlData.content?.[0]?.text || ''
-                console.log('EDIT_HTML: Response:', responseText.substring(0, 500))
+                  const htmlData = await htmlRes.json()
+                  let responseText = htmlData.content?.[0]?.text || ''
+                  console.log('EDIT_HTML: Response:', responseText.substring(0, 500))
 
-                responseText = responseText.replace(/^```json?\s*/i, '').replace(/```\s*$/g, '').trim()
+                  responseText = responseText.replace(/^```json?\s*/i, '').replace(/```\s*$/g, '').trim()
 
-                try {
-                  let firstBracket = responseText.indexOf('[')
-                  let lastBracket = responseText.lastIndexOf(']')
-                  if (firstBracket === -1 || lastBracket === -1) throw new Error('No JSON array found')
-                  
-                  const operations = JSON.parse(responseText.substring(firstBracket, lastBracket + 1))
-                  let modifiedHtml = currentHtml
+                  try {
+                    let firstBracket = responseText.indexOf('[')
+                    let lastBracket = responseText.lastIndexOf(']')
+                    if (firstBracket === -1 || lastBracket === -1) throw new Error('No JSON array found in AI response')
 
-                  for (const op of operations) {
-                    if (op.find && op.replace !== undefined) {
-                      if (modifiedHtml.includes(op.find)) {
-                        modifiedHtml = modifiedHtml.replace(op.find, op.replace)
-                        console.log('EDIT_HTML: Applied:', op.find.substring(0, 60), '→', op.replace.substring(0, 60))
-                      } else {
-                        console.log('EDIT_HTML: Not found:', op.find.substring(0, 80))
+                    const operations = JSON.parse(responseText.substring(firstBracket, lastBracket + 1))
+                    let modifiedHtml = currentHtml
+
+                    // ── TRACK EACH OPERATION'S RESULT ──
+                    const opResults: { find: string; status: 'applied' | 'not_found'; replace?: string }[] = []
+                    let appliedCount = 0
+                    let failedCount = 0
+
+                    for (const op of operations) {
+                      if (op.find && op.replace !== undefined) {
+                        if (modifiedHtml.includes(op.find)) {
+                          modifiedHtml = modifiedHtml.replace(op.find, op.replace)
+                          appliedCount++
+                          opResults.push({ find: op.find.substring(0, 80), status: 'applied' })
+                          console.log('EDIT_HTML: Applied:', op.find.substring(0, 60), '→', op.replace.substring(0, 60))
+                        } else {
+                          failedCount++
+                          opResults.push({ find: op.find.substring(0, 80), status: 'not_found' })
+                          console.log('EDIT_HTML: Not found:', op.find.substring(0, 80))
+                        }
                       }
                     }
-                  }
 
-                  if (modifiedHtml !== currentHtml) {
-                    customHtml = modifiedHtml
-                    action.data.html_set = true
-                    console.log('EDIT_HTML: SUCCESS —', operations.length, 'replacements applied')
-                  } else {
-                    action.data.error = 'No changes could be applied'
-                    console.log('EDIT_HTML: FAILED — no replacements matched')
+                    // ── BUILD DETAILED RESULT ──
+                    action.data.edit_results = {
+                      total_operations: operations.length,
+                      applied: appliedCount,
+                      failed: failedCount,
+                      details: opResults,
+                    }
+
+                    if (appliedCount > 0) {
+                      customHtml = modifiedHtml
+                      action.data.html_set = true
+                      console.log('EDIT_HTML: SUCCESS —', appliedCount, '/', operations.length, 'replacements applied')
+
+                      if (failedCount > 0) {
+                        // Partial success
+                        action.data.partial_warning = `${appliedCount} of ${operations.length} changes applied successfully. ${failedCount} change${failedCount !== 1 ? 's' : ''} couldn't be matched — the text may have already been changed or differs slightly. Try rephrasing and I'll have another go.`
+                      }
+                    } else {
+                      // Total failure
+                      action.data.error = `None of the ${operations.length} edit${operations.length !== 1 ? 's' : ''} could be applied — the AI couldn't find exact matches in your HTML. This usually happens when the text has already been changed or the HTML structure is different than expected. Try being more specific about what you want to change, for example: "change the heading that says [exact text] to [new text]".`
+                    }
+                  } catch (parseErr: any) {
+                    console.log('EDIT_HTML: Parse error:', parseErr.message)
+                    action.data.error = `I understood your request but couldn't generate valid edit instructions. Try rephrasing — for example "change the hero headline to X" or "make the background colour blue".`
                   }
-                } catch (parseErr: any) {
-                  console.log('EDIT_HTML: Parse error:', parseErr.message)
-                  action.data.error = 'Failed to parse edit instructions'
                 }
               }
 
+              // ── SAVE WITH UNDO SNAPSHOT ──
               if (!action.data.error && wsAction !== 'suggest_improvements') {
                 const { error } = await supabase
                   .from('company_websites')
-                  .update({ blocks, theme, custom_html: customHtml, updated_at: new Date().toISOString() })
+                  .update({
+                    blocks,
+                    theme,
+                    custom_html: customHtml,
+                    undo_snapshot: undoSnapshot,
+                    updated_at: new Date().toISOString(),
+                  })
                   .eq('company_id', COMPANY_ID)
                 if (error) action.data.error = error.message
-                else action.data.created = true
+                else {
+                  action.data.created = true
+                  action.data.can_undo = true
+                }
               }
 
             } catch (wsErr: any) {
-              action.data.error = wsErr.message
+              action.data.error = `Website update failed: ${wsErr.message}. Try again or make the change manually in the editor.`
             }
           }
 

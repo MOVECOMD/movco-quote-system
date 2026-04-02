@@ -63,7 +63,6 @@ export default function AiAssistant() {
     try {
       const res = await fetch(`/api/email/status?company_id=${COMPANY_ID}`)
       const data = await res.json()
-      // Strip custom_html from display to prevent HTML leaking into chat
       if (data.actions) {
         data.actions = data.actions.map((a: any) => {
           if (a.type === 'edit_website' && a.data?.custom_html) {
@@ -72,7 +71,6 @@ export default function AiAssistant() {
           return a
         })
       }
-      // Use only the message field, never raw content
       if (data.message) {
         data.message = data.message
       }
@@ -129,7 +127,6 @@ export default function AiAssistant() {
       })
       const data = await res.json()
 
-      // Support both single action and array of actions
       const actions = data.actions || (data.action ? [data.action] : [])
 
       const serverSideActions = ['create_customer', 'create_deal', 'add_note', 'add_task', 'create_pipeline_stage']
@@ -161,7 +158,6 @@ export default function AiAssistant() {
             role: 'assistant',
             content: '✅ Website updated! Refresh the preview to see changes.',
           }])
-          // Dispatch event so the website editor can refetch without full page reload
           window.dispatchEvent(new Event('website-updated'))
         }, 500)
       }
@@ -171,7 +167,6 @@ export default function AiAssistant() {
         }, 500)
       }
 
-      // Auto-show completion message for server-side only actions
       if (hasServerSideOnly) {
         const results = actions.map((a: Action) => {
           if (a.data?.error) return `✗ Failed: ${a.data.error}`
@@ -265,15 +260,34 @@ export default function AiAssistant() {
 
         } else if (action.type === 'edit_website') {
           if (action.data.error) {
-            results.push(`✗ Website update failed: ${action.data.error}`)
+            results.push(`⚠️ ${action.data.error}`)
           } else if (action.data.suggestions_only) {
             results.push(`💡 Suggestions ready`)
           } else if (action.data.built) {
             results.push(`✓ Website built successfully`)
           } else if (action.data.html_set) {
-            results.push(`✓ HTML updated`)
+            const editResults = action.data.edit_results
+            if (editResults) {
+              if (editResults.failed > 0 && editResults.applied > 0) {
+                results.push(`⚠️ ${action.data.partial_warning || `${editResults.applied}/${editResults.total_operations} changes applied. Some edits couldn't be matched.`}`)
+              } else {
+                results.push(`✓ ${editResults.applied} edit${editResults.applied !== 1 ? 's' : ''} applied successfully`)
+              }
+            } else {
+              results.push(`✓ HTML updated`)
+            }
+            if (action.data.can_undo) {
+              results.push(`↩️ You can undo this change using the button in the editor sidebar.`)
+            }
           } else if (action.data.theme_updated) {
-            results.push(`✓ Theme updated`)
+            results.push(`✓ Theme colours updated`)
+            if (action.data.can_undo) {
+              results.push(`↩️ You can undo this change using the button in the editor sidebar.`)
+            }
+          } else if (action.data.added) {
+            results.push(`✓ New section added to your website`)
+          } else if (action.data.removed) {
+            results.push(`✓ Section removed from your website`)
           } else {
             results.push(`✓ Website updated`)
           }
@@ -370,7 +384,6 @@ export default function AiAssistant() {
         )}
       </button>
 
-      {/* Chat panel */}
       {/* Glow effect behind chat panel */}
       {open && loading && (
         <div style={{
@@ -383,6 +396,7 @@ export default function AiAssistant() {
         }} />
       )}
 
+      {/* Chat panel */}
       {open && (
         <div style={{
           position: 'fixed', bottom: '92px', right: '24px', zIndex: 999,

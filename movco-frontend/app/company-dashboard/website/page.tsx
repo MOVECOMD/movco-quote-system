@@ -91,15 +91,21 @@ const [mediaCallback, setMediaCallback] = useState<((url: string) => void) | nul
 const [importing, setImporting] = useState(false)
 const [previewMode, setPreviewMode] = useState<'desktop' | 'tablet' | 'phone'>('desktop')
 
+// Undo state
+const [undoAvailable, setUndoAvailable] = useState(false)
+const [undoInfo, setUndoInfo] = useState<{ timestamp?: string; description?: string } | null>(null)
+const [undoing, setUndoing] = useState(false)
+
   useEffect(() => {
     if (!COMPANY_ID) return
     loadExisting()
 
     // Listen for AI assistant website updates
-    const handleUpdate = () => loadExisting()
+    const handleUpdate = () => { loadExisting(); checkUndo(); }
     window.addEventListener('website-updated', handleUpdate)
     return () => window.removeEventListener('website-updated', handleUpdate)
   }, [COMPANY_ID])
+
   // Auto-render blocks to HTML whenever blocks or theme change
   useEffect(() => {
     if (blocks.length > 0) {
@@ -107,6 +113,49 @@ const [previewMode, setPreviewMode] = useState<'desktop' | 'tablet' | 'phone'>('
       setRenderedHtml(html)
     }
   }, [blocks, theme, company])
+
+async function checkUndo() {
+  if (!COMPANY_ID) return
+  try {
+    const res = await fetch(`/api/website/undo?company_id=${COMPANY_ID}`)
+    const data = await res.json()
+    setUndoAvailable(data.available)
+    if (data.available) {
+      setUndoInfo({ timestamp: data.timestamp, description: data.description })
+    } else {
+      setUndoInfo(null)
+    }
+  } catch {
+    setUndoAvailable(false)
+  }
+}
+
+async function handleUndo() {
+  if (!COMPANY_ID || !undoAvailable) return
+  if (!confirm('Revert your website to before the last AI edit? This cannot be undone.')) return
+
+  setUndoing(true)
+  try {
+    const res = await fetch('/api/website/undo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ company_id: COMPANY_ID }),
+    })
+    const data = await res.json()
+    if (data.success) {
+      setUndoAvailable(false)
+      setUndoInfo(null)
+      await loadExisting()
+      alert('✅ ' + data.message)
+    } else {
+      alert('Undo failed: ' + data.error)
+    }
+  } catch (err: any) {
+    alert('Undo failed: ' + err.message)
+  }
+  setUndoing(false)
+}
+
 async function importHtmlToBlocks() {
     if (!customHtml) return alert('No custom HTML to import')
     if (!confirm('This will analyse your custom HTML and convert it into editable blocks. Your original HTML will be kept as a backup. Continue?')) return
@@ -155,6 +204,7 @@ async function importHtmlToBlocks() {
       }
       setStep('editor')
     }
+    await checkUndo()
     setLoading(false)
   }
 
@@ -322,6 +372,37 @@ async function importHtmlToBlocks() {
               style={{ fontSize: '11px', color: '#0F6E56', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               🔗 {siteUrl}
             </a>
+          )}
+
+          {/* Undo button */}
+          {undoAvailable && (
+            <button
+              onClick={handleUndo}
+              disabled={undoing}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                width: '100%', marginTop: '8px',
+                padding: '7px 10px', borderRadius: '8px',
+                border: '1px solid #fbbf24', background: '#fffbeb',
+                color: '#92400e', fontSize: '11px', fontWeight: 600,
+                cursor: undoing ? 'wait' : 'pointer',
+                transition: 'all 0.15s',
+              }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#fef3c7' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#fffbeb' }}
+              title={undoInfo?.description ? `Undo: "${undoInfo.description}"` : 'Undo last AI edit'}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="1 4 1 10 7 10" />
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+              </svg>
+              {undoing ? 'Reverting...' : 'Undo last AI edit'}
+              {undoInfo?.timestamp && (
+                <span style={{ fontWeight: 400, opacity: 0.7, marginLeft: 'auto', fontSize: '10px' }}>
+                  {new Date(undoInfo.timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+            </button>
           )}
         </div>
 
@@ -773,7 +854,6 @@ function BlockEditor({ block, onChange, onBrowseMedia }: { block: Block; onChang
                 🖼️ Browse Library
               </button>
             )}
-
           </div>
         </div>
       )}
