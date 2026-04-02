@@ -1694,7 +1694,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
       )}
       {showComposeEmail && composeEmailCustomer && (
 
-        <ComposeEmailModal
+        <ComposeEmailModalMain
           customer={composeEmailCustomer}
           emailConnected={emailConnected}
           companyId={company.id}
