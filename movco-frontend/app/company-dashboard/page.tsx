@@ -1408,33 +1408,21 @@ const [showDayPlan, setShowDayPlan] = useState(false);
       <aside className={`fixed lg:static inset-y-0 left-0 z-50 w-64 bg-[#0a0f1c] text-white flex flex-col transform transition-transform duration-200 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
         <div className="p-5 border-b border-white/10">
           <div className="flex items-center gap-3">
-            <div style={{
-  width: '36px', height: '36px', background: '#0F6E56',
-  borderRadius: '8px', display: 'flex', alignItems: 'center',
-  justifyContent: 'center', flexShrink: 0
-}}>
-  <span style={{ fontSize: '18px' }}>
-    {company.template_type === 'plumber' ? '🔧' :
-     company.template_type === 'estate_agent' ? '🏠' :
-     company.template_type === 'cleaning' ? '🧹' :
-     company.template_type === 'vet' ? '🐾' :
-     company.template_type === 'dental' ? '🦷' :
-     company.template_type === 'retail' ? '🛒' :
-     company.template_type === 'salon' ? '💇' : '🚛'}
-  </span>
-</div>
+            {pdfBranding?.logo_url ? (
+              <img src={pdfBranding.logo_url} alt={company.name} style={{ width: '36px', height: '36px', borderRadius: '8px', objectFit: 'contain', flexShrink: 0, background: 'rgba(255,255,255,0.1)' }} />
+            ) : (
+              <div style={{ width: '36px', height: '36px', background: '#0F6E56', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <span style={{ fontSize: '14px', color: '#fff', fontWeight: 700 }}>
+                  {(company.company_name || company.name || '?').charAt(0).toUpperCase()}
+                </span>
+              </div>
+            )}
 <div>
-  <h1 className="font-bold text-lg tracking-wide">
-    {company.template_type === 'plumber' ? 'TradesCRM' :
-     company.template_type === 'estate_agent' ? 'PropertyCRM' :
-     company.template_type === 'cleaning' ? 'CleanCRM' :
-     company.template_type === 'vet' ? 'VetCRM' :
-     company.template_type === 'dental' ? 'DentalCRM' :
-     company.template_type === 'retail' ? 'RetailCRM' :
-     company.template_type === 'salon' ? 'SalonCRM' : 'MOVCO'}
+  <h1 className="font-bold text-lg tracking-wide" style={{ color: '#fff' }}>
+    {company.company_name || company.name}
   </h1>
   <p className="text-xs text-gray-400 truncate">
-    {company.company_name || company.name}
+    Dashboard
   </p>
 </div>
           </div>
