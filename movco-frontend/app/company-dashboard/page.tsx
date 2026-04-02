@@ -421,11 +421,13 @@ if (!!subData || !!onActiveTrial) {
 
     const { data: configData } = await supabase
       .from('company_config')
-      .select('pdf_template, pricing_rules')
+      .select('pdf_template, pricing_rules, custom_event_types, custom_customer_fields')
       .eq('company_id', companyId)
       .maybeSingle();
     if (configData?.pdf_template) setPdfBranding(configData.pdf_template);
     if (configData?.pricing_rules) setPricingConfig((prev: any) => ({ ...prev, ...configData.pricing_rules }));
+    if (configData?.custom_event_types) setCustomEventTypes(configData.custom_event_types);
+    if (configData?.custom_customer_fields) setCustomCustomerFields(configData.custom_customer_fields);
   };
 
 
@@ -1009,6 +1011,15 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
 
   const [allCompanyTasks, setAllCompanyTasks] = useState<CustomerTask[]>([]);
   const [crmCosts, setCrmCosts] = useState<CrmCost[]>([]);
+const [customEventTypes, setCustomEventTypes] = useState<{ key: string; label: string; color: string }[]>([
+  { key: 'job', label: 'Job', color: '#3b82f6' },
+  { key: 'survey', label: 'Survey', color: '#8b5cf6' },
+  { key: 'callback', label: 'Callback', color: '#f59e0b' },
+  { key: 'delivery', label: 'Delivery', color: '#22c55e' },
+  { key: 'packing', label: 'Packing', color: '#f97316' },
+  { key: 'other', label: 'Other', color: '#6b7280' },
+]);
+const [customCustomerFields, setCustomCustomerFields] = useState<{ key: string; label: string; type: string }[]>([]);
 // ── Costs ──
   const fetchCosts = async () => {
     if (!company) return;
@@ -1052,6 +1063,24 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
       setCrmCosts(prev => prev.filter(c => c.id !== costId));
     }
   };
+  const saveCustomEventTypes = async (types: { key: string; label: string; color: string }[]) => {
+    if (!company) return;
+    const { error } = await supabase
+      .from('company_config')
+      .upsert({ company_id: company.id, custom_event_types: types }, { onConflict: 'company_id' });
+    if (!error) setCustomEventTypes(types);
+    return { error };
+  };
+
+  const saveCustomCustomerFields = async (fields: { key: string; label: string; type: string }[]) => {
+    if (!company) return;
+    const { error } = await supabase
+      .from('company_config')
+      .upsert({ company_id: company.id, custom_customer_fields: fields }, { onConflict: 'company_id' });
+    if (!error) setCustomCustomerFields(fields);
+    return { error };
+  };
+
   const fetchAllCompanyTasks = async () => {
     if (!company) return;
     const { data } = await supabase
@@ -1510,7 +1539,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
               <ReportsTab leads={leads} deals={deals} customers={customers} events={events} crmQuotes={crmQuotes} company={company} costs={crmCosts} onAddCost={addCost} onUpdateCost={updateCost} onDeleteCost={deleteCost} />
             )}
             {activeTab === 'settings' && (
-              <SettingsTab company={company} crmActive={crmActive} onSubscribe={startCrmSubscription} emailConnected={emailConnected} emailAddress={emailAddress} emailLoading={emailLoading} onDisconnectEmail={disconnectEmail} pdfBranding={pdfBranding} onSavePdfBranding={async (branding: any) => { const { error } = await supabase.from('company_config').upsert({ company_id: company.id, pdf_template: branding }, { onConflict: 'company_id' }); if (!error) setPdfBranding(branding); return { error }; }} />
+              <SettingsTab company={company} crmActive={crmActive} onSubscribe={startCrmSubscription} emailConnected={emailConnected} emailAddress={emailAddress} emailLoading={emailLoading} onDisconnectEmail={disconnectEmail} pdfBranding={pdfBranding} onSavePdfBranding={async (branding: any) => { const { error } = await supabase.from('company_config').upsert({ company_id: company.id, pdf_template: branding }, { onConflict: 'company_id' }); if (!error) setPdfBranding(branding); return { error }; }} customEventTypes={customEventTypes} onSaveEventTypes={saveCustomEventTypes} customCustomerFields={customCustomerFields} onSaveCustomerFields={saveCustomCustomerFields} />
             )}
           </div>
         </div>
@@ -1532,14 +1561,17 @@ const [showDayPlan, setShowDayPlan] = useState(false);
           onClose={() => { setShowEventModal(false); setEditingEvent(null); setEventPrefillDate(null); }}
           emailConnected={emailConnected}
           prefillDate={eventPrefillDate}
+          eventTypes={customEventTypes}
         />
       )}
+
       {showCustomerModal && (
         <CustomerModal
           customer={editingCustomer}
           stages={stages}
           onSave={saveCustomer}
           onClose={() => { setShowCustomerModal(false); setEditingCustomer(null); }}
+          customFields={customCustomerFields}
         />
       )}
 
@@ -1579,6 +1611,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
           deal={selectedDeal}
           onSave={(event) => { quickBookEvent(event); setShowDealDetail(false); setSelectedDeal(null); }}
           onClose={() => setShowQuickBookModal(false)}
+          eventTypes={customEventTypes}
         />
       )}
 
@@ -1656,6 +1689,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
           events={events}
           quotes={crmQuotes.filter(q => q.customer_name.toLowerCase() === selectedCustomer.name.toLowerCase())}
           onClickQuote={(q) => { setShowCustomerDetail(false); setSelectedQuote(q); setShowQuoteDetail(true); }}
+          customFields={customCustomerFields}
         />
       )}
       {showComposeEmail && composeEmailCustomer && (
@@ -4222,7 +4256,7 @@ function ReportsTab({ leads, deals, customers, events, crmQuotes, company, costs
 // SETTINGS TAB
 // ============================================
 
-function SettingsTab({ company, crmActive, onSubscribe, emailConnected, emailAddress, emailLoading, onDisconnectEmail, pdfBranding, onSavePdfBranding }: { company: Company; crmActive: boolean; onSubscribe: () => void; emailConnected: boolean; emailAddress: string | null; emailLoading: boolean; onDisconnectEmail: () => void; pdfBranding?: any; onSavePdfBranding?: (branding: any) => Promise<any>; }) {
+function SettingsTab({ company, crmActive, onSubscribe, emailConnected, emailAddress, emailLoading, onDisconnectEmail, pdfBranding, onSavePdfBranding, customEventTypes, onSaveEventTypes, customCustomerFields, onSaveCustomerFields }: { company: Company; crmActive: boolean; onSubscribe: () => void; emailConnected: boolean; emailAddress: string | null; emailLoading: boolean; onDisconnectEmail: () => void; pdfBranding?: any; onSavePdfBranding?: (branding: any) => Promise<any>; customEventTypes?: { key: string; label: string; color: string }[]; onSaveEventTypes?: (types: any[]) => Promise<any>; customCustomerFields?: { key: string; label: string; type: string }[]; onSaveCustomerFields?: (fields: any[]) => Promise<any>; }) {
   return (
     <div>
       <div className="mb-6"><h2 className="text-2xl font-bold text-gray-900">Settings & Billing</h2></div>
@@ -4295,6 +4329,16 @@ function SettingsTab({ company, crmActive, onSubscribe, emailConnected, emailAdd
 
       {/* PDF BRANDING */}
       {onSavePdfBranding && <PdfBrandingSection branding={pdfBranding || {}} onSave={onSavePdfBranding} companyName={company.name} companyEmail={company.email} companyPhone={company.phone} />}
+
+      {/* EVENT TYPES */}
+      {onSaveEventTypes && (
+        <EventTypesSettings eventTypes={customEventTypes || []} onSave={onSaveEventTypes} />
+      )}
+
+      {/* CUSTOM CUSTOMER FIELDS */}
+      {onSaveCustomerFields && (
+        <CustomerFieldsSettings fields={customCustomerFields || []} onSave={onSaveCustomerFields} />
+      )}
     </div>
   );
 }
@@ -4559,6 +4603,354 @@ function PdfBrandingSection({ branding, onSave, companyName, companyEmail, compa
     </div>
   );
 }
+// ============================================
+// EVENT TYPES SETTINGS
+// ============================================
+
+const EVENT_TYPE_COLORS = [
+  '#3b82f6', '#8b5cf6', '#f59e0b', '#22c55e', '#f97316', '#6b7280',
+  '#ef4444', '#ec4899', '#06b6d4', '#14b8a6', '#84cc16', '#6366f1',
+];
+
+function EventTypesSettings({ eventTypes, onSave }: {
+  eventTypes: { key: string; label: string; color: string }[];
+  onSave: (types: { key: string; label: string; color: string }[]) => Promise<any>;
+}) {
+  const [types, setTypes] = useState(eventTypes);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [addingNew, setAddingNew] = useState(false);
+  const [newLabel, setNewLabel] = useState('');
+  const [newColor, setNewColor] = useState('#3b82f6');
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState('');
+
+  const handleSave = async (updated: typeof types) => {
+    setSaving(true);
+    await onSave(updated);
+    setTypes(updated);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const addType = () => {
+    if (!newLabel.trim()) return;
+    const key = newLabel.trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
+    if (types.some(t => t.key === key)) { alert('An event type with this name already exists'); return; }
+    const updated = [...types, { key, label: newLabel.trim(), color: newColor }];
+    handleSave(updated);
+    setNewLabel('');
+    setNewColor('#3b82f6');
+    setAddingNew(false);
+  };
+
+  const removeType = (key: string) => {
+    if (!confirm(`Remove "${types.find(t => t.key === key)?.label}" event type?`)) return;
+    handleSave(types.filter(t => t.key !== key));
+  };
+
+  const renameType = (key: string) => {
+    if (!editLabel.trim()) { setEditingKey(null); return; }
+    handleSave(types.map(t => t.key === key ? { ...t, label: editLabel.trim() } : t));
+    setEditingKey(null);
+  };
+
+  const changeColor = (key: string, color: string) => {
+    handleSave(types.map(t => t.key === key ? { ...t, color } : t));
+  };
+
+  return (
+    <div className="bg-white rounded-xl border p-6 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="font-bold text-gray-900">Event Types</h3>
+          <p className="text-sm text-gray-500 mt-0.5">Customise the event types in your diary</p>
+        </div>
+        {saved && <span className="text-xs font-semibold text-green-600 bg-green-50 px-3 py-1 rounded-full">✓ Saved</span>}
+      </div>
+
+      <div className="space-y-2 mb-4">
+        {types.map(type => (
+          <div key={type.key} className="flex items-center gap-3 px-3 py-2.5 bg-gray-50 rounded-lg group">
+            {/* Color picker */}
+            <div className="relative">
+              <input
+                type="color"
+                value={type.color}
+                onChange={e => changeColor(type.key, e.target.value)}
+                className="w-6 h-6 rounded-full border-0 cursor-pointer"
+                style={{ background: type.color }}
+              />
+            </div>
+
+            {/* Label — click to edit */}
+            {editingKey === type.key ? (
+              <input
+                value={editLabel}
+                onChange={e => setEditLabel(e.target.value)}
+                onBlur={() => renameType(type.key)}
+                onKeyDown={e => { if (e.key === 'Enter') renameType(type.key); if (e.key === 'Escape') setEditingKey(null); }}
+                autoFocus
+                className="flex-1 px-2 py-1 border border-blue-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            ) : (
+              <button
+                onClick={() => { setEditingKey(type.key); setEditLabel(type.label); }}
+                className="flex-1 text-left text-sm font-medium text-gray-800 hover:text-blue-600 transition"
+              >
+                {type.label}
+                <span className="text-gray-300 text-xs ml-2 opacity-0 group-hover:opacity-100">click to rename</span>
+              </button>
+            )}
+
+            {/* Key badge */}
+            <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded font-mono">{type.key}</span>
+
+            {/* Delete */}
+            <button
+              onClick={() => removeType(type.key)}
+              className="text-gray-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {addingNew ? (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              value={newColor}
+              onChange={e => setNewColor(e.target.value)}
+              className="w-8 h-8 rounded-lg border cursor-pointer"
+            />
+            <input
+              value={newLabel}
+              onChange={e => setNewLabel(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') addType(); if (e.key === 'Escape') setAddingNew(false); }}
+              autoFocus
+              placeholder="Event type name"
+              className="flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={addType} className="px-4 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition">
+              Add Type
+            </button>
+            <button onClick={() => { setAddingNew(false); setNewLabel(''); }} className="px-4 py-1.5 bg-gray-100 text-gray-600 text-xs font-medium rounded-lg hover:bg-gray-200 transition">
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setAddingNew(true)}
+          className="w-full py-2.5 border-2 border-dashed border-gray-200 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 transition"
+        >
+          + Add Event Type
+        </button>
+      )}
+    </div>
+  );
+}
+
+
+// ============================================
+// CUSTOMER FIELDS SETTINGS
+// ============================================
+
+const FIELD_TYPES = [
+  { value: 'text', label: 'Text' },
+  { value: 'number', label: 'Number' },
+  { value: 'date', label: 'Date' },
+  { value: 'textarea', label: 'Long Text' },
+  { value: 'select', label: 'Dropdown' },
+];
+
+function CustomerFieldsSettings({ fields, onSave }: {
+  fields: { key: string; label: string; type: string; options?: string[] }[];
+  onSave: (fields: { key: string; label: string; type: string; options?: string[] }[]) => Promise<any>;
+}) {
+  const [localFields, setLocalFields] = useState(fields);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [addingNew, setAddingNew] = useState(false);
+  const [newLabel, setNewLabel] = useState('');
+  const [newType, setNewType] = useState('text');
+  const [newOptions, setNewOptions] = useState('');
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState('');
+
+  const handleSave = async (updated: typeof localFields) => {
+    setSaving(true);
+    await onSave(updated);
+    setLocalFields(updated);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const addField = () => {
+    if (!newLabel.trim()) return;
+    const key = newLabel.trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
+    if (localFields.some(f => f.key === key)) { alert('A field with this name already exists'); return; }
+    const field: any = { key, label: newLabel.trim(), type: newType };
+    if (newType === 'select' && newOptions.trim()) {
+      field.options = newOptions.split(',').map(o => o.trim()).filter(Boolean);
+    }
+    handleSave([...localFields, field]);
+    setNewLabel('');
+    setNewType('text');
+    setNewOptions('');
+    setAddingNew(false);
+  };
+
+  const removeField = (key: string) => {
+    if (!confirm(`Remove "${localFields.find(f => f.key === key)?.label}" field? Existing data won't be deleted.`)) return;
+    handleSave(localFields.filter(f => f.key !== key));
+  };
+
+  const renameField = (key: string) => {
+    if (!editLabel.trim()) { setEditingKey(null); return; }
+    handleSave(localFields.map(f => f.key === key ? { ...f, label: editLabel.trim() } : f));
+    setEditingKey(null);
+  };
+
+  const moveField = (idx: number, dir: 'up' | 'down') => {
+    const target = dir === 'up' ? idx - 1 : idx + 1;
+    if (target < 0 || target >= localFields.length) return;
+    const updated = [...localFields];
+    [updated[idx], updated[target]] = [updated[target], updated[idx]];
+    handleSave(updated);
+  };
+
+  return (
+    <div className="bg-white rounded-xl border p-6 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="font-bold text-gray-900">Custom Customer Fields</h3>
+          <p className="text-sm text-gray-500 mt-0.5">Add extra fields to customer records</p>
+        </div>
+        {saved && <span className="text-xs font-semibold text-green-600 bg-green-50 px-3 py-1 rounded-full">✓ Saved</span>}
+      </div>
+
+      {localFields.length === 0 && !addingNew && (
+        <div className="text-center py-6 mb-4">
+          <p className="text-sm text-gray-400">No custom fields yet</p>
+          <p className="text-xs text-gray-300 mt-1">Add fields like "Bedrooms", "Budget", "Property Type" etc.</p>
+        </div>
+      )}
+
+      {localFields.length > 0 && (
+        <div className="space-y-2 mb-4">
+          {localFields.map((field, idx) => (
+            <div key={field.key} className="flex items-center gap-3 px-3 py-2.5 bg-gray-50 rounded-lg group">
+              {/* Reorder */}
+              <div className="flex flex-col gap-0.5">
+                <button onClick={() => moveField(idx, 'up')} className="text-gray-300 hover:text-gray-600 transition text-[10px]">▲</button>
+                <button onClick={() => moveField(idx, 'down')} className="text-gray-300 hover:text-gray-600 transition text-[10px]">▼</button>
+              </div>
+
+              {/* Label — click to edit */}
+              {editingKey === field.key ? (
+                <input
+                  value={editLabel}
+                  onChange={e => setEditLabel(e.target.value)}
+                  onBlur={() => renameField(field.key)}
+                  onKeyDown={e => { if (e.key === 'Enter') renameField(field.key); if (e.key === 'Escape') setEditingKey(null); }}
+                  autoFocus
+                  className="flex-1 px-2 py-1 border border-blue-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              ) : (
+                <button
+                  onClick={() => { setEditingKey(field.key); setEditLabel(field.label); }}
+                  className="flex-1 text-left text-sm font-medium text-gray-800 hover:text-blue-600 transition"
+                >
+                  {field.label}
+                  <span className="text-gray-300 text-xs ml-2 opacity-0 group-hover:opacity-100">click to rename</span>
+                </button>
+              )}
+
+              {/* Type badge */}
+              <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded font-medium">
+                {FIELD_TYPES.find(ft => ft.value === field.type)?.label || field.type}
+              </span>
+
+              {/* Options count for select fields */}
+              {field.type === 'select' && field.options && (
+                <span className="text-[10px] text-blue-500 bg-blue-50 px-2 py-0.5 rounded">
+                  {field.options.length} options
+                </span>
+              )}
+
+              {/* Delete */}
+              <button
+                onClick={() => removeField(field.key)}
+                className="text-gray-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {addingNew ? (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              value={newLabel}
+              onChange={e => setNewLabel(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') addField(); if (e.key === 'Escape') setAddingNew(false); }}
+              autoFocus
+              placeholder="Field name (e.g. Bedrooms)"
+              className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+            <select
+              value={newType}
+              onChange={e => setNewType(e.target.value)}
+              className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+            >
+              {FIELD_TYPES.map(ft => (
+                <option key={ft.value} value={ft.value}>{ft.label}</option>
+              ))}
+            </select>
+          </div>
+          {newType === 'select' && (
+            <input
+              value={newOptions}
+              onChange={e => setNewOptions(e.target.value)}
+              placeholder="Options (comma separated): Small, Medium, Large"
+              className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+          )}
+          <div className="flex gap-2">
+            <button onClick={addField} className="px-4 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition">
+              Add Field
+            </button>
+            <button onClick={() => { setAddingNew(false); setNewLabel(''); }} className="px-4 py-1.5 bg-gray-100 text-gray-600 text-xs font-medium rounded-lg hover:bg-gray-200 transition">
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setAddingNew(true)}
+          className="w-full py-2.5 border-2 border-dashed border-gray-200 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 transition"
+        >
+          + Add Custom Field
+        </button>
+      )}
+    </div>
+  );
+}
 
 
 // ============================================
@@ -4600,7 +4992,7 @@ function DealModal({ deal, stages, onSave, onClose }: { deal: Deal | null; stage
 // EVENT MODAL
 // ============================================
 
-function EventModal({ event, onSave, onClose, emailConnected, prefillDate }: { event: DiaryEvent | null; onSave: (e: Partial<DiaryEvent>, recipientEmail?: string) => void; onClose: () => void; emailConnected?: boolean; prefillDate?: Date | null; }) {
+function EventModal({ event, onSave, onClose, emailConnected, prefillDate, eventTypes }: { event: DiaryEvent | null; onSave: (e: Partial<DiaryEvent>, recipientEmail?: string) => void; onClose: () => void; emailConnected?: boolean; prefillDate?: Date | null; eventTypes?: { key: string; label: string; color: string }[]; }) {
   const formatForInput = (d: Date) => {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -4620,7 +5012,7 @@ function EventModal({ event, onSave, onClose, emailConnected, prefillDate }: { e
         <h2 className="text-xl font-bold text-gray-900 mb-4">{event ? 'Edit Event' : 'New Event'}</h2>
         <div className="space-y-3">
           <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Event title *" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-          <select value={form.event_type} onChange={(e) => setForm({ ...form, event_type: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"><option value="job">Job</option><option value="survey">Survey</option><option value="callback">Callback</option><option value="delivery">Delivery</option><option value="packing">Packing</option><option value="other">Other</option></select>
+          <select value={form.event_type} onChange={(e) => setForm({ ...form, event_type: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">{(eventTypes || [{ key: 'job', label: 'Job' }, { key: 'survey', label: 'Survey' }, { key: 'callback', label: 'Callback' }, { key: 'delivery', label: 'Delivery' }, { key: 'packing', label: 'Packing' }, { key: 'other', label: 'Other' }]).map(et => (<option key={et.key} value={et.key}>{et.label}</option>))}</select>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="text-xs text-gray-500 mb-1 block">Start time *</label><input type="datetime-local" value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" /></div>
             <div><label className="text-xs text-gray-500 mb-1 block">End time</label><input type="datetime-local" value={form.end_time} onChange={(e) => setForm({ ...form, end_time: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" /></div>
@@ -4654,9 +5046,10 @@ function EventModal({ event, onSave, onClose, emailConnected, prefillDate }: { e
 // CUSTOMER MODAL
 // ============================================
 
-function CustomerModal({ customer, stages, onSave, onClose }: { customer: Customer | null; stages: PipelineStage[]; onSave: (c: Partial<Customer>, stageId?: string) => void; onClose: () => void; }) {
+function CustomerModal({ customer, stages, onSave, onClose, customFields }: { customer: Customer | null; stages: PipelineStage[]; onSave: (c: Partial<Customer>, stageId?: string) => void; onClose: () => void; customFields?: { key: string; label: string; type: string; options?: string[] }[]; }) {
   const [form, setForm] = useState({ name: customer?.name || '', email: customer?.email || '', phone: customer?.phone || '', address: customer?.address || '', notes: customer?.notes || '', source: customer?.source || '', moving_from: customer?.moving_from || '', moving_to: customer?.moving_to || '', moving_date: customer?.moving_date || '' });
   const [selectedStage, setSelectedStage] = useState('');
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>((customer as any)?.custom_fields || {});
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -4684,9 +5077,30 @@ function CustomerModal({ customer, stages, onSave, onClose }: { customer: Custom
             </div>
           )}
           <div><p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Notes</p><textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Any additional notes..." rows={3} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" /></div>
+          {customFields && customFields.length > 0 && (
+            <div><p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Additional Information</p>
+              <div className="space-y-3">
+                {customFields.map(field => (
+                  <div key={field.key}>
+                    <label className="text-xs text-gray-500 mb-1 block">{field.label}</label>
+                    {field.type === 'textarea' ? (
+                      <textarea value={customFieldValues[field.key] || ''} onChange={e => setCustomFieldValues(prev => ({ ...prev, [field.key]: e.target.value }))} rows={2} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" placeholder={field.label} />
+                    ) : field.type === 'select' ? (
+                      <select value={customFieldValues[field.key] || ''} onChange={e => setCustomFieldValues(prev => ({ ...prev, [field.key]: e.target.value }))} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option value="">Select...</option>
+                        {(field as any).options?.map((opt: string) => (<option key={opt} value={opt}>{opt}</option>))}
+                      </select>
+                    ) : (
+                      <input type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'} value={customFieldValues[field.key] || ''} onChange={e => setCustomFieldValues(prev => ({ ...prev, [field.key]: e.target.value }))} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder={field.label} />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
         <div className="flex gap-3 mt-5">
-          <button onClick={() => { if (!form.name.trim()) return alert('Name is required'); onSave({ name: form.name, email: form.email || null, phone: form.phone || null, address: form.address || form.moving_from || null, notes: form.notes || null, source: form.source || null, moving_from: form.moving_from || null, moving_to: form.moving_to || null, moving_date: form.moving_date || null } as any, selectedStage || undefined); }} className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition">{customer ? 'Update' : 'Create'} Customer{selectedStage ? ' + Deal' : ''}</button>
+          <button onClick={() => { if (!form.name.trim()) return alert('Name is required'); onSave({ name: form.name, email: form.email || null, phone: form.phone || null, address: form.address || form.moving_from || null, notes: form.notes || null, source: form.source || null, moving_from: form.moving_from || null, moving_to: form.moving_to || null, moving_date: form.moving_date || null, custom_fields: Object.keys(customFieldValues).length > 0 ? customFieldValues : undefined } as any, selectedStage || undefined); }} className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition">{customer ? 'Update' : 'Create'} Customer{selectedStage ? ' + Deal' : ''}</button>
           <button onClick={onClose} className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">Cancel</button>
         </div>
       </div>
@@ -4731,7 +5145,7 @@ function DealDetailPopup({ deal, stages, events, onClose, onBookAppointment, onE
 // QUICK BOOK EVENT MODAL
 // ============================================
 
-function QuickBookEventModal({ deal, onSave, onClose }: { deal: Deal; onSave: (event: Partial<DiaryEvent>) => void; onClose: () => void; }) {
+function QuickBookEventModal({ deal, onSave, onClose, eventTypes }: { deal: Deal; onSave: (event: Partial<DiaryEvent>) => void; onClose: () => void; eventTypes?: { key: string; label: string; color: string }[]; }) {
   const [form, setForm] = useState({ event_type: 'survey', start_time: '', end_time: '' });
   const title = `${form.event_type.charAt(0).toUpperCase() + form.event_type.slice(1)} — ${deal.customer_name}`;
 
@@ -4741,7 +5155,7 @@ function QuickBookEventModal({ deal, onSave, onClose }: { deal: Deal; onSave: (e
         <h2 className="text-xl font-bold text-gray-900 mb-1">Book Appointment</h2>
         <p className="text-sm text-gray-500 mb-5">For {deal.customer_name}</p>
         <div className="space-y-3">
-          <div><label className="text-xs text-gray-500 mb-1 block">Type</label><select value={form.event_type} onChange={(e) => setForm({ ...form, event_type: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"><option value="survey">Survey</option><option value="job">Job</option><option value="callback">Callback</option><option value="delivery">Delivery</option><option value="other">Other</option></select></div>
+          <div><label className="text-xs text-gray-500 mb-1 block">Type</label><select value={form.event_type} onChange={(e) => setForm({ ...form, event_type: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">{(eventTypes || [{ key: 'survey', label: 'Survey' }, { key: 'job', label: 'Job' }, { key: 'callback', label: 'Callback' }, { key: 'delivery', label: 'Delivery' }, { key: 'other', label: 'Other' }]).map(et => (<option key={et.key} value={et.key}>{et.label}</option>))}</select></div>
           <div className="bg-gray-50 rounded-lg px-4 py-2.5"><p className="text-xs text-gray-500 mb-0.5">Event title</p><p className="text-sm font-medium text-gray-800">{title}</p></div>
           {deal.moving_from && <div className="bg-gray-50 rounded-lg px-4 py-2.5"><p className="text-xs text-gray-500 mb-0.5">Location</p><p className="text-sm font-medium text-gray-800">📍 {deal.moving_from}</p></div>}
           <div className="grid grid-cols-2 gap-3">
@@ -5164,7 +5578,7 @@ function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose,
 // CUSTOMER DETAIL POPUP
 // ============================================
 
-function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onClose, onAddNote, onDeleteNote, onAddTask, onToggleTask, onDeleteTask, onUploadFile, onDeleteFile, onEditCustomer, onComposeEmail, emailConnected, onSchedule, onCreateQuote, onDeleteDeal, events, quotes, onClickQuote, onDayPlan, onPrintInvoice }: {
+function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onClose, onAddNote, onDeleteNote, onAddTask, onToggleTask, onDeleteTask, onUploadFile, onDeleteFile, onEditCustomer, onComposeEmail, emailConnected, onSchedule, onCreateQuote, onDeleteDeal, events, quotes, onClickQuote, onDayPlan, onPrintInvoice, customFields }: {
   customer: Customer;
   notes: CustomerNote[];
   tasks: CustomerTask[];
@@ -5190,6 +5604,7 @@ function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onCl
   onClickQuote?: (quote: CrmQuote) => void;
   onDayPlan?: () => void;
   onPrintInvoice?: () => void;
+  customFields?: { key: string; label: string; type: string }[];
 }) {
   const [newNote, setNewNote] = useState('');
   const [saving, setSaving] = useState(false);
@@ -5385,6 +5800,15 @@ function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onCl
             )}
             {(customer.moving_date || deal?.moving_date) && (
               <p className="text-sm text-gray-600">📅 Moving: {new Date(customer.moving_date || deal?.moving_date!).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+            )}
+            {customFields && customFields.length > 0 && (customer as any)?.custom_fields && Object.keys((customer as any).custom_fields).length > 0 && (
+              <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm pt-1">
+                {customFields.map(field => {
+                  const val = (customer as any).custom_fields?.[field.key];
+                  if (!val) return null;
+                  return (<span key={field.key} className="text-gray-600"><span className="text-gray-400 text-xs">{field.label}:</span> {val}</span>);
+                })}
+              </div>
             )}
 
             {/* Deal stage badge */}

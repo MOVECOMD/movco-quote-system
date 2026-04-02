@@ -150,7 +150,7 @@ export default function AiAssistant() {
 
       setMessages(prev => [...prev, assistantMsg])
 
-      // Auto-execute ALL actions immediately — no confirm needed
+      // Website edits are already done server-side — just notify the editor to refresh
       if (hasWebsiteEdit) {
         setTimeout(() => {
           setMessages(prev => [...prev, {
@@ -161,11 +161,7 @@ export default function AiAssistant() {
           window.dispatchEvent(new Event('website-updated'))
         }, 500)
       }
-      if (hasAnyActions && !hasServerSideOnly && !hasWebsiteEdit) {
-        setTimeout(() => {
-          executeActions((Date.now() + 1).toString(), actions)
-        }, 500)
-      }
+      // Client-side actions (email, booking, move, schedule) wait for user to confirm
 
       if (hasServerSideOnly) {
         const results = actions.map((a: Action) => {
