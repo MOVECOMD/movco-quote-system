@@ -42,16 +42,28 @@ type Lead = {
   } | null;
 };
 
+type Pipeline = {
+  id: string;
+  name: string;
+  description: string | null;
+  color: string;
+  position: number;
+  is_default: boolean;
+};
+
 type PipelineStage = {
   id: string;
   name: string;
   color: string;
   position: number;
+  pipeline_id?: string;
 };
+
 
 type Deal = {
   id: string;
   stage_id: string;
+  pipeline_id?: string;
   customer_name: string;
   customer_email: string | null;
   customer_phone: string | null;
@@ -195,6 +207,8 @@ const [terminology, setTerminology] = useState<Record<string, string>>({});
   const [showQuoteDetail, setShowQuoteDetail] = useState(false);
 
   // Pipeline state
+  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
+  const [activePipelineId, setActivePipelineId] = useState<string | null>(null);
   const [stages, setStages] = useState<PipelineStage[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
 
@@ -362,6 +376,33 @@ if (!!subData || !!onActiveTrial) {
   }, [user]);
 
   const loadCRMData = async (companyId: string) => {
+     // Load pipelines first
+    const { data: pipelinesData } = await supabase
+      .from('crm_pipelines')
+      .select('*')
+      .eq('company_id', companyId)
+      .order('position');
+
+    if (pipelinesData && pipelinesData.length > 0) {
+      setPipelines(pipelinesData as Pipeline[]);
+      // Set active pipeline to default or first one
+      if (!activePipelineId) {
+        const defaultPipeline = pipelinesData.find((p: any) => p.is_default) || pipelinesData[0];
+        setActivePipelineId(defaultPipeline.id);
+      }
+    } else {
+      // Auto-create a default pipeline if none exist
+      const { data: newPipeline } = await supabase
+        .from('crm_pipelines')
+        .insert({ company_id: companyId, name: 'Sales Pipeline', is_default: true, position: 1 })
+        .select()
+        .single();
+      if (newPipeline) {
+        setPipelines([newPipeline as Pipeline]);
+        setActivePipelineId(newPipeline.id);
+      }
+    }
+
     const { data: stagesData } = await supabase
       .from('crm_pipeline_stages')
       .select('*')
@@ -371,6 +412,7 @@ if (!!subData || !!onActiveTrial) {
     if (stagesData && stagesData.length > 0) {
       setStages(stagesData as PipelineStage[]);
     }
+
 
     const { data: dealsData } = await supabase
       .from('crm_deals')
@@ -470,9 +512,9 @@ if (!!subData || !!onActiveTrial) {
         setDeals((prev) => prev.map((d) => (d.id === editingDeal.id ? { ...d, ...deal } as Deal : d)));
       }
     } else {
-      const { data, error } = await supabase
+       const { data, error } = await supabase
         .from('crm_deals')
-        .insert({ ...deal, company_id: company.id })
+        .insert({ ...deal, company_id: company.id, pipeline_id: activePipelineId })
         .select()
         .single();
       if (!error && data) {
@@ -791,12 +833,14 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
   };
 // ── Pipeline Stage Management ──
   const addPipelineStage = async (name: string, color: string) => {
-    if (!company) return;
-    const maxPos = stages.length > 0 ? Math.max(...stages.map(s => s.position)) : 0;
+    if (!company || !activePipelineId) return;
+    const activeStages = stages.filter(s => s.pipeline_id === activePipelineId);
+    const maxPos = activeStages.length > 0 ? Math.max(...activeStages.map(s => s.position)) : 0;
     const { data, error } = await supabase
       .from('crm_pipeline_stages')
       .insert({
         company_id: company.id,
+        pipeline_id: activePipelineId,
         name,
         color,
         position: maxPos + 1,
@@ -854,6 +898,61 @@ const rescheduleEvent = async (eventId: string, newDate: Date) => {
       });
     }
   };
+ // ── Pipeline Management ──
+  const createPipeline = async (name: string, color?: string) => {
+    if (!company) return;
+    const maxPos = pipelines.length > 0 ? Math.max(...pipelines.map(p => p.position)) : 0;
+    const { data, error } = await supabase
+      .from('crm_pipelines')
+      .insert({
+        company_id: company.id,
+        name,
+        color: color || '#3b82f6',
+        position: maxPos + 1,
+        is_default: pipelines.length === 0,
+      })
+      .select()
+      .single();
+    if (!error && data) {
+      setPipelines(prev => [...prev, data as Pipeline]);
+      setActivePipelineId(data.id);
+    }
+    return { data, error };
+  };
+
+  const renamePipeline = async (pipelineId: string, name: string) => {
+    const { error } = await supabase
+      .from('crm_pipelines')
+      .update({ name, updated_at: new Date().toISOString() })
+      .eq('id', pipelineId);
+    if (!error) {
+      setPipelines(prev => prev.map(p => p.id === pipelineId ? { ...p, name } : p));
+    }
+  };
+
+  const deletePipeline = async (pipelineId: string) => {
+    if (!company) return;
+    if (pipelines.length <= 1) { alert('You must have at least one pipeline'); return; }
+    const stagesInPipeline = stages.filter(s => s.pipeline_id === pipelineId);
+    const dealsInPipeline = deals.filter(d => d.pipeline_id === pipelineId);
+    if (dealsInPipeline.length > 0) {
+      alert(`This pipeline has ${dealsInPipeline.length} deal(s). Move or delete them first.`);
+      return;
+    }
+    if (!confirm(`Delete this pipeline and its ${stagesInPipeline.length} stage(s)?`)) return;
+    // Delete stages first
+    await supabase.from('crm_pipeline_stages').delete().eq('pipeline_id', pipelineId);
+    const { error } = await supabase.from('crm_pipelines').delete().eq('id', pipelineId);
+    if (!error) {
+      setPipelines(prev => prev.filter(p => p.id !== pipelineId));
+      setStages(prev => prev.filter(s => s.pipeline_id !== pipelineId));
+      if (activePipelineId === pipelineId) {
+        const remaining = pipelines.filter(p => p.id !== pipelineId);
+        setActivePipelineId(remaining[0]?.id || null);
+      }
+    }
+  };
+
   // ── Customer Notes ──
   const fetchCustomerNotes = async (customerId: string) => {
     if (!company) return;
@@ -1481,10 +1580,16 @@ const [showDayPlan, setShowDayPlan] = useState(false);
                 pricingConfig={pricingConfig}
               />
             )}
-            {activeTab === 'pipeline' && (
+              {activeTab === 'pipeline' && (
               <PipelineTab
-                stages={stages}
-                deals={deals}
+                pipelines={pipelines}
+                activePipelineId={activePipelineId}
+                onSwitchPipeline={setActivePipelineId}
+                onCreatePipeline={createPipeline}
+                onRenamePipeline={renamePipeline}
+                onDeletePipeline={deletePipeline}
+                stages={stages.filter(s => s.pipeline_id === activePipelineId)}
+                deals={deals.filter(d => d.pipeline_id === activePipelineId || (!d.pipeline_id && stages.filter(s => s.pipeline_id === activePipelineId).some(s => s.id === d.stage_id)))}
                 events={events}
                 onMoveDeal={moveDeal}
                 onEditDeal={(deal) => { setEditingDeal(deal); setShowDealModal(true); }}
@@ -2738,7 +2843,11 @@ function QuotesTab({ quotes, company, onAddQuote, onDeleteQuote, onUpdateStatus,
 // PIPELINE TAB
 // ============================================
 
-function PipelineTab({ stages, deals, events, onMoveDeal, onEditDeal, onDeleteDeal, onClickDeal, dealHasBooking, onManageStages, tasks, customers, onOpenCustomerDetail, onBulkEmail }: {
+function PipelineTab({ pipelines, activePipelineId, onSwitchPipeline, onCreatePipeline, onRenamePipeline, onDeletePipeline, stages, deals, events, onMoveDeal, onEditDeal, onDeleteDeal, onClickDeal, dealHasBooking, onManageStages, tasks, customers, onOpenCustomerDetail, onBulkEmail }: {
+  pipelines: Pipeline[]; activePipelineId: string | null; onSwitchPipeline: (id: string) => void;
+  onCreatePipeline: (name: string, color?: string) => Promise<any>;
+  onRenamePipeline: (id: string, name: string) => Promise<void>;
+  onDeletePipeline: (id: string) => Promise<void>;
   stages: PipelineStage[]; deals: Deal[]; events: DiaryEvent[];
   onMoveDeal: (dealId: string, stageId: string) => void;
   onEditDeal: (deal: Deal) => void; onDeleteDeal: (dealId: string) => void;
@@ -2863,13 +2972,45 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onEditDeal, onDeleteDe
   return (
     <div className="h-full flex flex-col">
       {/* Header Bar */}
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+            <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
         <div className="flex items-center gap-4">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Pipeline</h2>
+            <div className="flex items-center gap-3 mb-1">
+              {pipelines.length > 1 ? (
+                <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+                  {pipelines.map(p => (
+                    <button key={p.id} onClick={() => onSwitchPipeline(p.id)}
+                      className={`px-3 py-1.5 rounded-md text-sm font-semibold transition ${
+                        activePipelineId === p.id
+                          ? 'bg-white text-gray-900 shadow-sm'
+                          : 'text-gray-500 hover:text-gray-700'
+                      }`}>
+                      {p.name}
+                    </button>
+                  ))}
+                  <button onClick={() => {
+                    const name = prompt('New pipeline name:');
+                    if (name?.trim()) onCreatePipeline(name.trim());
+                  }} className="px-2 py-1.5 text-gray-400 hover:text-blue-600 transition text-sm" title="Add pipeline">+</button>
+                </div>
+              ) : (
+                <h2 className="text-2xl font-bold text-gray-900">
+                  {pipelines[0]?.name || 'Pipeline'}
+                </h2>
+              )}
+              {pipelines.length <= 1 && (
+                <button onClick={() => {
+                  const name = prompt('New pipeline name:');
+                  if (name?.trim()) onCreatePipeline(name.trim());
+                }} className="text-xs text-blue-600 hover:text-blue-800 font-medium px-2 py-1 bg-blue-50 rounded-lg hover:bg-blue-100 transition" title="Add another pipeline">
+                  + New Pipeline
+                </button>
+              )}
+            </div>
             <p className="text-sm text-gray-500 mt-0.5">{deals.length} opportunities • <span className="text-green-600 font-semibold">£{totalValue.toLocaleString()}</span></p>
           </div>
         </div>
+
         <div className="flex items-center gap-2">
           <div className="relative">
             <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
@@ -2988,7 +3129,7 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onEditDeal, onDeleteDe
             )}
           </div>
 
-          <button
+           <button
             onClick={onManageStages}
             className="inline-flex items-center gap-2 px-3 py-2 border border-gray-200 text-gray-600 font-medium rounded-lg hover:bg-gray-50 hover:border-gray-300 transition text-sm"
           >
@@ -2997,6 +3138,28 @@ function PipelineTab({ stages, deals, events, onMoveDeal, onEditDeal, onDeleteDe
             </svg>
             Manage Stages
           </button>
+          {pipelines.length > 1 && activePipelineId && (
+            <>
+              <button
+                onClick={() => {
+                  const current = pipelines.find(p => p.id === activePipelineId);
+                  const newName = prompt('Rename pipeline:', current?.name || '');
+                  if (newName?.trim() && newName.trim() !== current?.name) onRenamePipeline(activePipelineId, newName.trim());
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-2 border border-gray-200 text-gray-500 font-medium rounded-lg hover:bg-gray-50 hover:border-gray-300 transition text-sm"
+                title="Rename pipeline"
+              >
+                ✏️ Rename
+              </button>
+              <button
+                onClick={() => onDeletePipeline(activePipelineId)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 border border-red-200 text-red-500 font-medium rounded-lg hover:bg-red-50 hover:border-red-300 transition text-sm"
+                title="Delete pipeline"
+              >
+                🗑️ Delete
+              </button>
+            </>
+          )}
           
         </div>
       </div>
