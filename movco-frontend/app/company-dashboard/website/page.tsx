@@ -66,6 +66,8 @@ const TEMPLATES = [
 
 type Block = { type: string; [key: string]: any }
 
+const PREVIEW_WIDTHS = { desktop: '100%', tablet: '768px', phone: '375px' }
+
 export default function WebsiteEditorPage() {
   const { companyId: COMPANY_ID } = useAuth()
   const [step, setStep] = useState<'template' | 'editor'>('template')
@@ -87,6 +89,7 @@ const [mediaFiles, setMediaFiles] = useState<any[]>([])
 const [mediaLoading, setMediaLoading] = useState(false)
 const [mediaCallback, setMediaCallback] = useState<((url: string) => void) | null>(null)
 const [importing, setImporting] = useState(false)
+const [previewMode, setPreviewMode] = useState<'desktop' | 'tablet' | 'phone'>('desktop')
 
   useEffect(() => {
     if (!COMPANY_ID) return
@@ -557,16 +560,64 @@ async function importHtmlToBlocks() {
         </div>
       )}
 
-      {/* Right panel — live preview (always rendered HTML) */}
-      <div style={{ flex: 1, overflowY: 'auto', background: '#e5e7eb', padding: '16px' }}>
-        <div style={{ background: '#fff', borderRadius: '12px', overflow: 'hidden', minHeight: '100%' }}>
-          {editorMode === 'html' && customHtml ? (
-            <iframe srcDoc={customHtml} style={{ width: '100%', minHeight: '800px', border: 'none' }} title="HTML Preview" />
-          ) : renderedHtml ? (
-            <iframe srcDoc={renderedHtml} style={{ width: '100%', minHeight: '800px', border: 'none' }} title="Site Preview" />
-          ) : (
-            <LivePreview blocks={blocks} theme={theme} company={company} />
-          )}
+      {/* Right panel — live preview with device toggle */}
+      <div style={{ flex: 1, overflow: 'hidden', background: '#e5e7eb', display: 'flex', flexDirection: 'column' }}>
+
+        {/* Device toggle bar */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          gap: '4px', padding: '10px 16px', background: '#fff',
+          borderBottom: '1px solid #e5e7eb', flexShrink: 0,
+        }}>
+          {([
+            { key: 'desktop' as const, label: 'Desktop', icon: '🖥️' },
+            { key: 'tablet' as const, label: 'Tablet', icon: '📱' },
+            { key: 'phone' as const, label: 'Phone', icon: '📲' },
+          ]).map(device => (
+            <button
+              key={device.key}
+              onClick={() => setPreviewMode(device.key)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                padding: '6px 14px', borderRadius: '8px', fontSize: '12px',
+                fontWeight: 600, cursor: 'pointer', border: 'none',
+                transition: 'all 0.15s',
+                background: previewMode === device.key ? '#0F6E56' : '#f3f4f6',
+                color: previewMode === device.key ? '#fff' : '#666',
+              }}
+            >
+              <span style={{ fontSize: '14px' }}>{device.icon}</span>
+              {device.label}
+            </button>
+          ))}
+          <span style={{ fontSize: '11px', color: '#aaa', marginLeft: '8px' }}>
+            {PREVIEW_WIDTHS[previewMode]}
+          </span>
+        </div>
+
+        {/* Preview area */}
+        <div style={{
+          flex: 1, overflowY: 'auto', padding: '16px',
+          display: 'flex', justifyContent: 'center',
+        }}>
+          <div style={{
+            width: PREVIEW_WIDTHS[previewMode],
+            maxWidth: '100%',
+            transition: 'width 0.3s ease',
+            background: '#fff',
+            borderRadius: '12px',
+            overflow: 'hidden',
+            boxShadow: previewMode !== 'desktop' ? '0 4px 24px rgba(0,0,0,0.12)' : 'none',
+            minHeight: '100%',
+          }}>
+            {editorMode === 'html' && customHtml ? (
+              <iframe srcDoc={customHtml} style={{ width: '100%', minHeight: '800px', border: 'none' }} title="HTML Preview" />
+            ) : renderedHtml ? (
+              <iframe srcDoc={renderedHtml} style={{ width: '100%', minHeight: '800px', border: 'none' }} title="Site Preview" />
+            ) : (
+              <LivePreview blocks={blocks} theme={theme} company={company} />
+            )}
+          </div>
         </div>
       </div>
     </div>
