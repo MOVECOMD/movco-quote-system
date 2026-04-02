@@ -6,7 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
-type SettingsSection = 'company' | 'team' | 'fleet' | 'hours' | 'areas' | 'pricing' | 'booking' | 'calendar' | 'email' | 'import' | 'billing' | 'pdf';
+type SettingsSection = 'company' | 'team' | 'fleet' | 'hours' | 'areas' | 'pricing' | 'booking' | 'calendar' | 'email' | 'import' | 'billing' | 'pdf' | 'event_types' | 'customer_fields';
 
 type Van = { name: string; type: string; capacity_cubic_ft: number; reg: string; mot_date: string; active: boolean };
 type DayHours = { start: string; end: string; closed: boolean };
@@ -75,6 +75,15 @@ export default function SettingsPage() {
 
   // PDF branding state
   const [pdfBranding, setPdfBranding] = useState<any>({});
+  const [customEventTypes, setCustomEventTypes] = useState<{ key: string; label: string; color: string }[]>([
+    { key: 'job', label: 'Job', color: '#3b82f6' },
+    { key: 'survey', label: 'Survey', color: '#8b5cf6' },
+    { key: 'callback', label: 'Callback', color: '#f59e0b' },
+    { key: 'delivery', label: 'Delivery', color: '#22c55e' },
+    { key: 'packing', label: 'Packing', color: '#f97316' },
+    { key: 'other', label: 'Other', color: '#6b7280' },
+  ]);
+  const [customCustomerFields, setCustomCustomerFields] = useState<{ key: string; label: string; type: string; options?: string[] }[]>([]);
 
   // CRM state
   const [crmActive, setCrmActive] = useState(false);
@@ -125,6 +134,8 @@ export default function SettingsPage() {
         setBooking(config.booking_settings || { min_notice_hours: 24, max_advance_days: 90, deposit_required: true, deposit_pct: 25 });
         if (config.email_template) setEmailTemplate(prev => ({ ...prev, ...config.email_template }));
         if (config.pdf_template) setPdfBranding(config.pdf_template);
+        if (config.custom_event_types) setCustomEventTypes(config.custom_event_types);
+        if (config.custom_customer_fields) setCustomCustomerFields(config.custom_customer_fields);
       } else {
         await supabase.from('company_config').insert({ company_id: co.id });
       }
@@ -306,6 +317,8 @@ export default function SettingsPage() {
     { key: 'pricing', label: 'Pricing', icon: '💰', group: 'Configuration' },
     { key: 'booking', label: 'Booking Rules', icon: '📋', group: 'Configuration' },
     { key: 'pdf' as any, label: 'PDF Branding', icon: '📄', group: 'Configuration' },
+    { key: 'event_types' as any, label: 'Event Types', icon: '🏷️', group: 'Configuration' },
+    { key: 'customer_fields' as any, label: 'Custom Fields', icon: '📝', group: 'Configuration' },
     { key: 'email', label: 'Gmail Connect', icon: '📧', group: 'Integrations' },
     { key: 'calendar', label: 'Calendar Sync', icon: '📅', group: 'Integrations' },
     { key: 'import', label: 'Data Import', icon: '📥', group: 'Integrations' },
@@ -793,6 +806,34 @@ export default function SettingsPage() {
                   )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* ═══════ EVENT TYPES ═══════ */}
+          {section === 'event_types' && (
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Event Types</h2>
+                <p className="text-sm text-gray-500">Customise the event types available in your diary</p>
+              </div>
+              <EventTypesSettings eventTypes={customEventTypes} onSave={async (types) => {
+                await saveConfig('custom_event_types', types);
+                setCustomEventTypes(types);
+              }} />
+            </div>
+          )}
+
+          {/* ═══════ CUSTOM CUSTOMER FIELDS ═══════ */}
+          {section === 'customer_fields' && (
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Custom Customer Fields</h2>
+                <p className="text-sm text-gray-500">Add extra fields to customer records</p>
+              </div>
+              <CustomerFieldsSettings fields={customCustomerFields} onSave={async (fields) => {
+                await saveConfig('custom_customer_fields', fields);
+                setCustomCustomerFields(fields);
+              }} />
             </div>
           )}
 
@@ -1501,6 +1542,354 @@ function PdfBrandingSettings({ branding, companyId, companyName, companyEmail, c
           Preview PDF
         </button>
       </div>
+    </div>
+  );
+}
+// ============================================
+// EVENT TYPES SETTINGS
+// ============================================
+
+const EVENT_TYPE_COLORS = [
+  '#3b82f6', '#8b5cf6', '#f59e0b', '#22c55e', '#f97316', '#6b7280',
+  '#ef4444', '#ec4899', '#06b6d4', '#14b8a6', '#84cc16', '#6366f1',
+];
+
+function EventTypesSettings({ eventTypes, onSave }: {
+  eventTypes: { key: string; label: string; color: string }[];
+  onSave: (types: { key: string; label: string; color: string }[]) => Promise<any>;
+}) {
+  const [types, setTypes] = useState(eventTypes);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [addingNew, setAddingNew] = useState(false);
+  const [newLabel, setNewLabel] = useState('');
+  const [newColor, setNewColor] = useState('#3b82f6');
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState('');
+
+  const handleSave = async (updated: typeof types) => {
+    setSaving(true);
+    await onSave(updated);
+    setTypes(updated);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const addType = () => {
+    if (!newLabel.trim()) return;
+    const key = newLabel.trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
+    if (types.some(t => t.key === key)) { alert('An event type with this name already exists'); return; }
+    const updated = [...types, { key, label: newLabel.trim(), color: newColor }];
+    handleSave(updated);
+    setNewLabel('');
+    setNewColor('#3b82f6');
+    setAddingNew(false);
+  };
+
+  const removeType = (key: string) => {
+    if (!confirm(`Remove "${types.find(t => t.key === key)?.label}" event type?`)) return;
+    handleSave(types.filter(t => t.key !== key));
+  };
+
+  const renameType = (key: string) => {
+    if (!editLabel.trim()) { setEditingKey(null); return; }
+    handleSave(types.map(t => t.key === key ? { ...t, label: editLabel.trim() } : t));
+    setEditingKey(null);
+  };
+
+  const changeColor = (key: string, color: string) => {
+    handleSave(types.map(t => t.key === key ? { ...t, color } : t));
+  };
+
+  return (
+    <div className="bg-white rounded-xl border p-6 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="font-bold text-gray-900">Event Types</h3>
+          <p className="text-sm text-gray-500 mt-0.5">Customise the event types in your diary</p>
+        </div>
+        {saved && <span className="text-xs font-semibold text-green-600 bg-green-50 px-3 py-1 rounded-full">✓ Saved</span>}
+      </div>
+
+      <div className="space-y-2 mb-4">
+        {types.map(type => (
+          <div key={type.key} className="flex items-center gap-3 px-3 py-2.5 bg-gray-50 rounded-lg group">
+            {/* Color picker */}
+            <div className="relative">
+              <input
+                type="color"
+                value={type.color}
+                onChange={e => changeColor(type.key, e.target.value)}
+                className="w-6 h-6 rounded-full border-0 cursor-pointer"
+                style={{ background: type.color }}
+              />
+            </div>
+
+            {/* Label — click to edit */}
+            {editingKey === type.key ? (
+              <input
+                value={editLabel}
+                onChange={e => setEditLabel(e.target.value)}
+                onBlur={() => renameType(type.key)}
+                onKeyDown={e => { if (e.key === 'Enter') renameType(type.key); if (e.key === 'Escape') setEditingKey(null); }}
+                autoFocus
+                className="flex-1 px-2 py-1 border border-blue-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            ) : (
+              <button
+                onClick={() => { setEditingKey(type.key); setEditLabel(type.label); }}
+                className="flex-1 text-left text-sm font-medium text-gray-800 hover:text-blue-600 transition"
+              >
+                {type.label}
+                <span className="text-gray-300 text-xs ml-2 opacity-0 group-hover:opacity-100">click to rename</span>
+              </button>
+            )}
+
+            {/* Key badge */}
+            <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded font-mono">{type.key}</span>
+
+            {/* Delete */}
+            <button
+              onClick={() => removeType(type.key)}
+              className="text-gray-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {addingNew ? (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              value={newColor}
+              onChange={e => setNewColor(e.target.value)}
+              className="w-8 h-8 rounded-lg border cursor-pointer"
+            />
+            <input
+              value={newLabel}
+              onChange={e => setNewLabel(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') addType(); if (e.key === 'Escape') setAddingNew(false); }}
+              autoFocus
+              placeholder="Event type name"
+              className="flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={addType} className="px-4 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition">
+              Add Type
+            </button>
+            <button onClick={() => { setAddingNew(false); setNewLabel(''); }} className="px-4 py-1.5 bg-gray-100 text-gray-600 text-xs font-medium rounded-lg hover:bg-gray-200 transition">
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setAddingNew(true)}
+          className="w-full py-2.5 border-2 border-dashed border-gray-200 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 transition"
+        >
+          + Add Event Type
+        </button>
+      )}
+    </div>
+  );
+}
+
+
+// ============================================
+// CUSTOMER FIELDS SETTINGS
+// ============================================
+
+const FIELD_TYPES = [
+  { value: 'text', label: 'Text' },
+  { value: 'number', label: 'Number' },
+  { value: 'date', label: 'Date' },
+  { value: 'textarea', label: 'Long Text' },
+  { value: 'select', label: 'Dropdown' },
+];
+
+function CustomerFieldsSettings({ fields, onSave }: {
+  fields: { key: string; label: string; type: string; options?: string[] }[];
+  onSave: (fields: { key: string; label: string; type: string; options?: string[] }[]) => Promise<any>;
+}) {
+  const [localFields, setLocalFields] = useState(fields);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [addingNew, setAddingNew] = useState(false);
+  const [newLabel, setNewLabel] = useState('');
+  const [newType, setNewType] = useState('text');
+  const [newOptions, setNewOptions] = useState('');
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState('');
+
+  const handleSave = async (updated: typeof localFields) => {
+    setSaving(true);
+    await onSave(updated);
+    setLocalFields(updated);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const addField = () => {
+    if (!newLabel.trim()) return;
+    const key = newLabel.trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
+    if (localFields.some(f => f.key === key)) { alert('A field with this name already exists'); return; }
+    const field: any = { key, label: newLabel.trim(), type: newType };
+    if (newType === 'select' && newOptions.trim()) {
+      field.options = newOptions.split(',').map(o => o.trim()).filter(Boolean);
+    }
+    handleSave([...localFields, field]);
+    setNewLabel('');
+    setNewType('text');
+    setNewOptions('');
+    setAddingNew(false);
+  };
+
+  const removeField = (key: string) => {
+    if (!confirm(`Remove "${localFields.find(f => f.key === key)?.label}" field? Existing data won't be deleted.`)) return;
+    handleSave(localFields.filter(f => f.key !== key));
+  };
+
+  const renameField = (key: string) => {
+    if (!editLabel.trim()) { setEditingKey(null); return; }
+    handleSave(localFields.map(f => f.key === key ? { ...f, label: editLabel.trim() } : f));
+    setEditingKey(null);
+  };
+
+  const moveField = (idx: number, dir: 'up' | 'down') => {
+    const target = dir === 'up' ? idx - 1 : idx + 1;
+    if (target < 0 || target >= localFields.length) return;
+    const updated = [...localFields];
+    [updated[idx], updated[target]] = [updated[target], updated[idx]];
+    handleSave(updated);
+  };
+
+  return (
+    <div className="bg-white rounded-xl border p-6 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="font-bold text-gray-900">Custom Customer Fields</h3>
+          <p className="text-sm text-gray-500 mt-0.5">Add extra fields to customer records</p>
+        </div>
+        {saved && <span className="text-xs font-semibold text-green-600 bg-green-50 px-3 py-1 rounded-full">✓ Saved</span>}
+      </div>
+
+      {localFields.length === 0 && !addingNew && (
+        <div className="text-center py-6 mb-4">
+          <p className="text-sm text-gray-400">No custom fields yet</p>
+          <p className="text-xs text-gray-300 mt-1">Add fields like "Bedrooms", "Budget", "Property Type" etc.</p>
+        </div>
+      )}
+
+      {localFields.length > 0 && (
+        <div className="space-y-2 mb-4">
+          {localFields.map((field, idx) => (
+            <div key={field.key} className="flex items-center gap-3 px-3 py-2.5 bg-gray-50 rounded-lg group">
+              {/* Reorder */}
+              <div className="flex flex-col gap-0.5">
+                <button onClick={() => moveField(idx, 'up')} className="text-gray-300 hover:text-gray-600 transition text-[10px]">▲</button>
+                <button onClick={() => moveField(idx, 'down')} className="text-gray-300 hover:text-gray-600 transition text-[10px]">▼</button>
+              </div>
+
+              {/* Label — click to edit */}
+              {editingKey === field.key ? (
+                <input
+                  value={editLabel}
+                  onChange={e => setEditLabel(e.target.value)}
+                  onBlur={() => renameField(field.key)}
+                  onKeyDown={e => { if (e.key === 'Enter') renameField(field.key); if (e.key === 'Escape') setEditingKey(null); }}
+                  autoFocus
+                  className="flex-1 px-2 py-1 border border-blue-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+              ) : (
+                <button
+                  onClick={() => { setEditingKey(field.key); setEditLabel(field.label); }}
+                  className="flex-1 text-left text-sm font-medium text-gray-800 hover:text-blue-600 transition"
+                >
+                  {field.label}
+                  <span className="text-gray-300 text-xs ml-2 opacity-0 group-hover:opacity-100">click to rename</span>
+                </button>
+              )}
+
+              {/* Type badge */}
+              <span className="text-[10px] text-gray-400 bg-gray-100 px-2 py-0.5 rounded font-medium">
+                {FIELD_TYPES.find(ft => ft.value === field.type)?.label || field.type}
+              </span>
+
+              {/* Options count for select fields */}
+              {field.type === 'select' && field.options && (
+                <span className="text-[10px] text-blue-500 bg-blue-50 px-2 py-0.5 rounded">
+                  {field.options.length} options
+                </span>
+              )}
+
+              {/* Delete */}
+              <button
+                onClick={() => removeField(field.key)}
+                className="text-gray-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {addingNew ? (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              value={newLabel}
+              onChange={e => setNewLabel(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') addField(); if (e.key === 'Escape') setAddingNew(false); }}
+              autoFocus
+              placeholder="Field name (e.g. Bedrooms)"
+              className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+            <select
+              value={newType}
+              onChange={e => setNewType(e.target.value)}
+              className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+            >
+              {FIELD_TYPES.map(ft => (
+                <option key={ft.value} value={ft.value}>{ft.label}</option>
+              ))}
+            </select>
+          </div>
+          {newType === 'select' && (
+            <input
+              value={newOptions}
+              onChange={e => setNewOptions(e.target.value)}
+              placeholder="Options (comma separated): Small, Medium, Large"
+              className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+          )}
+          <div className="flex gap-2">
+            <button onClick={addField} className="px-4 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition">
+              Add Field
+            </button>
+            <button onClick={() => { setAddingNew(false); setNewLabel(''); }} className="px-4 py-1.5 bg-gray-100 text-gray-600 text-xs font-medium rounded-lg hover:bg-gray-200 transition">
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setAddingNew(true)}
+          className="w-full py-2.5 border-2 border-dashed border-gray-200 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 transition"
+        >
+          + Add Custom Field
+        </button>
+      )}
     </div>
   );
 }
