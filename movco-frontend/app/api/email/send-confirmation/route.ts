@@ -197,9 +197,9 @@ export async function POST(req: NextRequest) {
 
     // Format date and time
     const startDate = new Date(start_time);
-    const eventDate = startDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-    const eventTime = startDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-    const eventEndTime = end_time ? new Date(end_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : undefined;
+    const eventDate = startDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/London' });
+    const eventTime = startDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
+    const eventEndTime = end_time ? new Date(end_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : undefined;
 
     const { subject, html } = buildConfirmationEmail({
       companyName, companyEmail, companyPhone, customerName: recipient_name || 'there',
