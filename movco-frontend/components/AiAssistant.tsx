@@ -129,7 +129,7 @@ export default function AiAssistant() {
 
       const actions = data.actions || (data.action ? [data.action] : [])
 
-      const serverSideActions = ['create_customer', 'create_deal', 'add_note', 'add_task', 'create_pipeline_stage']
+      const serverSideActions = ['create_customer', 'create_deal', 'add_note', 'add_task', 'create_pipeline_stage', 'update_event_types', 'update_customer_fields']
       const hasServerSideOnly = actions.length > 0 && actions.every((a: Action) => serverSideActions.includes(a.type))
       const hasWebsiteEdit = actions.some((a: Action) => a.type === 'edit_website')
       const hasAnyActions = actions.length > 0

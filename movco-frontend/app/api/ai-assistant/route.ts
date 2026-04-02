@@ -183,6 +183,12 @@ add_task:
 create_pipeline_stage:
 { "type": "create_pipeline_stage", "data": { "name": "stage name", "color": "#hex" } }
 
+update_event_types:
+{ "type": "update_event_types", "data": { "action": "add" | "remove" | "rename", "key": "event_type_key", "label": "Display Name", "color": "#hex", "new_label": "New Name (for rename only)" } }
+
+update_customer_fields:
+{ "type": "update_customer_fields", "data": { "action": "add" | "remove", "key": "field_key", "label": "Field Label", "type": "text | number | date | textarea | select", "options": ["opt1", "opt2"] } }
+
 schedule_post:
 { "type": "schedule_post", "data": { "content": "post text", "platforms": ["facebook","instagram","linkedin"], "scheduled_at": "ISO or null" } }
 
@@ -386,6 +392,48 @@ RULES:
           // ══════════════════════════════════════════════════
           // EDIT WEBSITE — with undo snapshots + better errors
           // ══════════════════════════════════════════════════
+          if (action.type === 'update_event_types') {
+            const { data: configData } = await supabase.from('company_config').select('custom_event_types').eq('company_id', COMPANY_ID).maybeSingle();
+            let types = configData?.custom_event_types || [
+              { key: 'job', label: 'Job', color: '#3b82f6' },
+              { key: 'survey', label: 'Survey', color: '#8b5cf6' },
+              { key: 'callback', label: 'Callback', color: '#f59e0b' },
+              { key: 'delivery', label: 'Delivery', color: '#22c55e' },
+              { key: 'packing', label: 'Packing', color: '#f97316' },
+              { key: 'other', label: 'Other', color: '#6b7280' },
+            ];
+            if (action.data.action === 'add') {
+              const key = action.data.key || action.data.label.toLowerCase().replace(/[^a-z0-9]/g, '_');
+              if (!types.some((t: any) => t.key === key)) {
+                types.push({ key, label: action.data.label, color: action.data.color || '#6b7280' });
+              }
+            } else if (action.data.action === 'remove') {
+              types = types.filter((t: any) => t.key !== action.data.key);
+            } else if (action.data.action === 'rename') {
+              types = types.map((t: any) => t.key === action.data.key ? { ...t, label: action.data.new_label || action.data.label } : t);
+            }
+            const { error } = await supabase.from('company_config').upsert({ company_id: COMPANY_ID, custom_event_types: types }, { onConflict: 'company_id' });
+            if (error) action.data.error = error.message;
+            else action.data.created = true;
+          }
+
+          if (action.type === 'update_customer_fields') {
+            const { data: configData } = await supabase.from('company_config').select('custom_customer_fields').eq('company_id', COMPANY_ID).maybeSingle();
+            let fields = configData?.custom_customer_fields || [];
+            if (action.data.action === 'add') {
+              const key = action.data.key || action.data.label.toLowerCase().replace(/[^a-z0-9]/g, '_');
+              if (!fields.some((f: any) => f.key === key)) {
+                const field: any = { key, label: action.data.label, type: action.data.type || 'text' };
+                if (action.data.options) field.options = action.data.options;
+                fields.push(field);
+              }
+            } else if (action.data.action === 'remove') {
+              fields = fields.filter((f: any) => f.key !== action.data.key);
+            }
+            const { error } = await supabase.from('company_config').upsert({ company_id: COMPANY_ID, custom_customer_fields: fields }, { onConflict: 'company_id' });
+            if (error) action.data.error = error.message;
+            else action.data.created = true;
+          }
           if (action.type === 'edit_website') {
             try {
               const { data: websiteData } = await supabase
