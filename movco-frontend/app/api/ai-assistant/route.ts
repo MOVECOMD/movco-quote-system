@@ -377,6 +377,7 @@ RULES:
             const customerId = await getOrCreateCustomer(action.data.to_name, action.data.to_email)
             if (customerId) {
               action.data.customer_id_found = customerId
+              await logNote(customerId, `📧 AI sent email to ${action.data.to_name} — Subject: "${action.data.subject}" — ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`)
             }
           }
 
