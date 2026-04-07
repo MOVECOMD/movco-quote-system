@@ -9,6 +9,8 @@ import Image from 'next/image';
 import { downloadQuotePdf } from '@/lib/generateQuotePdf';
 import { downloadInvoicePdf } from '@/lib/generateInvoicePdf';
 import AiAssistant from '@/components/AiAssistant';
+import TradesQuoteBuilder from '@/components/TradesQuoteBuilder';
+import SimpleQuoteBuilder from '@/components/SimpleQuoteBuilder';
 
 // ============================================
 // TYPES
@@ -190,6 +192,7 @@ export default function CompanyDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 const [terminology, setTerminology] = useState<Record<string, string>>({});
+const [quoteBuilderType, setQuoteBuilderType] = useState<string>('removals');
 
   // CRM subscription state
   const [crmActive, setCrmActive] = useState(false);
@@ -324,12 +327,15 @@ const [bulkEmailRecipients, setBulkEmailRecipients] = useState<{ name: string; e
 
 const { data: templateConfig } = await supabase
   .from('template_configs')
-  .select('terminology')
+  .select('terminology, feature_flags')
   .eq('template_type', companyData.template_type || 'removals')
   .maybeSingle();
 
 if (templateConfig?.terminology) {
   setTerminology(templateConfig.terminology);
+}
+if (templateConfig?.feature_flags?.quote_builder_type) {
+  setQuoteBuilderType(templateConfig.feature_flags.quote_builder_type);
 }
 
       const { data: subData } = await supabase
@@ -1579,15 +1585,14 @@ const [showDayPlan, setShowDayPlan] = useState(false);
                 pdfBranding={pdfBranding}
               />
          )}
-            {activeTab === 'quotes' && showQuoteBuilder && (
-              <QuoteBuilder
-                company={company}
-                onSave={saveQuoteFromBuilder}
-                onCancel={() => { setShowQuoteBuilder(false); setQuotePrefill(null); }}
-                prefill={quotePrefill}
-                pdfBranding={pdfBranding}
-                pricingConfig={pricingConfig}
-              />
+            {activeTab === 'quotes' && showQuoteBuilder && quoteBuilderType === 'removals' && (
+              <QuoteBuilder company={company} onSave={saveQuoteFromBuilder} onCancel={() => { setShowQuoteBuilder(false); setQuotePrefill(null); }} prefill={quotePrefill} pdfBranding={pdfBranding} pricingConfig={pricingConfig} />
+            )}
+            {activeTab === 'quotes' && showQuoteBuilder && quoteBuilderType === 'trades' && (
+              <TradesQuoteBuilder company={company} onSave={saveQuoteFromBuilder} onCancel={() => { setShowQuoteBuilder(false); setQuotePrefill(null); }} prefill={quotePrefill} pdfBranding={pdfBranding} />
+            )}
+            {activeTab === 'quotes' && showQuoteBuilder && quoteBuilderType === 'simple' && (
+              <SimpleQuoteBuilder company={company} onSave={saveQuoteFromBuilder} onCancel={() => { setShowQuoteBuilder(false); setQuotePrefill(null); }} prefill={quotePrefill} pdfBranding={pdfBranding} />
             )}
               {activeTab === 'pipeline' && (
               <PipelineTab
