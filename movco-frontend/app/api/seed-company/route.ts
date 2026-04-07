@@ -16,12 +16,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing company_id' }, { status: 400 })
     }
 
-    const seed = getSeedData(template_type || 'default')
-    const results: { pipeline: boolean; stages: number; event_types: boolean; customer_fields: boolean; errors: string[] } = {
+    const resolvedType = template_type || 'default'
+    const seed = getSeedData(resolvedType)
+    const results: {
+      pipeline: boolean
+      stages: number
+      event_types: boolean
+      customer_fields: boolean
+      terminology: boolean
+      errors: string[]
+    } = {
       pipeline: false,
       stages: 0,
       event_types: false,
       customer_fields: false,
+      terminology: false,
       errors: [],
     }
 
@@ -35,18 +44,20 @@ export async function POST(req: NextRequest) {
     let defaultPipelineId: string | null = null
 
     if (!existingPipelines || existingPipelines.length === 0) {
-      const pipelineName = template_type === 'removals' ? 'Sales Pipeline'
-        : template_type === 'estate_agent' ? 'Sales Pipeline'
-        : template_type === 'vet' ? 'Patient Pipeline'
-        : template_type === 'dental' ? 'Patient Pipeline'
-        : template_type === 'salon' ? 'Client Pipeline'
-        : 'Sales Pipeline'
+      // Load pipeline name from template_configs if available
+      const { data: templateConfig } = await supabase
+        .from('template_configs')
+        .select('terminology')
+        .eq('template_type', resolvedType)
+        .maybeSingle()
+
+      const pipelineLabel = templateConfig?.terminology?.pipeline || 'Sales Pipeline'
 
       const { data: newPipeline, error: pipelineErr } = await supabase
         .from('crm_pipelines')
         .insert({
           company_id,
-          name: pipelineName,
+          name: pipelineLabel,
           color: '#3b82f6',
           position: 1,
           is_default: true,
@@ -123,11 +134,60 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── 4. ENSURE TEMPLATE_CONFIGS ROW EXISTS ──
+    // If there's no template_configs row for this type, create one from defaults
+    const { data: existingTemplateConfig } = await supabase
+      .from('template_configs')
+      .select('template_type')
+      .eq('template_type', resolvedType)
+      .maybeSingle()
+
+    if (!existingTemplateConfig) {
+      // Insert a basic row so the dashboard can read terminology
+      const defaultTerminology: Record<string, string> = {
+        quotes: 'Quotes',
+        pipeline: 'Pipeline',
+        diary: 'Diary',
+        customers: 'Customers',
+        reports: 'Reports',
+        leads: 'Leads',
+        deals: 'Deals',
+        deal: 'Deal',
+      }
+
+      const defaultFlags: Record<string, any> = {
+        show_quote_builder: true,
+        show_coverage_postcodes: false,
+        show_moving_fields: false,
+        show_volume_calculator: false,
+        show_van_count: false,
+        show_movers_count: false,
+        show_packing_service: false,
+        show_day_plan: false,
+        show_invoice: true,
+        quote_builder_type: 'simple',
+      }
+
+      const { error: tplErr } = await supabase
+        .from('template_configs')
+        .insert({
+          template_type: resolvedType,
+          terminology: defaultTerminology,
+          feature_flags: defaultFlags,
+        })
+
+      if (tplErr) {
+        results.errors.push(`TemplateConfig: ${tplErr.message}`)
+      } else {
+        results.terminology = true
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      template_type: template_type || 'default',
+      template_type: resolvedType,
       results,
-      message: `Seeded: ${results.pipeline ? '1 pipeline, ' : ''}${results.stages >= 0 ? results.stages : 0} stages, ${results.event_types ? seed.event_types.length : 0} event types, ${results.customer_fields ? seed.customer_fields.length : 0} custom fields`,
+      message: `Seeded: ${results.pipeline ? '1 pipeline, ' : ''}${results.stages >= 0 ? results.stages : 0} stages, ${results.event_types ? seed.event_types.length : 0} event types, ${results.customer_fields ? seed.customer_fields.length : 0} custom fields${results.terminology ? ', template config created' : ''}`,
     })
   } catch (err: any) {
     console.error('Seed company error:', err)
@@ -139,10 +199,19 @@ export async function GET(req: NextRequest) {
   const templateType = req.nextUrl.searchParams.get('template_type') || 'default'
   const seed = getSeedData(templateType)
 
+  // Also return terminology + feature flags from template_configs
+  const { data: templateConfig } = await supabase
+    .from('template_configs')
+    .select('terminology, feature_flags')
+    .eq('template_type', templateType)
+    .maybeSingle()
+
   return NextResponse.json({
     template_type: templateType,
     stages: seed.stages,
     event_types: seed.event_types,
     customer_fields: seed.customer_fields,
+    terminology: templateConfig?.terminology || null,
+    feature_flags: templateConfig?.feature_flags || null,
   })
 }
