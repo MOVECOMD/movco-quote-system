@@ -391,15 +391,36 @@ if (!!subData || !!onActiveTrial) {
         setActivePipelineId(defaultPipeline.id);
       }
     } else {
-      // Auto-create a default pipeline if none exist
-      const { data: newPipeline } = await supabase
-        .from('crm_pipelines')
-        .insert({ company_id: companyId, name: 'Sales Pipeline', is_default: true, position: 1 })
-        .select()
-        .single();
-      if (newPipeline) {
-        setPipelines([newPipeline as Pipeline]);
-        setActivePipelineId(newPipeline.id);
+      // No pipelines exist — auto-seed everything from template
+      try {
+        const { data: companyInfo } = await supabase.from('companies').select('template_type').eq('id', companyId).maybeSingle();
+        const seedRes = await fetch('/api/seed-company', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ company_id: companyId, template_type: companyInfo?.template_type || 'default' }),
+        });
+        const seedData = await seedRes.json();
+        if (seedData.success) {
+          // Re-fetch pipelines after seeding
+          const { data: seededPipelines } = await supabase.from('crm_pipelines').select('*').eq('company_id', companyId).order('position');
+          if (seededPipelines && seededPipelines.length > 0) {
+            setPipelines(seededPipelines as Pipeline[]);
+            const defaultP = seededPipelines.find((p: any) => p.is_default) || seededPipelines[0];
+            setActivePipelineId(defaultP.id);
+          }
+        }
+      } catch (err) {
+        console.error('Auto-seed failed:', err);
+        // Fallback — just create a basic pipeline
+        const { data: newPipeline } = await supabase
+          .from('crm_pipelines')
+          .insert({ company_id: companyId, name: 'Sales Pipeline', is_default: true, position: 1 })
+          .select()
+          .single();
+        if (newPipeline) {
+          setPipelines([newPipeline as Pipeline]);
+          setActivePipelineId(newPipeline.id);
+        }
       }
     }
 
