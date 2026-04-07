@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js'
 import AiAssistant from '@/components/AiAssistant'
 import { renderSiteHtml } from '../../../lib/renderSiteHtml'
 import { useAuth } from '@/context/AuthContext'
+import { getWebsiteTemplates } from '@/lib/websiteTemplates';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -90,6 +91,7 @@ const [mediaLoading, setMediaLoading] = useState(false)
 const [mediaCallback, setMediaCallback] = useState<((url: string) => void) | null>(null)
 const [importing, setImporting] = useState(false)
 const [previewMode, setPreviewMode] = useState<'desktop' | 'tablet' | 'phone'>('desktop')
+const [templateType, setTemplateType] = useState('removals')
 
 // Undo state
 const [undoAvailable, setUndoAvailable] = useState(false)
@@ -189,6 +191,10 @@ async function importHtmlToBlocks() {
       .eq('id', COMPANY_ID)
       .maybeSingle()
     setCompany(comp)
+    if (comp) {
+  const { data: compFull } = await supabase.from('companies').select('template_type').eq('id', COMPANY_ID).maybeSingle();
+  if (compFull?.template_type) setTemplateType(compFull.template_type);
+}
 
     const res = await fetch(`/api/website/save?company_id=${COMPANY_ID}`)
     const data = await res.json()
@@ -208,7 +214,7 @@ async function importHtmlToBlocks() {
     setLoading(false)
   }
 
-  function pickTemplate(template: typeof TEMPLATES[0]) {
+  function pickTemplate(template: any) {
     setBlocks(template.blocks)
     const defaultSlug = (company?.name || 'my-company').toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-')
     setSlug(defaultSlug)
@@ -306,7 +312,7 @@ async function importHtmlToBlocks() {
           <p style={{ color: '#666', fontSize: '16px' }}>Choose a starting template — you can customise everything afterwards</p>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px' }}>
-          {TEMPLATES.map((tpl, i) => (
+          {getWebsiteTemplates(templateType).map((tpl, i) => (
             <div key={i} onClick={() => pickTemplate(tpl)}
               style={{ border: '2px solid #e5e7eb', borderRadius: '16px', padding: '28px', cursor: 'pointer', transition: 'all 0.15s', background: '#fff' }}
               onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = '#0F6E56'; (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)' }}
