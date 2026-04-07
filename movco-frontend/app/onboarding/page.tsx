@@ -91,6 +91,11 @@ export default function OnboardingPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [companyId, setCompanyId] = useState<string | null>(null)
+const [searchQuery, setSearchQuery] = useState('')
+const filteredTemplates = TEMPLATES.filter(t => 
+  !searchQuery || t.label.toLowerCase().includes(searchQuery.toLowerCase()) || t.type.includes(searchQuery.toLowerCase()) || t.desc.toLowerCase().includes(searchQuery.toLowerCase())
+)
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -243,47 +248,93 @@ export default function OnboardingPage() {
 
       {/* Template picker */}
       {step === 'template' && (
-        <div style={{ maxWidth: '800px', margin: '0 auto', padding: '48px 24px' }}>
-          <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-            <h1 style={{ fontSize: '28px', fontWeight: '500', color: '#0e1117', marginBottom: '8px' }}>
-              What type of business are you?
-            </h1>
-            <p style={{ fontSize: '15px', color: '#6B7280', fontWeight: '300' }}>
-              We'll load the right template and configure everything for your industry.
-            </p>
-          </div>
+  <div style={{ maxWidth: '900px', margin: '0 auto', padding: '48px 24px' }}>
+    <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+      <h1 style={{ fontSize: '28px', fontWeight: '500', color: '#0e1117', marginBottom: '8px' }}>
+        What type of business are you?
+      </h1>
+      <p style={{ fontSize: '15px', color: '#6B7280', fontWeight: '300' }}>
+        We'll load the right template and configure everything for your industry.
+      </p>
+    </div>
 
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '14px',
-          }}>
-            {TEMPLATES.map(t => (
-              <button
-                key={t.type}
-                onClick={() => selectTemplate(t.type)}
-                style={{
-                  background: '#fff', border: '1px solid #E5E7EB',
-                  borderRadius: '12px', padding: '20px 16px', cursor: 'pointer',
-                  textAlign: 'center', transition: 'all 0.15s', fontFamily: 'inherit',
-                }}
-                onMouseEnter={e => {
-                  (e.currentTarget as HTMLElement).style.borderColor = '#0F6E56'
-                  ;(e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)'
-                }}
-                onMouseLeave={e => {
-                  (e.currentTarget as HTMLElement).style.borderColor = '#E5E7EB'
-                  ;(e.currentTarget as HTMLElement).style.transform = 'translateY(0)'
-                }}
-              >
-                <div style={{ fontSize: '32px', marginBottom: '10px' }}>{t.emoji}</div>
-                <div style={{ fontSize: '13px', fontWeight: '500', color: '#0e1117', marginBottom: '4px' }}>
-                  {t.label}
-                </div>
-                <div style={{ fontSize: '12px', color: '#9CA3AF', fontWeight: '300' }}>{t.desc}</div>
-              </button>
-            ))}
+    {/* Search */}
+    <div style={{ maxWidth: '400px', margin: '0 auto 28px' }}>
+      <input
+        value={searchQuery}
+        onChange={e => setSearchQuery(e.target.value)}
+        placeholder="Search industries..."
+        style={{
+          width: '100%', padding: '12px 16px', borderRadius: '12px',
+          border: '1px solid #E5E7EB', fontSize: '14px', outline: 'none',
+          fontFamily: 'inherit', boxSizing: 'border-box',
+        }}
+      />
+    </div>
+
+    <div style={{
+      display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '14px',
+    }}>
+      {/* Blank CRM option — always first */}
+      {(!searchQuery || 'custom blank scratch build'.includes(searchQuery.toLowerCase())) && (
+        <button
+          onClick={() => selectTemplate('default')}
+          style={{
+            background: '#fff', border: '2px dashed #D1D5DB',
+            borderRadius: '12px', padding: '20px 16px', cursor: 'pointer',
+            textAlign: 'center', transition: 'all 0.15s', fontFamily: 'inherit',
+          }}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLElement).style.borderColor = '#0F6E56'
+            ;(e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)'
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLElement).style.borderColor = '#D1D5DB'
+            ;(e.currentTarget as HTMLElement).style.transform = 'translateY(0)'
+          }}
+        >
+          <div style={{ fontSize: '32px', marginBottom: '10px' }}>⚙️</div>
+          <div style={{ fontSize: '13px', fontWeight: '500', color: '#0e1117', marginBottom: '4px' }}>
+            Start from Scratch
           </div>
-        </div>
+          <div style={{ fontSize: '12px', color: '#9CA3AF', fontWeight: '300' }}>Build your own custom CRM</div>
+        </button>
       )}
+
+      {filteredTemplates.map(t => (
+        <button
+          key={t.type}
+          onClick={() => selectTemplate(t.type)}
+          style={{
+            background: '#fff', border: '1px solid #E5E7EB',
+            borderRadius: '12px', padding: '20px 16px', cursor: 'pointer',
+            textAlign: 'center', transition: 'all 0.15s', fontFamily: 'inherit',
+          }}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLElement).style.borderColor = '#0F6E56'
+            ;(e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)'
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLElement).style.borderColor = '#E5E7EB'
+            ;(e.currentTarget as HTMLElement).style.transform = 'translateY(0)'
+          }}
+        >
+          <div style={{ fontSize: '32px', marginBottom: '10px' }}>{t.emoji}</div>
+          <div style={{ fontSize: '13px', fontWeight: '500', color: '#0e1117', marginBottom: '4px' }}>
+            {t.label}
+          </div>
+          <div style={{ fontSize: '12px', color: '#9CA3AF', fontWeight: '300' }}>{t.desc}</div>
+        </button>
+      ))}
+    </div>
+
+    {searchQuery && filteredTemplates.length === 0 && (
+      <p style={{ textAlign: 'center', color: '#9CA3AF', marginTop: '24px', fontSize: '14px' }}>
+        No matching industries. Try <button onClick={() => { setSearchQuery(''); selectTemplate('default') }} style={{ color: '#0F6E56', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline' }}>starting from scratch</button>.
+      </p>
+    )}
+  </div>
+)}
 
       {/* AI Chat onboarding */}
       {step === 'chat' && (

@@ -337,6 +337,16 @@ if (templateConfig?.terminology) {
 if (templateConfig?.feature_flags?.quote_builder_type) {
   setQuoteBuilderType(templateConfig.feature_flags.quote_builder_type);
 }
+// Fallback: if no feature_flags, derive from template type
+if (!templateConfig?.feature_flags?.quote_builder_type) {
+  const type = companyData.template_type || 'removals';
+  const noQuote = ['estate_agent','letting_agent','vet','dental','salon','barber','personal_trainer','dog_groomer','tutor','retail','physio'];
+  const tradesTypes = ['plumber','electrician','builder','painter','roofer','locksmith','handyman','hvac','mechanic','security','flooring','pest_control','gardener'];
+  if (noQuote.includes(type)) setQuoteBuilderType('simple');
+  else if (tradesTypes.includes(type)) setQuoteBuilderType('trades');
+  else if (type === 'removals') setQuoteBuilderType('removals');
+  else setQuoteBuilderType('simple');
+}
 
       const { data: subData } = await supabase
         .from('crm_subscriptions')

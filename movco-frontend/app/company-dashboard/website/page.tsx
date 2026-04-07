@@ -191,6 +191,14 @@ async function importHtmlToBlocks() {
       .eq('id', COMPANY_ID)
       .maybeSingle()
     setCompany(comp)
+
+// Load template type for industry-specific website templates
+const { data: companyFull } = await supabase
+  .from('companies')
+  .select('template_type')
+  .eq('id', COMPANY_ID)
+  .maybeSingle()
+if (companyFull?.template_type) setTemplateType(companyFull.template_type)
     if (comp) {
   const { data: compFull } = await supabase.from('companies').select('template_type').eq('id', COMPANY_ID).maybeSingle();
   if (compFull?.template_type) setTemplateType(compFull.template_type);
