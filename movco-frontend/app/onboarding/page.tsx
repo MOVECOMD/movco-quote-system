@@ -3,22 +3,79 @@
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { useRouter } from 'next/navigation'
+import { getAvailableTemplates } from '@/lib/templateSeeds'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-const TEMPLATES = [
-  { type: 'removals', label: 'Removal Company', emoji: '🚛', desc: 'Quotes, pipeline, diary & leads' },
-  { type: 'plumber', label: 'Plumber & Tradesperson', emoji: '🔧', desc: 'Jobs, callouts & certificates' },
-  { type: 'estate_agent', label: 'Estate Agent', emoji: '🏠', desc: 'Properties, viewings & offers' },
-  { type: 'cleaning', label: 'Cleaning Company', emoji: '🧹', desc: 'Recurring jobs & rotas' },
-  { type: 'vet', label: 'Veterinary Practice', emoji: '🐾', desc: 'Patients, appointments & billing' },
-  { type: 'dental', label: 'Dental Practice', emoji: '🦷', desc: 'Patients, treatments & recalls' },
-  { type: 'retail', label: 'Retail & Shop', emoji: '🛒', desc: 'Orders, customers & fulfilment' },
-  { type: 'salon', label: 'Salon & Beauty', emoji: '💇', desc: 'Bookings, staff & clients' },
-]
+const TEMPLATES = getAvailableTemplates().map(t => ({
+  type: t.key,
+  label: t.label,
+  emoji: getTemplateEmoji(t.key),
+  desc: getTemplateDesc(t.key),
+}))
+
+function getTemplateEmoji(key: string): string {
+  const map: Record<string, string> = {
+    removals: '🚛', plumber: '🔧', electrician: '⚡', builder: '🏗️', painter: '🎨',
+    roofer: '🏠', locksmith: '🔐', gardener: '🌿', pest_control: '🐀', flooring: '🪵',
+    window_cleaner: '🪟', handyman: '🛠️', hvac: '❄️', estate_agent: '🏡', letting_agent: '🔑',
+    cleaning: '🧹', vet: '🐾', dental: '🦷', salon: '💇', barber: '💈',
+    personal_trainer: '💪', photographer: '📸', wedding_planner: '💒', dog_groomer: '🐕',
+    dog_walker: '🦮', driving_instructor: '🚗', tutor: '📚', accountant: '📊',
+    solicitor: '⚖️', catering: '🍽️', tattoo: '🎨', mechanic: '🔩', retail: '🛍️',
+    physio: '🏥', skip_hire: '🗑️', security: '📹', it_support: '💻', funeral_director: '🕊️',
+    default: '🏢',
+  }
+  return map[key] || '🏢'
+}
+
+function getTemplateDesc(key: string): string {
+  const map: Record<string, string> = {
+    removals: 'Quotes, pipeline, diary & leads',
+    plumber: 'Jobs, callouts & certificates',
+    electrician: 'Jobs, testing & certification',
+    builder: 'Projects, quotes & scheduling',
+    painter: 'Jobs, quotes & scheduling',
+    roofer: 'Jobs, inspections & quotes',
+    locksmith: 'Emergency calls & jobs',
+    gardener: 'Maintenance rounds & quotes',
+    pest_control: 'Surveys, treatments & follow-ups',
+    flooring: 'Measures, fittings & orders',
+    window_cleaner: 'Rounds, scheduling & clients',
+    handyman: 'Jobs, quotes & invoicing',
+    hvac: 'Installations, servicing & quotes',
+    estate_agent: 'Properties, viewings & offers',
+    letting_agent: 'Lettings, tenants & inspections',
+    cleaning: 'Recurring jobs & scheduling',
+    vet: 'Patients, appointments & billing',
+    dental: 'Patients, treatments & recalls',
+    salon: 'Bookings, clients & services',
+    barber: 'Appointments & walk-ins',
+    personal_trainer: 'Clients, sessions & packages',
+    photographer: 'Shoots, bookings & galleries',
+    wedding_planner: 'Weddings, suppliers & planning',
+    dog_groomer: 'Appointments & client dogs',
+    dog_walker: 'Walks, schedules & clients',
+    driving_instructor: 'Lessons, students & test dates',
+    tutor: 'Students, lessons & progress',
+    accountant: 'Clients, deadlines & returns',
+    solicitor: 'Matters, clients & deadlines',
+    catering: 'Events, menus & bookings',
+    tattoo: 'Consultations, sessions & designs',
+    mechanic: 'Diagnostics, repairs & servicing',
+    retail: 'Orders, customers & fulfilment',
+    physio: 'Patients, treatments & sessions',
+    skip_hire: 'Deliveries, collections & hires',
+    security: 'Surveys, installations & monitoring',
+    it_support: 'Support tickets, projects & clients',
+    funeral_director: 'Arrangements, services & aftercare',
+    default: 'Leads, pipeline & scheduling',
+  }
+  return map[key] || 'Leads, pipeline & scheduling'
+}
 
 type Message = {
   id: string
@@ -109,7 +166,7 @@ export default function OnboardingPage() {
         }).eq('id', companyId)
 
         // Seed CRM with template stages and email templates
-        await fetch('/api/onboarding/seed-template', {
+        await fetch('/api/seed-company', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -197,7 +254,7 @@ export default function OnboardingPage() {
           </div>
 
           <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px',
+            display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '14px',
           }}>
             {TEMPLATES.map(t => (
               <button
