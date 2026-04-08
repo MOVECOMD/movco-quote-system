@@ -140,7 +140,7 @@ export default function AiAssistant() {
         'update_event_types', 'update_customer_fields', 'update_terminology', 'toggle_feature_flag', 'change_industry',
         'update_company', 'update_coverage', 'update_working_hours',
         'publish_website', 'update_website_settings',
-        'bulk_email', 'create_email_template',
+        'create_email_template',
         'edit_social_post', 'delete_social_post',
         'create_automation', 'edit_automation', 'delete_automation', 'toggle_automation',
       ]
@@ -296,6 +296,26 @@ export default function AiAssistant() {
           })
           results.push(error ? `✗ Post failed: ${error.message}` : `✓ Post ${action.data.scheduled_at ? 'scheduled' : 'saved'}`)
 
+        } else if (action.type === 'bulk_email') {
+          let sent = 0, failed = 0
+          for (const r of (action.data.recipients || [])) {
+            try {
+              const res = await fetch('/api/email/send-custom', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  company_id: COMPANY_ID,
+                  recipient_email: r.email,
+                  recipient_name: r.name,
+                  subject: action.data.subject,
+                  body_text: (action.data.body_template || '').replace(/\{\{name\}\}/g, r.name),
+                }),
+              })
+              if (res.ok) sent++; else failed++
+            } catch { failed++ }
+          }
+          results.push(sent > 0 ? `✓ ${sent} emails sent${failed > 0 ? `, ${failed} failed` : ''}` : `✗ All ${failed} emails failed`)
+
         } else if (action.type === 'create_pipeline_stage') {
           if (action.data.error) {
             results.push(`✗ Stage creation failed: ${action.data.error}`)
@@ -379,9 +399,10 @@ export default function AiAssistant() {
       book_event: { bg: '#E6F1FB', border: '#85B7EB', title: '#0C447C', text: '#0C447C' },
       move_deal: { bg: '#EEEDFE', border: '#AFA9EC', title: '#3C3489', text: '#3C3489' },
       schedule_post: { bg: '#FAEEDA', border: '#EF9F27', title: '#633806', text: '#854F0B' },
+      bulk_email: { bg: '#f0f9f4', border: '#5DCAA5', title: '#085041', text: '#0F6E56' },
     }
     const c = colors[action.type] || colors.send_email
-    const icons: Record<string, string> = { send_email: '📧', book_event: '📅', move_deal: '🔀', schedule_post: '📱' }
+    const icons: Record<string, string> = { send_email: '📧', book_event: '📅', move_deal: '🔀', schedule_post: '📱', bulk_email: '📧' }
 
     return (
       <div key={idx} style={{ marginTop: '8px', background: c.bg, border: `1px solid ${c.border}`, borderRadius: '8px', padding: '10px', fontSize: '12px' }}>
@@ -407,6 +428,13 @@ export default function AiAssistant() {
           <>
             <p style={{ color: c.text, margin: '0 0 4px' }}>{action.data.content}</p>
             <p style={{ color: c.text, margin: 0, fontSize: '11px' }}>Platforms: {action.data.platforms?.join(', ')}{action.data.scheduled_at ? ` · ${new Date(action.data.scheduled_at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ' · Post now'}</p>
+          </>
+        )}
+        {action.type === 'bulk_email' && (
+          <>
+            <p style={{ color: c.text, margin: '0 0 2px' }}>To: {action.data.recipients?.length || 0} recipients</p>
+            <p style={{ color: c.text, margin: '0 0 4px' }}>Subject: {action.data.subject}</p>
+            <p style={{ color: c.text, margin: 0, whiteSpace: 'pre-line', lineHeight: 1.4 }}>{action.data.body_template?.substring(0, 200)}</p>
           </>
         )}
       </div>
