@@ -63,6 +63,7 @@ export default function AiAssistant() {
     try {
       const res = await fetch(`/api/email/status?company_id=${COMPANY_ID}`)
       const data = await res.json()
+      console.log('AI RESPONSE:', JSON.stringify(data).substring(0, 500))
       if (data.actions) {
         data.actions = data.actions.map((a: any) => {
           if (a.type === 'edit_website' && a.data?.custom_html) {
