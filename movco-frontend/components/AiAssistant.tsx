@@ -11,7 +11,7 @@ const supabase = createClient(
 import { useAuth } from '@/context/AuthContext'
 
 type Action = {
-  type: 'send_email' | 'book_event' | 'move_deal' | 'schedule_post' | 'answer' | 'create_pipeline_stage' | 'create_deal' | 'create_customer' | 'add_note' | 'add_task' | 'edit_website'
+  type: string
   data: any
   label?: string
 }
@@ -129,7 +129,19 @@ export default function AiAssistant() {
 
       const actions = data.actions || (data.action ? [data.action] : [])
 
-      const serverSideActions = ['create_customer', 'create_deal', 'add_note', 'add_task', 'create_pipeline', 'create_pipeline_stage', 'update_event_types', 'update_customer_fields']
+      const serverSideActions = [
+        'create_customer', 'edit_customer', 'delete_customer', 'merge_customers',
+        'create_deal', 'edit_deal', 'delete_deal',
+        'create_pipeline', 'create_pipeline_stage', 'edit_stage', 'delete_stage', 'edit_pipeline', 'delete_pipeline',
+        'add_note', 'add_task', 'complete_task', 'delete_task',
+        'edit_event', 'delete_event', 'complete_event',
+        'create_quote', 'edit_quote', 'update_quote_status', 'convert_quote_to_deal',
+        'update_event_types', 'update_customer_fields', 'update_terminology', 'toggle_feature_flag', 'change_industry',
+        'update_company', 'update_coverage', 'update_working_hours',
+        'publish_website', 'update_website_settings',
+        'bulk_email', 'create_email_template',
+        'edit_social_post', 'delete_social_post',
+      ]
       const hasServerSideOnly = actions.length > 0 && actions.every((a: Action) => serverSideActions.includes(a.type))
       const hasWebsiteEdit = actions.some((a: Action) => a.type === 'edit_website')
       const hasAnyActions = actions.length > 0
@@ -168,9 +180,42 @@ export default function AiAssistant() {
           if (a.data?.error) return `✗ Failed: ${a.data.error}`
           if (a.type === 'create_deal') return `✓ ${a.data.customer_name} added to pipeline`
           if (a.type === 'create_customer') return `✓ ${a.data.name} created as a contact`
+          if (a.type === 'edit_customer') return `✓ ${a.data.customer_name} updated`
+          if (a.type === 'delete_customer') return `✓ ${a.data.customer_name} deleted`
+          if (a.type === 'merge_customers') return `✓ ${a.data.merge_name} merged into ${a.data.keep_name}`
+          if (a.type === 'edit_deal') return `✓ ${a.data.deal_name} updated`
+          if (a.type === 'delete_deal') return `✓ ${a.data.deal_name} deleted`
           if (a.type === 'add_note') return `✓ Note added for ${a.data.customer_name}`
           if (a.type === 'add_task') return `✓ Task added for ${a.data.customer_name}`
+          if (a.type === 'complete_task') return `✓ Task "${a.data.task_title}" completed`
+          if (a.type === 'delete_task') return `✓ Task "${a.data.task_title}" deleted`
           if (a.type === 'create_pipeline_stage') return `✓ Stage "${a.data.name}" created`
+          if (a.type === 'edit_stage') return `✓ Stage updated`
+          if (a.type === 'delete_stage') return `✓ Stage "${a.data.stage_name}" deleted`
+          if (a.type === 'create_pipeline') return `✓ Pipeline "${a.data.name}" created`
+          if (a.type === 'edit_pipeline') return `✓ Pipeline updated`
+          if (a.type === 'delete_pipeline') return `✓ Pipeline "${a.data.pipeline_name}" deleted`
+          if (a.type === 'edit_event') return `✓ "${a.data.event_title}" updated`
+          if (a.type === 'delete_event') return `✓ "${a.data.event_title}" cancelled`
+          if (a.type === 'complete_event') return `✓ "${a.data.event_title}" marked complete`
+          if (a.type === 'create_quote') return `✓ Quote created for ${a.data.customer_name}`
+          if (a.type === 'edit_quote') return `✓ Quote updated`
+          if (a.type === 'update_quote_status') return `✓ ${a.data.customer_name}'s quote → ${a.data.new_status}`
+          if (a.type === 'convert_quote_to_deal') return `✓ ${a.data.customer_name}'s quote converted to deal`
+          if (a.type === 'update_event_types') return `✓ Event types updated`
+          if (a.type === 'update_customer_fields') return `✓ Custom fields updated`
+          if (a.type === 'update_terminology') return `✓ Sidebar labels updated — refresh to see changes`
+          if (a.type === 'toggle_feature_flag') return `✓ Feature flag "${a.data.flag}" ${a.data.enabled ? 'enabled' : 'disabled'}`
+          if (a.type === 'change_industry') return `✓ Industry changed to ${a.data.new_template_type} — refresh to see changes`
+          if (a.type === 'update_company') return `✓ Company details updated`
+          if (a.type === 'update_coverage') return `✓ Coverage areas updated`
+          if (a.type === 'update_working_hours') return `✓ Working hours updated`
+          if (a.type === 'publish_website') return `✓ Website ${a.data.published ? 'published' : 'unpublished'}`
+          if (a.type === 'update_website_settings') return `✓ Website settings updated`
+          if (a.type === 'bulk_email') return `✓ Bulk email sent to ${a.data.recipients?.length || 0} recipients`
+          if (a.type === 'create_email_template') return `✓ Email template "${a.data.name}" saved`
+          if (a.type === 'edit_social_post') return `✓ Post updated`
+          if (a.type === 'delete_social_post') return `✓ Post deleted`
           return `✓ Done`
         })
         setTimeout(() => {
@@ -297,7 +342,17 @@ export default function AiAssistant() {
       m.id === msgId ? { ...m, executing: false, executed: true, confirmed: true } : m
     ))
     const needsRefresh = actions.some(a => 
-      ['create_customer', 'create_deal', 'add_note', 'add_task', 'create_pipeline_stage', 'book_event', 'move_deal', 'edit_website'].includes(a.type)
+      ['create_customer', 'edit_customer', 'delete_customer', 'merge_customers',
+       'create_deal', 'edit_deal', 'delete_deal', 'move_deal',
+       'create_pipeline_stage', 'edit_stage', 'delete_stage', 'create_pipeline', 'edit_pipeline', 'delete_pipeline',
+       'add_note', 'add_task', 'complete_task', 'delete_task',
+       'book_event', 'edit_event', 'delete_event', 'complete_event',
+       'create_quote', 'edit_quote', 'update_quote_status', 'convert_quote_to_deal',
+       'edit_website', 'publish_website', 'update_website_settings',
+       'update_terminology', 'toggle_feature_flag', 'change_industry',
+       'update_company', 'update_coverage',
+       'edit_social_post', 'delete_social_post',
+      ].includes(a.type)
     )
 
     setMessages(prev => [...prev, {
