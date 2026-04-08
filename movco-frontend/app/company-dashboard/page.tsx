@@ -1226,6 +1226,38 @@ const saveCustomSources = async (sources: string[]) => {
     if (!error) setCustomSources(sources);
     return { error };
   };
+  const addTagToCustomer = async (customerId: string, tag: string) => {
+    if (!company) return;
+    const customer = customers.find(c => c.id === customerId);
+    if (!customer) return;
+    const currentTags: string[] = (customer as any).tags || [];
+    if (currentTags.includes(tag)) return;
+    const newTags = [...currentTags, tag];
+    const { error } = await supabase
+      .from('crm_customers')
+      .update({ tags: newTags })
+      .eq('id', customerId);
+    if (!error) {
+      setCustomers(prev => prev.map(c => c.id === customerId ? { ...c, tags: newTags } as any : c));
+      if (selectedCustomer?.id === customerId) setSelectedCustomer({ ...selectedCustomer, tags: newTags } as any);
+    }
+  };
+
+  const removeTagFromCustomer = async (customerId: string, tag: string) => {
+    if (!company) return;
+    const customer = customers.find(c => c.id === customerId);
+    if (!customer) return;
+    const currentTags: string[] = (customer as any).tags || [];
+    const newTags = currentTags.filter(t => t !== tag);
+    const { error } = await supabase
+      .from('crm_customers')
+      .update({ tags: newTags })
+      .eq('id', customerId);
+    if (!error) {
+      setCustomers(prev => prev.map(c => c.id === customerId ? { ...c, tags: newTags } as any : c));
+      if (selectedCustomer?.id === customerId) setSelectedCustomer({ ...selectedCustomer, tags: newTags } as any);
+    }
+  };
   const fetchAllCompanyTasks = async () => {
     if (!company) return;
     const { data } = await supabase
@@ -1667,6 +1699,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
                 onClickCustomer={openCustomerDetail}
                 stages={stages}
                 company={company}
+                onBulkEmail={(recipients) => { setBulkEmailRecipients(recipients); setShowBulkEmail(true); }}
               />
             )}
             {activeTab === 'whatsapp' && (
@@ -1807,6 +1840,9 @@ const [showDayPlan, setShowDayPlan] = useState(false);
           emailConnected={emailConnected}
           onSchedule={detailDeal ? () => { setSelectedDeal(detailDeal); setShowCustomerDetail(false); setShowQuickBookModal(true); } : undefined}
           onBookEvent={() => { setShowCustomerDetail(false); setEditingEvent(null); setEventPrefillDate(new Date()); setShowEventModal(true); }}
+          onAddTag={(tag: string) => addTagToCustomer(selectedCustomer.id, tag)}
+          onRemoveTag={(tag: string) => removeTagFromCustomer(selectedCustomer.id, tag)}
+          allTags={[...new Set(customers.flatMap((c: any) => c.tags || []))]}
           onCreateQuote={detailDeal ? () => { openQuoteFromDeal(detailDeal); setShowCustomerDetail(false); } : undefined}
           onDeleteDeal={detailDeal ? () => { deleteDeal(detailDeal.id); setShowCustomerDetail(false); } : undefined}
           onDayPlan={detailDeal ? () => { setShowCustomerDetail(false); setSelectedDeal(detailDeal); setShowDayPlan(true); } : undefined}
@@ -3835,7 +3871,7 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
 // CUSTOMERS TAB
 // ============================================
 
-function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEditCustomer, onDeleteCustomer, onSendQuoteLink, crmQuotes, onClickQuote, emailConnected, onComposeEmail, onClickCustomer, stages, company }: {
+function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEditCustomer, onDeleteCustomer, onSendQuoteLink, crmQuotes, onClickQuote, emailConnected, onComposeEmail, onClickCustomer, stages, company, onBulkEmail }: {
   customers: Customer[]; search: string; onSearchChange: (s: string) => void;
   onAddCustomer: () => void; onEditCustomer: (c: Customer) => void; onDeleteCustomer: (id: string) => void;
   onSendQuoteLink: (c: Customer) => void;
@@ -3846,11 +3882,17 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
   onClickCustomer: (c: Customer) => void;
   stages: PipelineStage[];
   company: Company;
+  onBulkEmail?: (recipients: { name: string; email: string }[]) => void;
 }) {
 
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
   const [pipelineCustomer, setPipelineCustomer] = useState<Customer | null>(null);
-  const filtered = customers.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()) || (c.email || '').toLowerCase().includes(search.toLowerCase()) || (c.phone || '').includes(search));
+  const [tagFilter, setTagFilter] = useState<string>('');
+  const allTags = [...new Set(customers.flatMap((c: any) => c.tags || []))].sort();
+  const filtered = customers.filter((c) => {
+    if (tagFilter && !((c as any).tags || []).includes(tagFilter)) return false;
+    return c.name.toLowerCase().includes(search.toLowerCase()) || (c.email || '').toLowerCase().includes(search.toLowerCase()) || (c.phone || '').includes(search);
+  });
   const totalRevenue = customers.reduce((s, c) => s + (c.total_revenue || 0), 0);
 
   return (
@@ -3881,6 +3923,29 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
           </button>
         </div>
       </div>
+
+      {allTags.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap mb-4">
+          <span className="text-xs text-gray-500 font-medium">Tags:</span>
+          <button onClick={() => setTagFilter('')} className={`px-2.5 py-1 rounded-full text-xs font-medium transition ${!tagFilter ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>All</button>
+          {allTags.map(tag => (
+            <button key={tag} onClick={() => setTagFilter(tagFilter === tag ? '' : tag)} className={`px-2.5 py-1 rounded-full text-xs font-medium transition ${tagFilter === tag ? 'bg-purple-600 text-white' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}`}>{tag}</button>
+          ))}
+          {tagFilter && onBulkEmail && (
+            <button
+              onClick={() => {
+                const taggedWithEmail = filtered.filter(c => c.email);
+                if (taggedWithEmail.length === 0) { alert('No contacts with email in this tag'); return; }
+                onBulkEmail(taggedWithEmail.map(c => ({ name: c.name, email: c.email! })));
+              }}
+              className="px-3 py-1 bg-blue-500 text-white rounded-full text-xs font-semibold hover:bg-blue-600 transition flex items-center gap-1 ml-2"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+              Email &quot;{tagFilter}&quot; ({filtered.filter(c => c.email).length})
+            </button>
+          )}
+        </div>
+      )}
 
       {filtered.length === 0 ? (
         <div className="bg-white rounded-xl border p-12 text-center"><p className="text-gray-500">{search ? 'No customers match your search' : 'Add your first customer to get started'}</p></div>
@@ -5796,7 +5861,7 @@ function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose,
 // CUSTOMER DETAIL POPUP
 // ============================================
 
-function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onClose, onAddNote, onDeleteNote, onAddTask, onToggleTask, onDeleteTask, onUploadFile, onDeleteFile, onEditCustomer, onComposeEmail, emailConnected, onSchedule, onCreateQuote, onDeleteDeal, events, quotes, onClickQuote, onDayPlan, onPrintInvoice, customFields, onBookEvent }: {
+function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onClose, onAddNote, onDeleteNote, onAddTask, onToggleTask, onDeleteTask, onUploadFile, onDeleteFile, onEditCustomer, onComposeEmail, emailConnected, onSchedule, onCreateQuote, onDeleteDeal, events, quotes, onClickQuote, onDayPlan, onPrintInvoice, customFields, onBookEvent, onAddTag, onRemoveTag, allTags }: {
   customer: Customer;
   notes: CustomerNote[];
   tasks: CustomerTask[];
@@ -5824,6 +5889,9 @@ function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onCl
   onPrintInvoice?: () => void;
   customFields?: { key: string; label: string; type: string }[];
   onBookEvent?: () => void;
+  onAddTag?: (tag: string) => void;
+  onRemoveTag?: (tag: string) => void;
+  allTags?: string[];
 }) {
   const [newNote, setNewNote] = useState('');
   const [saving, setSaving] = useState(false);
@@ -6087,6 +6155,35 @@ function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onCl
               <button onClick={onDeleteDeal} className="flex items-center gap-1.5 px-3 py-2 bg-red-50 text-red-600 text-sm font-medium rounded-lg hover:bg-red-100 transition ml-auto">🗑️ Delete</button>
             )}
           </div>
+
+          {/* ════════════════════════════════════════════ */}
+          {/* TAGS SECTION */}
+          {/* ════════════════════════════════════════════ */}
+          <div className="px-6 py-4 border-b">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                Tags
+                {((customer as any).tags || []).length > 0 && (
+                  <span className="text-xs font-semibold bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">{((customer as any).tags || []).length}</span>
+                )}
+              </h3>
+            </div>
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {((customer as any).tags || []).map((tag: string) => (
+                <span key={tag} className="inline-flex items-center gap-1 px-2.5 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-semibold group">
+                  {tag}
+                  {onRemoveTag && (
+                    <button onClick={() => onRemoveTag(tag)} className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-purple-400 hover:text-red-500 hover:bg-red-100 transition opacity-0 group-hover:opacity-100">
+                      <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  )}
+                </span>
+              ))}
+              {((customer as any).tags || []).length === 0 && <span className="text-xs text-gray-400 italic">No tags yet</span>}
+            </div>
+            {onAddTag && <TagAdder existingTags={(customer as any).tags || []} allTags={allTags || []} onAdd={onAddTag} />}
+          </div>
+
  {/* ════════════════════════════════════════════ */}
           {/* QUOTES SECTION */}
           {/* ════════════════════════════════════════════ */}
@@ -7240,8 +7337,64 @@ function StageManagerModal({ stages, deals, onClose, onAddStage, onUpdateStage, 
   );
 }
 // ============================================
-// SOURCES SETTINGS
+// TAG ADDER
 // ============================================
+
+function TagAdder({ existingTags, allTags, onAdd }: { existingTags: string[]; allTags: string[]; onAdd: (tag: string) => void }) {
+  const [isAdding, setIsAdding] = useState(false);
+  const [newTag, setNewTag] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const suggestions = allTags.filter(t => !existingTags.includes(t) && t.toLowerCase().includes(newTag.toLowerCase()));
+
+  const handleAdd = (tag: string) => {
+    const trimmed = tag.trim();
+    if (!trimmed || existingTags.includes(trimmed)) return;
+    onAdd(trimmed);
+    setNewTag('');
+    setIsAdding(false);
+  };
+
+  if (!isAdding) {
+    return (
+      <button
+        onClick={() => { setIsAdding(true); setTimeout(() => inputRef.current?.focus(), 50); }}
+        className="text-xs font-medium text-purple-600 hover:text-purple-800 px-2.5 py-1 bg-purple-50 rounded-lg hover:bg-purple-100 transition"
+      >
+        + Add Tag
+      </button>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <div className="flex gap-2">
+        <input
+          ref={inputRef}
+          value={newTag}
+          onChange={(e) => setNewTag(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && newTag.trim()) handleAdd(newTag);
+            if (e.key === 'Escape') { setIsAdding(false); setNewTag(''); }
+          }}
+          placeholder="Type a tag name..."
+          className="flex-1 px-3 py-1.5 border border-purple-200 rounded-lg text-sm focus:ring-2 focus:ring-purple-400 outline-none bg-purple-50/50"
+        />
+        <button onClick={() => { if (newTag.trim()) handleAdd(newTag); }} className="px-3 py-1.5 bg-purple-600 text-white text-xs font-semibold rounded-lg hover:bg-purple-700 transition">Add</button>
+        <button onClick={() => { setIsAdding(false); setNewTag(''); }} className="px-3 py-1.5 bg-gray-100 text-gray-500 text-xs font-medium rounded-lg hover:bg-gray-200 transition">Cancel</button>
+      </div>
+      {newTag && suggestions.length > 0 && (
+        <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-lg shadow-xl border border-gray-200 z-10 max-h-32 overflow-y-auto">
+          {suggestions.slice(0, 6).map(tag => (
+            <button key={tag} onClick={() => handleAdd(tag)} className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-purple-50 hover:text-purple-700 transition">
+              {tag}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function SourcesSettings({ sources, onSave }: { sources: string[]; onSave: (sources: string[]) => Promise<any> }) {
   const [localSources, setLocalSources] = useState(sources);
