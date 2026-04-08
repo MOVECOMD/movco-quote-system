@@ -1806,6 +1806,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
           onComposeEmail={() => { setComposeEmailCustomer(selectedCustomer); setShowComposeEmail(true); }}
           emailConnected={emailConnected}
           onSchedule={detailDeal ? () => { setSelectedDeal(detailDeal); setShowCustomerDetail(false); setShowQuickBookModal(true); } : undefined}
+          onBookEvent={() => { setShowCustomerDetail(false); setEditingEvent(null); setEventPrefillDate(new Date()); setShowEventModal(true); }}
           onCreateQuote={detailDeal ? () => { openQuoteFromDeal(detailDeal); setShowCustomerDetail(false); } : undefined}
           onDeleteDeal={detailDeal ? () => { deleteDeal(detailDeal.id); setShowCustomerDetail(false); } : undefined}
           onDayPlan={detailDeal ? () => { setShowCustomerDetail(false); setSelectedDeal(detailDeal); setShowDayPlan(true); } : undefined}
@@ -5795,7 +5796,7 @@ function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose,
 // CUSTOMER DETAIL POPUP
 // ============================================
 
-function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onClose, onAddNote, onDeleteNote, onAddTask, onToggleTask, onDeleteTask, onUploadFile, onDeleteFile, onEditCustomer, onComposeEmail, emailConnected, onSchedule, onCreateQuote, onDeleteDeal, events, quotes, onClickQuote, onDayPlan, onPrintInvoice, customFields }: {
+function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onClose, onAddNote, onDeleteNote, onAddTask, onToggleTask, onDeleteTask, onUploadFile, onDeleteFile, onEditCustomer, onComposeEmail, emailConnected, onSchedule, onCreateQuote, onDeleteDeal, events, quotes, onClickQuote, onDayPlan, onPrintInvoice, customFields, onBookEvent }: {
   customer: Customer;
   notes: CustomerNote[];
   tasks: CustomerTask[];
@@ -5822,6 +5823,7 @@ function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onCl
   onDayPlan?: () => void;
   onPrintInvoice?: () => void;
   customFields?: { key: string; label: string; type: string }[];
+  onBookEvent?: () => void;
 }) {
   const [newNote, setNewNote] = useState('');
   const [saving, setSaving] = useState(false);
@@ -6062,9 +6064,11 @@ function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onCl
 
           {/* Quick actions */}
           <div className="px-6 py-3 border-b flex flex-wrap gap-2">
-            {onSchedule && (
+            {onSchedule ? (
               <button onClick={onSchedule} className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">📅 Schedule</button>
-            )}
+            ) : onBookEvent ? (
+              <button onClick={onBookEvent} className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">📅 Book Event</button>
+            ) : null}
             {onCreateQuote && (
               <button onClick={onCreateQuote} className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition">📸 Create Quote</button>
             )}
