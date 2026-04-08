@@ -308,7 +308,7 @@ export default function AiAssistant() {
                   recipient_email: r.email,
                   recipient_name: r.name,
                   subject: action.data.subject,
-                  body_text: (action.data.body_template || '').replace(/\{\{name\}\}/g, r.name),
+                  body_text: (action.data.body_template || '').replace(/\{\{name\}\}/g, r.name).replace(/\{name\}/g, r.name),
                 }),
               })
               if (res.ok) sent++; else failed++

@@ -240,7 +240,7 @@ For reporting queries (conversion rate, average deal value, customer lifetime va
 - Match customers/deals by name fuzzy — "John" matches "John Smith"
 - ALWAYS set requires_confirm: true when there are ANY actions (except server-side-only: create_customer, create_deal, add_note, add_task, create_pipeline, create_pipeline_stage, update_event_types, update_customer_fields, edit_customer, delete_customer, merge_customers, edit_deal, delete_deal, edit_stage, delete_stage, edit_pipeline, delete_pipeline, complete_task, delete_task, edit_event, delete_event, complete_event, create_quote, edit_quote, update_quote_status, convert_quote_to_deal, edit_social_post, delete_social_post, publish_website, update_website_settings, update_terminology, toggle_feature_flag, change_industry, update_company, update_coverage, update_working_hours, create_email_template, create_automation, edit_automation, delete_automation, toggle_automation)
 - For ALL the server-side actions above, set requires_confirm: false — they execute immediately
-- For send_email, book_event, move_deal, schedule_post, send_quote_email: requires_confirm: true
+- For send_email, bulk_email, book_event, move_deal, schedule_post, send_quote_email: requires_confirm: true
 - Keep message to 1-2 short sentences. No bullet points, no bold, no lists.
 - Use the industry TERMINOLOGY from above
 - Never mention removals/moving/vans unless the company IS a removal company
@@ -497,7 +497,7 @@ For reporting queries (conversion rate, average deal value, customer lifetime va
               try {
                 const emailRes = await fetch(`${process.env.NEXT_PUBLIC_SITE_URL || 'https://movco-quote-system.vercel.app'}/api/email/send-custom`, {
                   method: 'POST', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ company_id: COMPANY_ID, recipient_email: r.email, recipient_name: r.name, subject: action.data.subject, body_text: action.data.body_template.replace('{{name}}', r.name) }),
+                  body: JSON.stringify({ company_id: COMPANY_ID, recipient_email: r.email, recipient_name: r.name, subject: action.data.subject, body_text: (action.data.body_template || '').replace(/\{\{name\}\}/g, r.name).replace(/\{name\}/g, r.name) }),
                 })
                 results.push(`✓ ${r.name}`)
               } catch { results.push(`✗ ${r.name}`) }
