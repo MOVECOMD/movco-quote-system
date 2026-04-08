@@ -500,13 +500,14 @@ if (!!subData || !!onActiveTrial) {
 
     const { data: configData } = await supabase
       .from('company_config')
-      .select('pdf_template, pricing_rules, custom_event_types, custom_customer_fields')
+      .select('pdf_template, pricing_rules, custom_event_types, custom_customer_fields, custom_sources')
       .eq('company_id', companyId)
       .maybeSingle();
     if (configData?.pdf_template) setPdfBranding(configData.pdf_template);
     if (configData?.pricing_rules) setPricingConfig((prev: any) => ({ ...prev, ...configData.pricing_rules }));
     if (configData?.custom_event_types) setCustomEventTypes(configData.custom_event_types);
     if (configData?.custom_customer_fields) setCustomCustomerFields(configData.custom_customer_fields);
+    if (configData?.custom_sources && configData.custom_sources.length > 0) setCustomSources(configData.custom_sources);
   };
 
 
@@ -1156,6 +1157,7 @@ const [customEventTypes, setCustomEventTypes] = useState<{ key: string; label: s
   { key: 'other', label: 'Other', color: '#6b7280' },
 ]);
 const [customCustomerFields, setCustomCustomerFields] = useState<{ key: string; label: string; type: string }[]>([]);
+const [customSources, setCustomSources] = useState<string[]>(['Website', 'Phone Call', 'Referral', 'Social Media', 'Walk-in', 'Google', 'Facebook', 'Instagram', 'Other']);
 // ── Costs ──
   const fetchCosts = async () => {
     if (!company) return;
@@ -1216,7 +1218,14 @@ const [customCustomerFields, setCustomCustomerFields] = useState<{ key: string; 
     if (!error) setCustomCustomerFields(fields);
     return { error };
   };
-
+const saveCustomSources = async (sources: string[]) => {
+    if (!company) return;
+    const { error } = await supabase
+      .from('company_config')
+      .upsert({ company_id: company.id, custom_sources: sources }, { onConflict: 'company_id' });
+    if (!error) setCustomSources(sources);
+    return { error };
+  };
   const fetchAllCompanyTasks = async () => {
     if (!company) return;
     const { data } = await supabase
@@ -1668,7 +1677,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
               <ReportsTab leads={leads} deals={deals} customers={customers} events={events} crmQuotes={crmQuotes} company={company} costs={crmCosts} onAddCost={addCost} onUpdateCost={updateCost} onDeleteCost={deleteCost} />
             )}
             {activeTab === 'settings' && (
-              <SettingsTab company={company} crmActive={crmActive} onSubscribe={startCrmSubscription} emailConnected={emailConnected} emailAddress={emailAddress} emailLoading={emailLoading} onDisconnectEmail={disconnectEmail} pdfBranding={pdfBranding} onSavePdfBranding={async (branding: any) => { const { error } = await supabase.from('company_config').upsert({ company_id: company.id, pdf_template: branding }, { onConflict: 'company_id' }); if (!error) setPdfBranding(branding); return { error }; }} customEventTypes={customEventTypes} onSaveEventTypes={saveCustomEventTypes} customCustomerFields={customCustomerFields} onSaveCustomerFields={saveCustomCustomerFields} />
+              <SettingsTab company={company} crmActive={crmActive} onSubscribe={startCrmSubscription} emailConnected={emailConnected} emailAddress={emailAddress} emailLoading={emailLoading} onDisconnectEmail={disconnectEmail} pdfBranding={pdfBranding} onSavePdfBranding={async (branding: any) => { const { error } = await supabase.from('company_config').upsert({ company_id: company.id, pdf_template: branding }, { onConflict: 'company_id' }); if (!error) setPdfBranding(branding); return { error }; }} customEventTypes={customEventTypes} onSaveEventTypes={saveCustomEventTypes} customCustomerFields={customCustomerFields} onSaveCustomerFields={saveCustomCustomerFields} customSources={customSources} onSaveSources={saveCustomSources} />
             )}
           </div>
         </div>
@@ -1701,6 +1710,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
           onSave={saveCustomer}
           onClose={() => { setShowCustomerModal(false); setEditingCustomer(null); }}
           customFields={customCustomerFields}
+          customSources={customSources}
         />
       )}
 
@@ -4443,7 +4453,7 @@ function ReportsTab({ leads, deals, customers, events, crmQuotes, company, costs
 // SETTINGS TAB
 // ============================================
 
-function SettingsTab({ company, crmActive, onSubscribe, emailConnected, emailAddress, emailLoading, onDisconnectEmail, pdfBranding, onSavePdfBranding, customEventTypes, onSaveEventTypes, customCustomerFields, onSaveCustomerFields }: { company: Company; crmActive: boolean; onSubscribe: () => void; emailConnected: boolean; emailAddress: string | null; emailLoading: boolean; onDisconnectEmail: () => void; pdfBranding?: any; onSavePdfBranding?: (branding: any) => Promise<any>; customEventTypes?: { key: string; label: string; color: string }[]; onSaveEventTypes?: (types: any[]) => Promise<any>; customCustomerFields?: { key: string; label: string; type: string }[]; onSaveCustomerFields?: (fields: any[]) => Promise<any>; }) {
+function SettingsTab({ company, crmActive, onSubscribe, emailConnected, emailAddress, emailLoading, onDisconnectEmail, pdfBranding, onSavePdfBranding, customEventTypes, onSaveEventTypes, customCustomerFields, onSaveCustomerFields, customSources, onSaveSources }: { company: Company; crmActive: boolean; onSubscribe: () => void; emailConnected: boolean; emailAddress: string | null; emailLoading: boolean; onDisconnectEmail: () => void; pdfBranding?: any; onSavePdfBranding?: (branding: any) => Promise<any>; customEventTypes?: { key: string; label: string; color: string }[]; onSaveEventTypes?: (types: any[]) => Promise<any>; customCustomerFields?: { key: string; label: string; type: string }[]; onSaveCustomerFields?: (fields: any[]) => Promise<any>; customSources?: string[]; onSaveSources?: (sources: string[]) => Promise<any>; }) {
   return (
     <div>
       <div className="mb-6"><h2 className="text-2xl font-bold text-gray-900">Settings & Billing</h2></div>
@@ -4525,6 +4535,10 @@ function SettingsTab({ company, crmActive, onSubscribe, emailConnected, emailAdd
       {/* CUSTOM CUSTOMER FIELDS */}
       {onSaveCustomerFields && (
         <CustomerFieldsSettings fields={customCustomerFields || []} onSave={onSaveCustomerFields} />
+      )}
+
+      {onSaveSources && (
+        <SourcesSettings sources={customSources || []} onSave={onSaveSources} />
       )}
     </div>
   );
@@ -5233,7 +5247,7 @@ function EventModal({ event, onSave, onClose, emailConnected, prefillDate, event
 // CUSTOMER MODAL
 // ============================================
 
-function CustomerModal({ customer, stages, onSave, onClose, customFields }: { customer: Customer | null; stages: PipelineStage[]; onSave: (c: Partial<Customer>, stageId?: string) => void; onClose: () => void; customFields?: { key: string; label: string; type: string; options?: string[] }[]; }) {
+function CustomerModal({ customer, stages, onSave, onClose, customFields, customSources }: { customer: Customer | null; stages: PipelineStage[]; onSave: (c: Partial<Customer>, stageId?: string) => void; onClose: () => void; customFields?: { key: string; label: string; type: string; options?: string[] }[]; customSources?: string[]; }) {
   const [form, setForm] = useState({ name: customer?.name || '', email: customer?.email || '', phone: customer?.phone || '', address: customer?.address || '', notes: customer?.notes || '', source: customer?.source || '', moving_from: customer?.moving_from || '', moving_to: customer?.moving_to || '', moving_date: customer?.moving_date || '' });
   const [selectedStage, setSelectedStage] = useState('');
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>((customer as any)?.custom_fields || {});
@@ -5247,7 +5261,7 @@ function CustomerModal({ customer, stages, onSave, onClose, customFields }: { cu
             <div className="space-y-3">
               <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Full name *" className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
               <div className="grid grid-cols-2 gap-3"><div className="space-y-2">{(form.email || '').split(',').map((em, idx) => (<div key={idx} className="flex items-center gap-1.5"><input value={em.trim()} onChange={(e) => { const emails = (form.email || '').split(',').map(x => x.trim()); emails[idx] = e.target.value; setForm({ ...form, email: emails.filter((x, i) => x || i === 0).join(', ') }); }} placeholder={idx === 0 ? "Email" : "Additional email"} type="email" className="flex-1 px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />{idx > 0 && (<button type="button" onClick={() => { const emails = (form.email || '').split(',').map(x => x.trim()).filter((_, i) => i !== idx); setForm({ ...form, email: emails.join(', ') }); }} className="w-8 h-8 flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition flex-shrink-0"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>)}</div>))}<button type="button" onClick={() => setForm({ ...form, email: (form.email || '') + ', ' })} className="text-xs text-blue-600 hover:text-blue-800 font-medium px-2 py-1 bg-blue-50 rounded-lg hover:bg-blue-100 transition">+ Add email</button></div><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="Phone number" type="tel" className="px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none h-fit" /></div>
-              <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none text-gray-700"><option value="">Source (how did they find you?)</option><option value="Website">Website</option><option value="Phone Call">Phone Call</option><option value="Referral">Referral</option><option value="Social Media">Social Media</option><option value="Walk-in">Walk-in</option><option value="Other">Other</option></select>
+             <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none text-gray-700"><option value="">Source (how did they find you?)</option>{(customSources || ['Website','Phone Call','Referral','Social Media','Walk-in','Other']).map(s => <option key={s} value={s}>{s}</option>)}</select>
             </div>
           </div>
           <div><p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Move Details</p>
@@ -7202,6 +7216,95 @@ function StageManagerModal({ stages, deals, onClose, onAddStage, onUpdateStage, 
           </div>
         )}
       </div>
+    </div>
+  );
+}
+// ============================================
+// SOURCES SETTINGS
+// ============================================
+
+function SourcesSettings({ sources, onSave }: { sources: string[]; onSave: (sources: string[]) => Promise<any> }) {
+  const [localSources, setLocalSources] = useState(sources);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [addingNew, setAddingNew] = useState(false);
+  const [newSource, setNewSource] = useState('');
+
+  const handleSave = async (updated: string[]) => {
+    setSaving(true);
+    await onSave(updated);
+    setLocalSources(updated);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const addSource = () => {
+    const trimmed = newSource.trim();
+    if (!trimmed || localSources.includes(trimmed)) return;
+    handleSave([...localSources, trimmed]);
+    setNewSource('');
+    setAddingNew(false);
+  };
+
+  const removeSource = (source: string) => {
+    if (!confirm(`Remove "${source}" source?`)) return;
+    handleSave(localSources.filter(s => s !== source));
+  };
+
+  const moveSource = (idx: number, dir: 'up' | 'down') => {
+    const target = dir === 'up' ? idx - 1 : idx + 1;
+    if (target < 0 || target >= localSources.length) return;
+    const updated = [...localSources];
+    [updated[idx], updated[target]] = [updated[target], updated[idx]];
+    handleSave(updated);
+  };
+
+  return (
+    <div className="bg-white rounded-xl border p-6 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="font-bold text-gray-900">Contact Sources</h3>
+          <p className="text-sm text-gray-500 mt-0.5">Customise how contacts found you</p>
+        </div>
+        {saved && <span className="text-xs font-semibold text-green-600 bg-green-50 px-3 py-1 rounded-full">✓ Saved</span>}
+      </div>
+
+      <div className="space-y-1.5 mb-4">
+        {localSources.map((source, idx) => (
+          <div key={source} className="flex items-center gap-3 px-3 py-2.5 bg-gray-50 rounded-lg group">
+            <div className="flex flex-col gap-0.5">
+              <button onClick={() => moveSource(idx, 'up')} className="text-gray-300 hover:text-gray-600 transition text-[10px]">▲</button>
+              <button onClick={() => moveSource(idx, 'down')} className="text-gray-300 hover:text-gray-600 transition text-[10px]">▼</button>
+            </div>
+            <span className="flex-1 text-sm font-medium text-gray-800">{source}</span>
+            <button onClick={() => removeSource(source)} className="text-gray-300 hover:text-red-500 transition opacity-0 group-hover:opacity-100">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {addingNew ? (
+        <div className="flex gap-2">
+          <input
+            value={newSource}
+            onChange={(e) => setNewSource(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') addSource(); if (e.key === 'Escape') { setAddingNew(false); setNewSource(''); } }}
+            autoFocus
+            placeholder="Source name (e.g. Yell.com)"
+            className="flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+          />
+          <button onClick={addSource} className="px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition">Add</button>
+          <button onClick={() => { setAddingNew(false); setNewSource(''); }} className="px-4 py-2 bg-gray-100 text-gray-600 text-xs font-medium rounded-lg hover:bg-gray-200 transition">Cancel</button>
+        </div>
+      ) : (
+        <button onClick={() => setAddingNew(true)} className="w-full py-2.5 border-2 border-dashed border-gray-200 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 transition">
+          + Add Source
+        </button>
+      )}
     </div>
   );
 }
