@@ -81,6 +81,26 @@ Keep responses short and friendly. One question at a time. Always return valid J
     }
 
     // Fetch ALL live CRM context including real pipeline stages
+    // ── Load industry context ──
+    const { data: companyData } = await supabase
+      .from('companies')
+      .select('name, template_type')
+      .eq('id', COMPANY_ID)
+      .maybeSingle()
+
+    const templateType = companyData?.template_type || 'removals'
+    const companyName = companyData?.name || 'the company'
+
+    const { data: templateConfig } = await supabase
+      .from('template_configs')
+      .select('terminology, feature_flags, label, ai_prompt_context')
+      .eq('template_type', templateType)
+      .maybeSingle()
+
+    const terminology = templateConfig?.terminology || {}
+    const featureFlags = templateConfig?.feature_flags || {}
+    const industryLabel = templateConfig?.label || 'Business'
+    const industryContext = templateConfig?.ai_prompt_context || 'General business.'
     const [dealsRes, customersRes, eventsRes, pipelinesRes, stagesRes, tasksRes, quotesRes, websiteRes, mediaRes] = await Promise.all([
       supabase.from('crm_deals').select('id, customer_name, customer_email, customer_phone, stage_id, moving_date, estimated_value, moving_from, moving_to, notes, created_at').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }),
       supabase.from('crm_customers').select('id, name, email, phone, moving_from, moving_to, moving_date, notes').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(100),
@@ -131,7 +151,14 @@ Keep responses short and friendly. One question at a time. Always return valid J
       return d >= today && d <= weekEnd
     }) || []
 
-    const systemPrompt = `You are an AI assistant built into MOVCO, a CRM for removal companies. You help the user manage their business through natural language.
+    const systemPrompt = `You are an AI assistant built into BuildYourManagement (BYM), a multi-industry CRM platform. You are currently helping "${companyName}", which is a ${industryLabel} business. ${industryContext}
+
+INDUSTRY: ${templateType} (${industryLabel})
+TERMINOLOGY: ${JSON.stringify(terminology)}
+Use the terminology above when referring to CRM concepts. For example, if "customers" maps to "Patients", say "Patients" not "Customers". If "deals" maps to "Jobs", say "Jobs" not "Deals". If "diary" maps to "Appointments", say "Appointments" not "Diary". Always use the industry-specific language.
+
+FEATURE FLAGS: ${JSON.stringify(featureFlags)}
+Only suggest features that are enabled. For example, if show_quote_builder is false, don't suggest creating quotes. If show_coverage_postcodes is false, don't ask about coverage areas.
 
 Today's date: ${todayStr}
 
@@ -212,6 +239,9 @@ RULES:
 - You CAN and SHOULD execute create_customer, create_deal, add_note and add_task actions — they are fully connected to the live database. Never tell the user to do it manually.
 - When a user asks to add a contact or create a deal, always return the appropriate action JSON — do not apologise or say you cannot do it
 - Match customers/deals by name fuzzy — "John" matches "John Smith"
+- Use the TERMINOLOGY from above when talking to the user — say "${terminology.customers || 'Customers'}" instead of "customers", say "${terminology.deals || 'Deals'}" instead of "deals", say "${terminology.diary || 'Diary'}" instead of "diary", etc.
+- When creating events, use event types that make sense for the ${industryLabel} industry — don't use "Moving Day" for a dentist or "Survey" for a barber
+- You are NOT a removal company assistant — you are a ${industryLabel} assistant. Never mention removals, moving, vans, or packing unless the company is actually a removal company.
 - ALWAYS set requires_confirm: true when there are ANY actions — no exceptions
 - For read-only answers only: requires_confirm: false, use "answer" action type
 - Never set requires_confirm: false when there are actions in the array

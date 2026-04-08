@@ -29,11 +29,11 @@ type Message = {
 
 const QUICK_COMMANDS = [
   "What's my revenue this month?",
-  "What jobs are coming up this week?",
+  "What's coming up this week?",
   "Show pipeline value by stage",
   "What tasks are overdue?",
-  "What's booked in the diary this week?",
-  "Show me all deals in Quote Sent",
+  "Add a new customer",
+  "Help me configure my CRM",
 ]
 
 export default function AiAssistant() {
@@ -416,8 +416,8 @@ export default function AiAssistant() {
                 </svg>
               </div>
               <div>
-                <p style={{ color: '#fff', fontWeight: 700, fontSize: '14px', margin: 0 }}>MOVCO Assistant</p>
-                <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '11px', margin: 0 }}>Ask anything · Execute actions · Voice enabled</p>
+                <p style={{ color: '#fff', fontWeight: 700, fontSize: '14px', margin: 0 }}>BYM Assistant</p>
+                <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '11px', margin: 0 }}>Configure · Manage · Automate</p>
               </div>
               <button onClick={() => setMessages([])} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontSize: '11px', padding: '4px 8px', borderRadius: '6px' }}>
                 Clear
