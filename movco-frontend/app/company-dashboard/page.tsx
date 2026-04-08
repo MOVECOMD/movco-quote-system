@@ -1648,6 +1648,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
                 onToggleComplete={toggleEventComplete}
                 onClickEvent={(event) => { setSelectedEvent(event); setShowEventDetail(true); }}
                 onRescheduleEvent={rescheduleEvent}
+                customEventTypes={customEventTypes}
               />
             )}
             {activeTab === 'customers' && (
@@ -3329,11 +3330,12 @@ function PipelineTab({ pipelines, activePipelineId, onSwitchPipeline, onCreatePi
 // DIARY TAB
 // ============================================
 
-function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEditEvent, onDeleteEvent, onToggleComplete, onClickEvent, onRescheduleEvent }: {
+function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEditEvent, onDeleteEvent, onToggleComplete, onClickEvent, onRescheduleEvent, customEventTypes }: {
   events: DiaryEvent[]; deals: Deal[]; selectedDate: Date; onSelectDate: (d: Date) => void;
   onAddEvent: (prefillDate?: Date) => void; onEditEvent: (e: DiaryEvent) => void; onDeleteEvent: (id: string) => void; onToggleComplete: (id: string, c: boolean) => void;
   onClickEvent: (e: DiaryEvent) => void;
   onRescheduleEvent: (eventId: string, newDate: Date) => void;
+  customEventTypes?: { key: string; label: string; color: string }[];
 }) {
   const [viewMode, setViewMode] = useState<'month' | 'week' | 'day'>('month');
   const [dragEventId, setDragEventId] = useState<string | null>(null);
@@ -3366,7 +3368,12 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
   const goToPrevDay = () => { const prev = new Date(selectedDate); prev.setDate(prev.getDate() - 1); onSelectDate(prev); };
   const goToNextDay = () => { const next = new Date(selectedDate); next.setDate(next.getDate() + 1); onSelectDate(next); };
 
-  const eventTypeColors: Record<string, { bg: string; border: string; text: string }> = {
+  // Build color lookup from custom event types
+  const customColorMap: Record<string, string> = {};
+  if (customEventTypes) {
+    customEventTypes.forEach(et => { customColorMap[et.key] = et.color; });
+  }
+  const fallbackColors: Record<string, { bg: string; border: string; text: string }> = {
     job: { bg: 'bg-blue-100', border: 'border-blue-400', text: 'text-blue-800' },
     survey: { bg: 'bg-purple-100', border: 'border-purple-400', text: 'text-purple-800' },
     callback: { bg: 'bg-yellow-100', border: 'border-yellow-400', text: 'text-yellow-800' },
@@ -3374,6 +3381,13 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
     packing: { bg: 'bg-orange-100', border: 'border-orange-400', text: 'text-orange-800' },
     other: { bg: 'bg-gray-100', border: 'border-gray-400', text: 'text-gray-800' },
   };
+  const getEventColor = (eventType: string) => {
+    const hex = customColorMap[eventType];
+    if (hex) return { hex, bg: '', border: '', text: '' };
+    return { hex: '', ...(fallbackColors[eventType] || fallbackColors.other) };
+  };
+  // Keep this alias so existing references still work
+  const eventTypeColors = fallbackColors;
 
   const hours = Array.from({ length: 17 }, (_, i) => i + 6);
 
@@ -3475,6 +3489,7 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
                   <span className={`text-xs font-semibold mb-1 ${isTodayCell && !isSelected ? 'bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center' : ''}`}>{day}</span>
                   {dayEvents.slice(0, 2).map((evt, i) => {
                     const colors = eventTypeColors[evt.event_type] || eventTypeColors.other;
+                    const evtColors = getEventColor(evt.event_type);
                     return (
                       <div
                         key={i}
@@ -3488,7 +3503,8 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
                         onDragEnd={() => { setDragEventId(null); setDragOverDay(null); }}
                         className={`w-full text-left truncate text-[10px] px-1 py-0.5 rounded mb-0.5 cursor-grab active:cursor-grabbing ${
                           dragEventId === evt.id ? 'opacity-40' : ''
-                        } ${isSelected ? 'bg-white/20 text-white' : `${colors.bg} ${colors.text}`}`}
+                        } ${isSelected ? 'bg-white/20 text-white' : !evtColors.hex ? `${evtColors.bg} ${evtColors.text}` : ''}`}
+                        style={!isSelected && evtColors.hex ? { backgroundColor: evtColors.hex + '20', color: evtColors.hex } : undefined}
                       >
                         {new Date(evt.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} {evt.title}
                       </div>
@@ -3729,9 +3745,9 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
           {selectedDayEvents.filter(e => !isEventVisible(e)).length > 0 && (
             <div className="px-5 py-2 border-b bg-amber-50">
               <p className="text-xs font-semibold text-amber-700 mb-1">Other times</p>
-              {selectedDayEvents.filter(e => !isEventVisible(e)).map((event) => {
-                const colors = eventTypeColors[event.event_type] || eventTypeColors.other;
-                return <div key={event.id} onClick={() => onClickEvent(event)} className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium cursor-pointer mr-2 mb-1 ${colors.bg} ${colors.text}`}>{new Date(event.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} {event.title}</div>;
+             {selectedDayEvents.filter(e => !isEventVisible(e)).map((event) => {
+                const otColors = getEventColor(event.event_type);
+                return <div key={event.id} onClick={() => onClickEvent(event)} className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium cursor-pointer mr-2 mb-1 ${!otColors.hex ? `${otColors.bg} ${otColors.text}` : ''}`} style={otColors.hex ? { backgroundColor: otColors.hex + '20', color: otColors.hex } : undefined}>{new Date(event.start_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} {event.title}</div>;
               })}
             </div>
           )}
@@ -3772,7 +3788,7 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
 
               {selectedDayEvents.filter(isEventVisible).map((event) => {
                 const style = getEventStyle(event);
-                const colors = eventTypeColors[event.event_type] || eventTypeColors.other;
+                const dayEvtColors = getEventColor(event.event_type);
                 const startTime = new Date(event.start_time);
                 const endTime = event.end_time ? new Date(event.end_time) : null;
                 return (
@@ -3787,12 +3803,12 @@ function DiaryTab({ events, deals, selectedDate, onSelectDate, onAddEvent, onEdi
                     onDragEnd={() => { setDragEventId(null); setDragOverHour(null); }}
                     className={`absolute left-16 sm:left-20 right-2 z-10 rounded-lg border-l-4 px-3 py-1.5 cursor-grab active:cursor-grabbing hover:shadow-md transition-all overflow-hidden ${
                       dragEventId === event.id ? 'opacity-40' : ''
-                    } ${colors.bg} ${colors.border} ${event.completed ? 'opacity-50' : ''}`}
-                    style={{ top: style.top, height: style.height, minHeight: '28px' }}
+                    } ${!dayEvtColors.hex ? `${dayEvtColors.bg} ${dayEvtColors.border}` : ''} ${event.completed ? 'opacity-50' : ''}`}
+                    style={{ top: style.top, height: style.height, minHeight: '28px', ...(dayEvtColors.hex ? { backgroundColor: dayEvtColors.hex + '20', borderColor: dayEvtColors.hex } : {}) }}
                     onClick={() => onClickEvent(event)}
                   >                    <div className="flex items-start justify-between gap-1">
                       <div className="flex-1 min-w-0">
-                        <p className={`text-sm font-semibold truncate ${colors.text}`}>{event.title}</p>
+                        <p className={`text-sm font-semibold truncate ${!dayEvtColors.hex ? dayEvtColors.text : ''}`} style={dayEvtColors.hex ? { color: dayEvtColors.hex } : undefined}>{event.title}</p>
                         <p className="text-[11px] text-gray-500">{startTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}{endTime && ` – ${endTime.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}</p>
                         {event.customer_name && <p className="text-[11px] text-gray-500 truncate">{event.customer_name}</p>}
                         {event.location && <p className="text-[10px] text-gray-400 truncate">📍 {event.location}</p>}
