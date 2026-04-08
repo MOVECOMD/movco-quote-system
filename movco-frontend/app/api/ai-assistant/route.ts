@@ -64,9 +64,9 @@ Keep responses short and friendly. One question at a time. Always return valid J
     // ═══════════════════════════════════════
     // LOAD ALL CONTEXT
     // ═══════════════════════════════════════
-    const { data: companyData } = await supabase.from('companies').select('name, email, phone, template_type, address').eq('id', COMPANY_ID).maybeSingle()
+    const { data: companyData } = await supabase.from('companies').select('*').eq('id', COMPANY_ID).maybeSingle()
     const templateType = companyData?.template_type || 'removals'
-    const companyName = companyData?.name || 'the company'
+    const companyName = companyData?.company_name || companyData?.name || 'the company'
     const { data: templateConfig } = await supabase.from('template_configs').select('terminology, feature_flags, label, ai_prompt_context').eq('template_type', templateType).maybeSingle()
     const terminology = templateConfig?.terminology || {}
     const featureFlags = templateConfig?.feature_flags || {}
