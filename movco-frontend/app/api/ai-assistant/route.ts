@@ -571,7 +571,10 @@ For reporting queries (conversion rate, average deal value, customer lifetime va
           }
 
           if (action.type === 'change_industry') {
-            const { new_template_type, reseed } = action.data
+  let { new_template_type, reseed } = action.data
+  // Fix common aliases
+  const aliasMap: Record<string, string> = { dentist: 'dental', veterinary: 'vet', lawyer: 'solicitor', hairdresser: 'salon', barbershop: 'barber', physiotherapist: 'physio', garage: 'mechanic' }
+  if (aliasMap[new_template_type]) new_template_type = aliasMap[new_template_type]
             const { error } = await supabase.from('companies').update({ template_type: new_template_type }).eq('id', COMPANY_ID)
             if (error) { action.data.error = error.message; continue }
             if (reseed) {
