@@ -141,6 +141,7 @@ export default function AiAssistant() {
         'publish_website', 'update_website_settings',
         'bulk_email', 'create_email_template',
         'edit_social_post', 'delete_social_post',
+        'create_automation', 'edit_automation', 'delete_automation', 'toggle_automation',
       ]
       const hasServerSideOnly = actions.length > 0 && actions.every((a: Action) => serverSideActions.includes(a.type))
       const hasWebsiteEdit = actions.some((a: Action) => a.type === 'edit_website')
@@ -216,6 +217,10 @@ export default function AiAssistant() {
           if (a.type === 'create_email_template') return `✓ Email template "${a.data.name}" saved`
           if (a.type === 'edit_social_post') return `✓ Post updated`
           if (a.type === 'delete_social_post') return `✓ Post deleted`
+          if (a.type === 'create_automation') return `✓ Automation "${a.data.name}" created`
+          if (a.type === 'edit_automation') return `✓ Automation updated`
+          if (a.type === 'delete_automation') return `✓ Automation "${a.data.automation_name}" deleted`
+          if (a.type === 'toggle_automation') return `✓ Automation "${a.data.automation_name}" ${a.data.enabled ? 'enabled' : 'disabled'}`
           return `✓ Done`
         })
         setTimeout(() => {
@@ -352,6 +357,7 @@ export default function AiAssistant() {
        'update_terminology', 'toggle_feature_flag', 'change_industry',
        'update_company', 'update_coverage',
        'edit_social_post', 'delete_social_post',
+       'create_automation', 'edit_automation', 'delete_automation', 'toggle_automation',
       ].includes(a.type)
     )
 
