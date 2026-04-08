@@ -85,7 +85,7 @@ Keep responses short and friendly. One question at a time. Always return valid J
       supabase.from('media_library').select('id, name, url, type').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(30),
       supabase.from('company_config').select('custom_event_types, custom_customer_fields').eq('company_id', COMPANY_ID).maybeSingle(),
       supabase.from('social_posts').select('id, content, platforms, status, scheduled_at, posted_at').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(20),
-      supabase.from('crm_automations').select('id, name, trigger_type, action_type, enabled, config').eq('company_id', COMPANY_ID).limit(20).then((r: any) => r).catch(() => ({ data: [] as any[] })),
+      supabase.from('automation_sequences').select('*, automation_steps(*)').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(20),
     ])
 
     const allPipelines = pipelinesRes.data || []
@@ -133,6 +133,7 @@ Events: ${JSON.stringify(eventsRes.data || [])}
 Quotes: ${JSON.stringify(quotesRes.data || [])}
 Tasks: ${JSON.stringify(tasksRes.data?.slice(0, 30) || [])}
 Social posts: ${JSON.stringify(socialRes.data?.slice(0, 10) || [])}
+Automations: ${JSON.stringify((automationsRes.data || []).map((a: any) => ({ id: a.id, name: a.name, trigger: a.trigger_type, active: a.active, steps: (a.automation_steps || []).length })))}
 Event types config: ${JSON.stringify(configRes.data?.custom_event_types || [])}
 Custom fields config: ${JSON.stringify(configRes.data?.custom_customer_fields || [])}
 Website: slug=${websiteRes.data?.slug || 'none'}, published=${websiteRes.data?.published || false}, has_custom_html=${!!websiteRes.data?.custom_html}
@@ -222,7 +223,13 @@ COMPANY SETTINGS:
 update_company: { "type": "update_company", "data": { "updates": { "name": "x", "email": "x", "phone": "x", "address": "x" } } }
 update_coverage: { "type": "update_coverage", "data": { "postcodes": ["AB1", "AB2"] } }
 update_working_hours: { "type": "update_working_hours", "data": { "hours": { "monday": {"start": "09:00", "end": "17:00"}, "tuesday": {"start": "09:00", "end": "17:00"} } } }
-
+AUTOMATION ACTIONS:
+create_automation: { "type": "create_automation", "data": { "name": "Welcome email on new lead", "description": "Sends welcome email when a new deal is created", "trigger_type": "new_deal|stage_change|quote_sent|quote_accepted|quote_declined|days_before_move|no_response|manual", "trigger_config": { "stage_id": "uuid (for stage_change)", "days_before": 3, "days_without_response": 3 }, "action_type": "send_email", "action_config": { "subject": "Welcome!", "body": "Hi {name}, thanks for your enquiry..." }, "steps": [{"step_type": "send_email", "config": {"subject": "x", "body": "x"}, "delay_value": 0, "delay_unit": "hours"}] } }
+edit_automation: { "type": "edit_automation", "data": { "automation_id": "uuid", "updates": { "name": "x", "active": true } } }
+delete_automation: { "type": "delete_automation", "data": { "automation_id": "uuid", "automation_name": "x" } }
+toggle_automation: { "type": "toggle_automation", "data": { "automation_id": "uuid", "automation_name": "x", "enabled": true|false } }
+Variables for email/message templates: {name}, {email}, {phone}, {moving_from}, {moving_to}, {moving_date}, {value}, {notes}
+For single-step automations use action_type + action_config. For multi-step use the steps array.
 REPORTING (answer type — no action needed):
 answer: { "type": "answer", "data": { "summary": "x" } }
 For reporting queries (conversion rate, average deal value, customer lifetime value, etc), compute from the data above and return as answer type.
@@ -231,7 +238,7 @@ For reporting queries (conversion rate, average deal value, customer lifetime va
 - ALWAYS use real IDs from data above — never invent IDs
 - When creating stages, always include pipeline_id
 - Match customers/deals by name fuzzy — "John" matches "John Smith"
-- ALWAYS set requires_confirm: true when there are ANY actions (except server-side-only: create_customer, create_deal, add_note, add_task, create_pipeline, create_pipeline_stage, update_event_types, update_customer_fields, edit_customer, delete_customer, merge_customers, edit_deal, delete_deal, edit_stage, delete_stage, edit_pipeline, delete_pipeline, complete_task, delete_task, edit_event, delete_event, complete_event, create_quote, edit_quote, update_quote_status, convert_quote_to_deal, edit_social_post, delete_social_post, publish_website, update_website_settings, update_terminology, toggle_feature_flag, change_industry, update_company, update_coverage, update_working_hours, bulk_email, create_email_template)
+- ALWAYS set requires_confirm: true when there are ANY actions (except server-side-only: create_customer, create_deal, add_note, add_task, create_pipeline, create_pipeline_stage, update_event_types, update_customer_fields, edit_customer, delete_customer, merge_customers, edit_deal, delete_deal, edit_stage, delete_stage, edit_pipeline, delete_pipeline, complete_task, delete_task, edit_event, delete_event, complete_event, create_quote, edit_quote, update_quote_status, convert_quote_to_deal, edit_social_post, delete_social_post, publish_website, update_website_settings, update_terminology, toggle_feature_flag, change_industry, update_company, update_coverage, update_working_hours, bulk_email, create_email_template, create_automation, edit_automation, delete_automation, toggle_automation)
 - For ALL the server-side actions above, set requires_confirm: false — they execute immediately
 - For send_email, book_event, move_deal, schedule_post, send_quote_email: requires_confirm: true
 - Keep message to 1-2 short sentences. No bullet points, no bold, no lists.
@@ -587,7 +594,64 @@ For reporting queries (conversion rate, average deal value, customer lifetime va
             }
             action.data.changed = true
           }
+// ── AUTOMATION ACTIONS ──
+          if (action.type === 'create_automation') {
+            const d = action.data
+            const { data: seq, error: seqErr } = await supabase.from('automation_sequences').insert({
+              company_id: COMPANY_ID,
+              name: d.name,
+              description: d.description || null,
+              trigger_type: d.trigger_type,
+              trigger_config: d.trigger_config || {},
+              active: true,
+            }).select().single()
+            if (seqErr) { action.data.error = seqErr.message; } else {
+              // Insert steps
+              const steps = (d.steps || []).map((s: any, i: number) => ({
+                sequence_id: seq.id,
+                step_type: s.step_type || s.action_type || 'send_email',
+                config: s.config || s.action_config || {},
+                delay_value: s.delay_value || (i === 0 ? 0 : 1),
+                delay_unit: s.delay_unit || 'hours',
+                position: i,
+              }))
+              if (steps.length > 0) {
+                await supabase.from('automation_steps').insert(steps)
+              } else if (d.action_type) {
+                // Single-step shorthand
+                await supabase.from('automation_steps').insert({
+                  sequence_id: seq.id,
+                  step_type: d.action_type,
+                  config: d.action_config || {},
+                  delay_value: 0,
+                  delay_unit: 'hours',
+                  position: 0,
+                })
+              }
+              action.data.created = true
+            }
+          }
 
+          if (action.type === 'edit_automation') {
+            const { automation_id, updates } = action.data
+            const { error } = await supabase.from('automation_sequences').update({ ...updates, updated_at: new Date().toISOString() }).eq('id', automation_id).eq('company_id', COMPANY_ID)
+            if (error) action.data.error = error.message; else action.data.updated = true
+          }
+
+          if (action.type === 'delete_automation') {
+            const { automation_id } = action.data
+            await supabase.from('automation_enrollments').delete().eq('sequence_id', automation_id)
+            await supabase.from('automation_steps').delete().eq('sequence_id', automation_id)
+            await supabase.from('automation_logs').delete().eq('sequence_id', automation_id)
+            const { error } = await supabase.from('automation_sequences').delete().eq('id', automation_id).eq('company_id', COMPANY_ID)
+            if (error) action.data.error = error.message; else action.data.deleted = true
+          }
+
+          if (action.type === 'toggle_automation') {
+            const { automation_id, enabled } = action.data
+            const { error } = await supabase.from('automation_sequences').update({ active: enabled }).eq('id', automation_id).eq('company_id', COMPANY_ID)
+            if (error) action.data.error = error.message; else action.data.updated = true
+          }
           // ── COMPANY SETTINGS ──
           if (action.type === 'update_company') {
             const { updates } = action.data
