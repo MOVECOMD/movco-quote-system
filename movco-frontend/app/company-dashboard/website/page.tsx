@@ -474,6 +474,27 @@ if (companyFull?.template_type) setTemplateType(companyFull.template_type)
           </div>
         </div>
 
+        {/* Media Library quick access */}
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid #e5e7eb' }}>
+          <button
+            onClick={() => openMediaLibrary((url) => {
+              navigator.clipboard.writeText(url).then(() => alert('✅ Image URL copied to clipboard!\n\n' + url)).catch(() => prompt('Copy this URL:', url));
+            })}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', gap: '8px',
+              padding: '10px 12px', borderRadius: '8px', border: '1px solid #e5e7eb',
+              background: '#fafafa', cursor: 'pointer', fontSize: '13px', fontWeight: 500, color: '#555',
+              transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#0F6E56'; (e.currentTarget as HTMLButtonElement).style.background = '#E1F5EE' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#e5e7eb'; (e.currentTarget as HTMLButtonElement).style.background = '#fafafa' }}
+          >
+            <span style={{ fontSize: '16px' }}>🖼️</span>
+            <span style={{ flex: 1, textAlign: 'left' }}>Media Library</span>
+            <span style={{ fontSize: '10px', color: '#888' }}>{mediaFiles.length > 0 ? `${mediaFiles.length} files` : ''}</span>
+          </button>
+        </div>
+
         <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
           <p style={{ fontSize: '11px', fontWeight: 600, color: '#888', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px', paddingLeft: '4px' }}>Page blocks</p>
           {blocks.length === 0 && (
@@ -576,6 +597,13 @@ if (companyFull?.template_type) setTemplateType(companyFull.template_type)
               }}
             />
             <div style={{ display: 'flex', gap: '8px' }}>
+              <button onClick={() => openMediaLibrary((url) => {
+                const imgTag = `<img src="${url}" alt="" style="max-width: 100%; height: auto;" />`;
+                setCustomHtml(prev => prev + '\n' + imgTag);
+              })}
+                style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #0F6E56', background: '#E1F5EE', color: '#0F6E56', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>
+                🖼️ Insert Image
+              </button>
               {customHtml && (
                 <button onClick={() => { if (confirm('Clear HTML?')) setCustomHtml('') }}
                   style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #e24b4a', background: 'transparent', color: '#e24b4a', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>
@@ -768,6 +796,18 @@ function BlockEditor({ block, onChange, onBrowseMedia }: { block: Block; onChang
           <Field label="Headline" value={block.headline || ''} onChange={v => onChange({ headline: v })} />
           <Field label="Subheadline" value={block.subheadline || ''} onChange={v => onChange({ subheadline: v })} multiline />
           <Field label="Button text" value={block.cta_text || ''} onChange={v => onChange({ cta_text: v })} />
+          <div>
+            <label style={smallLabel}>Background image (optional)</label>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <input value={block.bg_image || ''} onChange={e => onChange({ bg_image: e.target.value })} placeholder="https://... or browse" style={{ ...inlineInput, flex: 1 }} />
+              {onBrowseMedia && (
+                <button onClick={() => onBrowseMedia(url => onChange({ bg_image: url }))}
+                  style={{ padding: '7px 12px', borderRadius: '6px', border: '1px solid #0F6E56', background: '#E1F5EE', color: '#0F6E56', fontSize: '12px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  🖼️ Browse
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
       {block.type === 'services' && (
@@ -810,6 +850,18 @@ function BlockEditor({ block, onChange, onBrowseMedia }: { block: Block; onChang
             </div>
           ))}
           <button onClick={() => onChange({ highlights: [...(block.highlights || []), 'New highlight'] })} style={addItemBtn}>+ Add highlight</button>
+          <div>
+            <label style={smallLabel}>Section image (optional)</label>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+              <input value={block.image || ''} onChange={e => onChange({ image: e.target.value })} placeholder="https://... or browse" style={{ ...inlineInput, flex: 1 }} />
+              {onBrowseMedia && (
+                <button onClick={() => onBrowseMedia(url => onChange({ image: url }))}
+                  style={{ padding: '7px 12px', borderRadius: '6px', border: '1px solid #0F6E56', background: '#E1F5EE', color: '#0F6E56', fontSize: '12px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  🖼️ Browse
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
       {block.type === 'reviews' && (
