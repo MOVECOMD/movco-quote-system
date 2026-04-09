@@ -11,6 +11,7 @@ import { downloadInvoicePdf } from '@/lib/generateInvoicePdf';
 import AiAssistant from '@/components/AiAssistant';
 import TradesQuoteBuilder from '@/components/TradesQuoteBuilder';
 import SimpleQuoteBuilder from '@/components/SimpleQuoteBuilder';
+import ReportsDashboard from '@/components/ReportsDashboard';
 
 // ============================================
 // TYPES
@@ -1724,7 +1725,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
               </div>
             )}
             {activeTab === 'reports' && (
-              <ReportsTab leads={leads} deals={deals} customers={customers} events={events} crmQuotes={crmQuotes} company={company} costs={crmCosts} onAddCost={addCost} onUpdateCost={updateCost} onDeleteCost={deleteCost} />
+              <ReportsDashboard leads={leads} deals={deals} customers={customers} events={events} crmQuotes={crmQuotes} company={company} costs={crmCosts} onAddCost={addCost} onUpdateCost={updateCost} onDeleteCost={deleteCost} />
             )}
             {activeTab === 'settings' && (
               <SettingsTab company={company} crmActive={crmActive} onSubscribe={startCrmSubscription} emailConnected={emailConnected} emailAddress={emailAddress} emailLoading={emailLoading} onDisconnectEmail={disconnectEmail} pdfBranding={pdfBranding} onSavePdfBranding={async (branding: any) => { const { error } = await supabase.from('company_config').upsert({ company_id: company.id, pdf_template: branding }, { onConflict: 'company_id' }); if (!error) setPdfBranding(branding); return { error }; }} customEventTypes={customEventTypes} onSaveEventTypes={saveCustomEventTypes} customCustomerFields={customCustomerFields} onSaveCustomerFields={saveCustomCustomerFields} customSources={customSources} onSaveSources={saveCustomSources} />
