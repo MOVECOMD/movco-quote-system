@@ -253,6 +253,7 @@ const [quoteBuilderType, setQuoteBuilderType] = useState<string>('removals');
   const [showComposeEmail, setShowComposeEmail] = useState(false);
   const [showBulkEmail, setShowBulkEmail] = useState(false);
 const [bulkEmailRecipients, setBulkEmailRecipients] = useState<{ name: string; email: string }[]>([]);
+const [showBulkEmailPicker, setShowBulkEmailPicker] = useState(false);
   const [composeEmailCustomer, setComposeEmailCustomer] = useState<Customer | null>(null);
   const [showCustomerDetail, setShowCustomerDetail] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -1661,7 +1662,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
                 onDeleteDeal={deleteDeal}
                 onClickDeal={(deal) => openCustomerFromDeal(deal)}
                 dealHasBooking={dealHasBooking}
-                onBulkEmail={(recipients) => { setBulkEmailRecipients(recipients); setShowBulkEmail(true); }}
+                onBulkEmail={() => setShowBulkEmailPicker(true)}
                 onManageStages={() => setShowStageManager(true)}
                 tasks={allCompanyTasks}
                 customers={customers}
@@ -1699,7 +1700,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
                 onClickCustomer={openCustomerDetail}
                 stages={stages}
                 company={company}
-                onBulkEmail={(recipients) => { setBulkEmailRecipients(recipients); setShowBulkEmail(true); }}
+                onBulkEmail={() => setShowBulkEmailPicker(true)}
               />
             )}
             {activeTab === 'whatsapp' && (
@@ -1899,6 +1900,13 @@ const [showDayPlan, setShowDayPlan] = useState(false);
           onComplete={() => { toggleEventComplete(selectedEvent.id, !selectedEvent.completed); setSelectedEvent({ ...selectedEvent, completed: !selectedEvent.completed }); }}
           onEditEvent={() => { setShowEventDetail(false); setEditingEvent(selectedEvent); setShowEventModal(true); }}
           onDeleteEvent={() => deleteEvent(selectedEvent.id)}
+        />
+      )}
+      {showBulkEmailPicker && (
+        <BulkEmailPickerModal
+          customers={customers}
+          onSend={(recipients) => { setShowBulkEmailPicker(false); setBulkEmailRecipients(recipients); setShowBulkEmail(true); }}
+          onClose={() => setShowBulkEmailPicker(false)}
         />
       )}
       {showBulkEmail && (
@@ -3883,7 +3891,7 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
   onClickCustomer: (c: Customer) => void;
   stages: PipelineStage[];
   company: Company;
-  onBulkEmail?: (recipients: { name: string; email: string }[]) => void;
+  onBulkEmail?: () => void;
 }) {
 
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
@@ -3919,13 +3927,10 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
             </button>
           </div>
           {onBulkEmail && (
-            <button onClick={() => {
-              const withEmail = filtered.filter(c => c.email);
-              if (withEmail.length === 0) { alert('No contacts with email addresses'); return; }
-              onBulkEmail(withEmail.map(c => ({ name: c.name, email: c.email! })));
-            }} className="inline-flex items-center gap-2 px-4 py-2 border border-blue-500 text-blue-600 font-semibold rounded-lg hover:bg-blue-50 transition text-sm">
+            <button onClick={() => onBulkEmail()}
+              className="inline-flex items-center gap-2 px-4 py-2 border border-blue-500 text-blue-600 font-semibold rounded-lg hover:bg-blue-50 transition text-sm">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-              Bulk Email ({filtered.filter(c => c.email).length})
+              Bulk Email
             </button>
           )}
           <button onClick={onAddCustomer} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm shadow-sm">
@@ -3947,7 +3952,7 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
               onClick={() => {
                 const taggedWithEmail = filtered.filter(c => c.email);
                 if (taggedWithEmail.length === 0) { alert('No contacts with email in this tag'); return; }
-                onBulkEmail(taggedWithEmail.map(c => ({ name: c.name, email: c.email! })));
+                onBulkEmail();
               }}
               className="px-3 py-1 bg-blue-500 text-white rounded-full text-xs font-semibold hover:bg-blue-600 transition flex items-center gap-1 ml-2"
             >
@@ -7492,6 +7497,238 @@ function SourcesSettings({ sources, onSave }: { sources: string[]; onSave: (sour
           + Add Source
         </button>
       )}
+    </div>
+  );
+}
+// ============================================
+// BULK EMAIL PICKER MODAL
+// ============================================
+
+function BulkEmailPickerModal({ customers, onSend, onClose }: {
+  customers: Customer[];
+  onSend: (recipients: { name: string; email: string }[]) => void;
+  onClose: () => void;
+}) {
+  const [filterMode, setFilterMode] = useState<'all' | 'tag' | 'source' | 'manual'>('all');
+  const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
+  const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState('');
+
+  const allTags = [...new Set(customers.flatMap((c: any) => c.tags || []))].sort();
+  const allSources = [...new Set(customers.map(c => c.source).filter(Boolean))].sort() as string[];
+  const withEmail = customers.filter(c => c.email);
+
+  const getRecipients = () => {
+    let pool = withEmail;
+    if (filterMode === 'tag') {
+      pool = pool.filter(c => ((c as any).tags || []).some((t: string) => selectedTags.has(t)));
+    } else if (filterMode === 'source') {
+      pool = pool.filter(c => c.source && selectedSources.has(c.source));
+    } else if (filterMode === 'manual') {
+      pool = pool.filter(c => selectedIds.has(c.id));
+    }
+    return pool;
+  };
+
+  const recipients = getRecipients();
+  const searchFiltered = search ? withEmail.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) || (c.email || '').toLowerCase().includes(search.toLowerCase())) : withEmail;
+
+  const toggleTag = (tag: string) => {
+    setSelectedTags(prev => { const n = new Set(prev); n.has(tag) ? n.delete(tag) : n.add(tag); return n; });
+  };
+  const toggleSource = (source: string) => {
+    setSelectedSources(prev => { const n = new Set(prev); n.has(source) ? n.delete(source) : n.add(source); return n; });
+  };
+  const toggleContact = (id: string) => {
+    setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  };
+  const selectAll = () => setSelectedIds(new Set(searchFiltered.map(c => c.id)));
+  const clearAll = () => setSelectedIds(new Set());
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">Bulk Email</h2>
+              <p className="text-sm text-gray-500 mt-0.5">Choose who to email</p>
+            </div>
+            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 transition">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+
+          {/* Filter mode tabs */}
+          <div className="flex gap-1 mt-4 bg-gray-100 rounded-lg p-1">
+            {[
+              { key: 'all', label: 'All Contacts' },
+              { key: 'tag', label: 'By Tag' },
+              { key: 'source', label: 'By Source' },
+              { key: 'manual', label: 'Pick Manually' },
+            ].map(m => (
+              <button key={m.key} onClick={() => setFilterMode(m.key as any)}
+                className={`flex-1 px-3 py-1.5 rounded-md text-xs font-semibold transition ${filterMode === m.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4" style={{ minHeight: 0 }}>
+          {/* ALL mode */}
+          {filterMode === 'all' && (
+            <div className="text-center py-6">
+              <div className="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <svg className="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+              </div>
+              <p className="text-lg font-bold text-gray-900">{withEmail.length} contacts with email</p>
+              <p className="text-sm text-gray-500 mt-1">Send to everyone in your contact list</p>
+            </div>
+          )}
+
+          {/* TAG mode */}
+          {filterMode === 'tag' && (
+            <div>
+              {allTags.length === 0 ? (
+                <div className="text-center py-6">
+                  <p className="text-sm text-gray-400">No tags yet. Tag contacts first from their popup.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Select tags to include</p>
+                  {allTags.map(tag => {
+                    const count = withEmail.filter(c => ((c as any).tags || []).includes(tag)).length;
+                    const selected = selectedTags.has(tag);
+                    return (
+                      <button key={tag} onClick={() => toggleTag(tag)}
+                        className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition ${selected ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-purple-300 hover:bg-gray-50'}`}>
+                        <div className="flex items-center gap-3">
+                          <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 ${selected ? 'bg-purple-500 border-purple-500' : 'border-gray-300'}`}>
+                            {selected && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                          </div>
+                          <span className={`text-sm font-semibold ${selected ? 'text-purple-700' : 'text-gray-800'}`}>{tag}</span>
+                        </div>
+                        <span className="text-xs text-gray-400">{count} contact{count !== 1 ? 's' : ''}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* SOURCE mode */}
+          {filterMode === 'source' && (
+            <div>
+              {allSources.length === 0 ? (
+                <div className="text-center py-6">
+                  <p className="text-sm text-gray-400">No sources set on contacts yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Select sources to include</p>
+                  {allSources.map(source => {
+                    const count = withEmail.filter(c => c.source === source).length;
+                    const selected = selectedSources.has(source);
+                    return (
+                      <button key={source} onClick={() => toggleSource(source)}
+                        className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition ${selected ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'}`}>
+                        <div className="flex items-center gap-3">
+                          <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 ${selected ? 'bg-blue-500 border-blue-500' : 'border-gray-300'}`}>
+                            {selected && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                          </div>
+                          <span className={`text-sm font-semibold ${selected ? 'text-blue-700' : 'text-gray-800'}`}>{source}</span>
+                        </div>
+                        <span className="text-xs text-gray-400">{count} contact{count !== 1 ? 's' : ''}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* MANUAL mode */}
+          {filterMode === 'manual' && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="relative flex-1">
+                  <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search contacts..." className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+                <button onClick={selectAll} className="text-xs text-blue-600 font-semibold px-2 py-1.5 bg-blue-50 rounded-lg hover:bg-blue-100 transition whitespace-nowrap">Select all</button>
+                <button onClick={clearAll} className="text-xs text-gray-500 font-medium px-2 py-1.5 bg-gray-100 rounded-lg hover:bg-gray-200 transition whitespace-nowrap">Clear</button>
+              </div>
+              <div className="space-y-1 max-h-60 overflow-y-auto">
+                {searchFiltered.map(c => {
+                  const selected = selectedIds.has(c.id);
+                  return (
+                    <button key={c.id} onClick={() => toggleContact(c.id)}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition ${selected ? 'bg-blue-50 border border-blue-200' : 'hover:bg-gray-50'}`}>
+                      <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${selected ? 'bg-blue-500 border-blue-500' : 'border-gray-300'}`}>
+                        {selected && <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                      </div>
+                      <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-[10px] flex-shrink-0">
+                        {c.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0 text-left">
+                        <p className="text-sm font-medium text-gray-800 truncate">{c.name}</p>
+                        <p className="text-[10px] text-gray-400 truncate">{c.email}</p>
+                      </div>
+                      {((c as any).tags || []).length > 0 && (
+                        <div className="flex gap-1 flex-shrink-0">
+                          {((c as any).tags || []).slice(0, 2).map((t: string) => (
+                            <span key={t} className="text-[9px] bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded-full">{t}</span>
+                          ))}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t bg-gray-50 rounded-b-2xl">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm text-gray-600">
+              <span className="font-bold text-gray-900">{recipients.length}</span> recipient{recipients.length !== 1 ? 's' : ''} selected
+            </p>
+            {filterMode === 'tag' && selectedTags.size > 0 && (
+              <div className="flex gap-1">
+                {[...selectedTags].map(t => (
+                  <span key={t} className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-semibold">{t}</span>
+                ))}
+              </div>
+            )}
+            {filterMode === 'source' && selectedSources.size > 0 && (
+              <div className="flex gap-1">
+                {[...selectedSources].map(s => (
+                  <span key={s} className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold">{s}</span>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 text-gray-600 rounded-lg font-medium hover:bg-gray-100 transition text-sm">Cancel</button>
+            <button
+              onClick={() => {
+                if (recipients.length === 0) { alert('No recipients selected'); return; }
+                onSend(recipients.map(c => ({ name: c.name, email: c.email! })));
+              }}
+              disabled={recipients.length === 0}
+              className="flex-1 py-2.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition text-sm disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+              Compose Email ({recipients.length})
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
