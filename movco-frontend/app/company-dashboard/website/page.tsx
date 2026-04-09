@@ -187,7 +187,7 @@ async function importHtmlToBlocks() {
     setLoading(true)
     const { data: comp } = await supabase
       .from('companies')
-      .select('name, email, phone')
+      .select('id, name, email, phone')
       .eq('id', COMPANY_ID)
       .maybeSingle()
     setCompany(comp)
@@ -294,13 +294,28 @@ if (companyFull?.template_type) setTemplateType(companyFull.template_type)
     setMediaCallback(() => callback)
     setShowMediaModal(true)
     setMediaLoading(true)
-    const { data } = await supabase
+    // Use company.id from loaded company data, fallback to COMPANY_ID from auth
+    const cid = company?.id || COMPANY_ID
+    console.log('Media library query company_id:', cid, 'COMPANY_ID:', COMPANY_ID, 'company:', company)
+    const { data, error } = await supabase
       .from('media_library')
       .select('*')
-      .eq('company_id', COMPANY_ID)
+      .eq('company_id', cid)
       .order('created_at', { ascending: false })
       .limit(50)
-    setMediaFiles(data || [])
+    console.log('Media library results:', data?.length, 'error:', error)
+    // Also try crm-files storage bucket if media_library table is empty
+    if (!data || data.length === 0) {
+      const { data: files2 } = await supabase
+        .from('crm_customer_files')
+        .select('id, file_name as name, file_url as url, file_type as type')
+        .eq('company_id', cid)
+        .order('created_at', { ascending: false })
+        .limit(50)
+      setMediaFiles(files2 || [])
+    } else {
+      setMediaFiles(data)
+    }
     setMediaLoading(false)
   }
 
