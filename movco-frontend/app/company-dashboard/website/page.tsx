@@ -294,27 +294,18 @@ if (companyFull?.template_type) setTemplateType(companyFull.template_type)
     setMediaCallback(() => callback)
     setShowMediaModal(true)
     setMediaLoading(true)
-    // Use company.id from loaded company data, fallback to COMPANY_ID from auth
-    const cid = company?.id || COMPANY_ID
-    console.log('Media library query company_id:', cid, 'COMPANY_ID:', COMPANY_ID, 'company:', company)
-    const { data, error } = await supabase
-      .from('media_library')
-      .select('*')
-      .eq('company_id', cid)
-      .order('created_at', { ascending: false })
-      .limit(50)
-    console.log('Media library results:', data?.length, 'error:', error)
-    // Also try crm-files storage bucket if media_library table is empty
-    if (!data || data.length === 0) {
-      const { data: files2 } = await supabase
-        .from('crm_customer_files')
-        .select('id, file_name as name, file_url as url, file_type as type')
-        .eq('company_id', cid)
-        .order('created_at', { ascending: false })
-        .limit(50)
-      setMediaFiles(files2 || [])
-    } else {
-      setMediaFiles(data)
+    try {
+      const res = await fetch(`/api/media/list?company_id=${COMPANY_ID}`)
+      const data = await res.json()
+      const files = (data.files || []).map((f: any) => ({
+        id: f.id,
+        name: f.file_name,
+        url: f.file_url,
+        type: f.file_type,
+      }))
+      setMediaFiles(files)
+    } catch {
+      setMediaFiles([])
     }
     setMediaLoading(false)
   }
