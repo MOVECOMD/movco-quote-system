@@ -549,6 +549,21 @@ if (!!subData || !!onActiveTrial) {
         .eq('id', editingDeal.id);
       if (!error) {
         setDeals((prev) => prev.map((d) => (d.id === editingDeal.id ? { ...d, ...deal } as Deal : d)));
+        // Sync customer record if linked
+        if (editingDeal.customer_id) {
+          const custUpdates: any = {};
+          if (deal.customer_name) custUpdates.name = deal.customer_name;
+          if (deal.customer_email !== undefined) custUpdates.email = deal.customer_email;
+          if (deal.customer_phone !== undefined) custUpdates.phone = deal.customer_phone;
+          if (deal.moving_from !== undefined) custUpdates.moving_from = deal.moving_from;
+          if (deal.moving_to !== undefined) custUpdates.moving_to = deal.moving_to;
+          if (deal.moving_date !== undefined) custUpdates.moving_date = deal.moving_date;
+          if (Object.keys(custUpdates).length > 0) {
+            custUpdates.updated_at = new Date().toISOString();
+            await supabase.from('crm_customers').update(custUpdates).eq('id', editingDeal.customer_id);
+            setCustomers(prev => prev.map(c => c.id === editingDeal.customer_id ? { ...c, ...custUpdates } as Customer : c));
+          }
+        }
       }
     } else {
        const { data, error } = await supabase

@@ -502,18 +502,7 @@ For reporting queries (conversion rate, average deal value, customer lifetime va
           }
 
           if (action.type === 'bulk_email') {
-            // Executed server-side — send each email
-            const results: string[] = []
-            for (const r of (action.data.recipients || [])) {
-              try {
-                const emailRes = await fetch(`${process.env.NEXT_PUBLIC_SITE_URL || 'https://movco-quote-system.vercel.app'}/api/email/send-custom`, {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ company_id: COMPANY_ID, recipient_email: r.email, recipient_name: r.name, subject: action.data.subject, body_text: (action.data.body_template || '').replace(/\{\{name\}\}/g, r.name).replace(/\{name\}/g, r.name) }),
-                })
-                results.push(`✓ ${r.name}`)
-              } catch { results.push(`✗ ${r.name}`) }
-            }
-            action.data.results = results; action.data.sent = true
+            // Client-side with preview + confirmation
           }
 
           if (action.type === 'create_email_template') {
