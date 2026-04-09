@@ -1840,6 +1840,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
           emailConnected={emailConnected}
           onSchedule={detailDeal ? () => { setSelectedDeal(detailDeal); setShowCustomerDetail(false); setShowQuickBookModal(true); } : undefined}
           onBookEvent={() => { setShowCustomerDetail(false); setEditingEvent(null); setEventPrefillDate(new Date()); setShowEventModal(true); }}
+          onCreateQuoteFromContact={() => { setShowCustomerDetail(false); setQuotePrefill({ customer_name: selectedCustomer.name, customer_email: selectedCustomer.email || '', customer_phone: selectedCustomer.phone || '', moving_from: selectedCustomer.moving_from || '', moving_to: selectedCustomer.moving_to || '', moving_date: selectedCustomer.moving_date || '', notes: selectedCustomer.notes || '', deal_id: null }); setActiveTab('quotes'); setShowQuoteBuilder(true); }}
           onAddTag={(tag: string) => addTagToCustomer(selectedCustomer.id, tag)}
           onRemoveTag={(tag: string) => removeTagFromCustomer(selectedCustomer.id, tag)}
           allTags={[...new Set(customers.flatMap((c: any) => c.tags || []))]}
@@ -3917,6 +3918,16 @@ function CustomersTab({ customers, search, onSearchChange, onAddCustomer, onEdit
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
             </button>
           </div>
+          {onBulkEmail && (
+            <button onClick={() => {
+              const withEmail = filtered.filter(c => c.email);
+              if (withEmail.length === 0) { alert('No contacts with email addresses'); return; }
+              onBulkEmail(withEmail.map(c => ({ name: c.name, email: c.email! })));
+            }} className="inline-flex items-center gap-2 px-4 py-2 border border-blue-500 text-blue-600 font-semibold rounded-lg hover:bg-blue-50 transition text-sm">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+              Bulk Email ({filtered.filter(c => c.email).length})
+            </button>
+          )}
           <button onClick={onAddCustomer} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition text-sm shadow-sm">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
             Add Contact
@@ -5861,7 +5872,7 @@ function QuoteDetailPopup({ quote, company, pdfBranding, pricingConfig, onClose,
 // CUSTOMER DETAIL POPUP
 // ============================================
 
-function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onClose, onAddNote, onDeleteNote, onAddTask, onToggleTask, onDeleteTask, onUploadFile, onDeleteFile, onEditCustomer, onComposeEmail, emailConnected, onSchedule, onCreateQuote, onDeleteDeal, events, quotes, onClickQuote, onDayPlan, onPrintInvoice, customFields, onBookEvent, onAddTag, onRemoveTag, allTags }: {
+function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onClose, onAddNote, onDeleteNote, onAddTask, onToggleTask, onDeleteTask, onUploadFile, onDeleteFile, onEditCustomer, onComposeEmail, emailConnected, onSchedule, onCreateQuote, onDeleteDeal, events, quotes, onClickQuote, onDayPlan, onPrintInvoice, customFields, onBookEvent, onCreateQuoteFromContact, onAddTag, onRemoveTag, allTags }: {
   customer: Customer;
   notes: CustomerNote[];
   tasks: CustomerTask[];
@@ -5889,6 +5900,7 @@ function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onCl
   onPrintInvoice?: () => void;
   customFields?: { key: string; label: string; type: string }[];
   onBookEvent?: () => void;
+  onCreateQuoteFromContact?: () => void;
   onAddTag?: (tag: string) => void;
   onRemoveTag?: (tag: string) => void;
   allTags?: string[];
@@ -6137,9 +6149,11 @@ function CustomerDetailPopup({ customer, notes, tasks, files, deal, stages, onCl
             ) : onBookEvent ? (
               <button onClick={onBookEvent} className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition">📅 Book Event</button>
             ) : null}
-            {onCreateQuote && (
+            {onCreateQuote ? (
               <button onClick={onCreateQuote} className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition">📸 Create Quote</button>
-            )}
+            ) : onCreateQuoteFromContact ? (
+              <button onClick={onCreateQuoteFromContact} className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 transition">📸 Create Quote</button>
+            ) : null}
             <button onClick={onEditCustomer} className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition">✏️ Edit</button>
             {customer.email && (
               <button onClick={onComposeEmail} className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition">
