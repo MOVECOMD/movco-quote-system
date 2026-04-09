@@ -222,6 +222,10 @@ export default function AiAssistant() {
           if (a.type === 'edit_automation') return `✓ Automation updated`
           if (a.type === 'delete_automation') return `✓ Automation "${a.data.automation_name}" deleted`
           if (a.type === 'toggle_automation') return `✓ Automation "${a.data.automation_name}" ${a.data.enabled ? 'enabled' : 'disabled'}`
+          if (a.type === 'add_tag') return `✓ Tagged ${a.data.customer_name} as "${a.data.tag}"`
+          if (a.type === 'remove_tag') return `✓ Removed "${a.data.tag}" from ${a.data.customer_name}`
+          if (a.type === 'bulk_add_tag') return `✓ Tagged ${a.data.tagged_count || a.data.customer_ids?.length || 0} contacts as "${a.data.tag}"`
+          if (a.type === 'update_sources') return `✓ Contact sources updated`
           return `✓ Done`
         })
         setTimeout(() => {
@@ -379,6 +383,7 @@ export default function AiAssistant() {
        'update_company', 'update_coverage',
        'edit_social_post', 'delete_social_post',
        'create_automation', 'edit_automation', 'delete_automation', 'toggle_automation',
+       'add_tag', 'remove_tag', 'bulk_add_tag', 'update_sources',
       ].includes(a.type)
     )
 

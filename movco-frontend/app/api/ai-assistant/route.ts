@@ -75,7 +75,7 @@ Keep responses short and friendly. One question at a time. Always return valid J
 
     const [dealsRes, customersRes, eventsRes, pipelinesRes, stagesRes, tasksRes, quotesRes, websiteRes, mediaRes, configRes, socialRes, automationsRes] = await Promise.all([
       supabase.from('crm_deals').select('id, customer_name, customer_email, customer_phone, stage_id, moving_date, estimated_value, moving_from, moving_to, notes, customer_id, created_at').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }),
-      supabase.from('crm_customers').select('id, name, email, phone, address, moving_from, moving_to, moving_date, notes, source, created_at').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(100),
+      supabase.from('crm_customers').select('id, name, email, phone, address, moving_from, moving_to, moving_date, notes, source, tags, created_at').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(100),
       supabase.from('crm_diary_events').select('id, title, start_time, end_time, event_type, customer_name, location, completed, deal_id, description, color').eq('company_id', COMPANY_ID).order('start_time', { ascending: true }).limit(50),
       supabase.from('crm_pipelines').select('id, name, color, position, is_default').eq('company_id', COMPANY_ID).order('position'),
       supabase.from('crm_pipeline_stages').select('id, name, color, position, pipeline_id').eq('company_id', COMPANY_ID).order('position'),
@@ -83,7 +83,7 @@ Keep responses short and friendly. One question at a time. Always return valid J
       supabase.from('crm_quotes').select('id, customer_name, customer_email, customer_phone, estimated_price, status, deal_id, created_at, moving_date, items, notes').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(20),
       supabase.from('company_websites').select('blocks, theme, custom_html, slug, published, custom_domain').eq('company_id', COMPANY_ID).maybeSingle(),
       supabase.from('media_library').select('id, name, url, type').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(30),
-      supabase.from('company_config').select('custom_event_types, custom_customer_fields').eq('company_id', COMPANY_ID).maybeSingle(),
+      supabase.from('company_config').select('custom_event_types, custom_customer_fields, custom_sources').eq('company_id', COMPANY_ID).maybeSingle(),
       supabase.from('social_posts').select('id, content, platforms, status, scheduled_at, posted_at').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(20),
       supabase.from('automation_sequences').select('*, automation_steps(*)').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(20),
     ])
@@ -136,6 +136,10 @@ Social posts: ${JSON.stringify(socialRes.data?.slice(0, 10) || [])}
 Automations: ${JSON.stringify((automationsRes.data || []).map((a: any) => ({ id: a.id, name: a.name, trigger: a.trigger_type, active: a.active, steps: (a.automation_steps || []).length })))}
 Event types config: ${JSON.stringify(configRes.data?.custom_event_types || [])}
 Custom fields config: ${JSON.stringify(configRes.data?.custom_customer_fields || [])}
+Custom sources: ${JSON.stringify(configRes.data?.custom_sources || ['Website', 'Phone Call', 'Referral', 'Social Media', 'Walk-in', 'Other'])}
+All tags in use: ${JSON.stringify([...new Set((customersRes.data || []).flatMap((c: any) => c.tags || []))])}
+Custom sources: ${JSON.stringify(configRes.data?.custom_sources || ['Website', 'Phone Call', 'Referral', 'Social Media', 'Walk-in', 'Other'])}
+All tags in use: ${JSON.stringify([...new Set((customersRes.data || []).flatMap((c: any) => c.tags || []))])}
 Website: slug=${websiteRes.data?.slug || 'none'}, published=${websiteRes.data?.published || false}, has_custom_html=${!!websiteRes.data?.custom_html}
 Website blocks: ${JSON.stringify(websiteRes.data?.blocks || [])}
 Media: ${JSON.stringify((mediaRes.data || []).map((m: any) => ({ name: m.name, url: m.url })))}
@@ -219,6 +223,13 @@ update_terminology: { "type": "update_terminology", "data": { "updates": { "cust
 toggle_feature_flag: { "type": "toggle_feature_flag", "data": { "flag": "show_quote_builder|show_coverage_postcodes|show_day_plan|show_invoice", "enabled": true|false } }
 change_industry: { "type": "change_industry", "data": { "new_template_type": "plumber|electrician|etc", "reseed": true|false } }
 
+TAG ACTIONS:
+add_tag: { "type": "add_tag", "data": { "customer_id": "uuid", "customer_name": "x", "tag": "VIP" } }
+remove_tag: { "type": "remove_tag", "data": { "customer_id": "uuid", "customer_name": "x", "tag": "VIP" } }
+bulk_add_tag: { "type": "bulk_add_tag", "data": { "customer_ids": ["uuid"], "tag": "VIP", "count": 5 } }
+
+SOURCE SETTINGS:
+update_sources: { "type": "update_sources", "data": { "action": "add|remove|set", "source": "Yell.com", "sources": ["Website", "Google", "Referral"] } }
 COMPANY SETTINGS:
 update_company: { "type": "update_company", "data": { "updates": { "name": "x", "email": "x", "phone": "x", "address": "x" } } }
 update_coverage: { "type": "update_coverage", "data": { "postcodes": ["AB1", "AB2"] } }
@@ -238,7 +249,7 @@ For reporting queries (conversion rate, average deal value, customer lifetime va
 - ALWAYS use real IDs from data above — never invent IDs
 - When creating stages, always include pipeline_id
 - Match customers/deals by name fuzzy — "John" matches "John Smith"
-- ALWAYS set requires_confirm: true when there are ANY actions (except server-side-only: create_customer, create_deal, add_note, add_task, create_pipeline, create_pipeline_stage, update_event_types, update_customer_fields, edit_customer, delete_customer, merge_customers, edit_deal, delete_deal, edit_stage, delete_stage, edit_pipeline, delete_pipeline, complete_task, delete_task, edit_event, delete_event, complete_event, create_quote, edit_quote, update_quote_status, convert_quote_to_deal, edit_social_post, delete_social_post, publish_website, update_website_settings, update_terminology, toggle_feature_flag, change_industry, update_company, update_coverage, update_working_hours, create_email_template, create_automation, edit_automation, delete_automation, toggle_automation)
+- ALWAYS set requires_confirm: true when there are ANY actions (except server-side-only: create_customer, create_deal, add_note, add_task, create_pipeline, create_pipeline_stage, update_event_types, update_customer_fields, edit_customer, delete_customer, merge_customers, edit_deal, delete_deal, edit_stage, delete_stage, edit_pipeline, delete_pipeline, complete_task, delete_task, edit_event, delete_event, complete_event, create_quote, edit_quote, update_quote_status, convert_quote_to_deal, edit_social_post, delete_social_post, publish_website, update_website_settings, update_terminology, toggle_feature_flag, change_industry, update_company, update_coverage, update_working_hours, create_email_template, create_automation, edit_automation, delete_automation, toggle_automation, add_tag, remove_tag, bulk_add_tag, update_sources)
 - For ALL the server-side actions above, set requires_confirm: false — they execute immediately
 - For send_email, bulk_email, book_event, move_deal, schedule_post, send_quote_email: requires_confirm: true
 - Keep message to 1-2 short sentences. No bullet points, no bold, no lists.
@@ -650,6 +661,50 @@ For reporting queries (conversion rate, average deal value, customer lifetime va
           if (action.type === 'toggle_automation') {
             const { automation_id, enabled } = action.data
             const { error } = await supabase.from('automation_sequences').update({ active: enabled }).eq('id', automation_id).eq('company_id', COMPANY_ID)
+            if (error) action.data.error = error.message; else action.data.updated = true
+          }
+          // ── TAG ACTIONS ──
+          if (action.type === 'add_tag') {
+            const { customer_id, tag } = action.data
+            const { data: cust } = await supabase.from('crm_customers').select('tags').eq('id', customer_id).eq('company_id', COMPANY_ID).maybeSingle()
+            const currentTags: string[] = cust?.tags || []
+            if (!currentTags.includes(tag)) {
+              const { error } = await supabase.from('crm_customers').update({ tags: [...currentTags, tag] }).eq('id', customer_id).eq('company_id', COMPANY_ID)
+              if (error) action.data.error = error.message; else action.data.created = true
+            } else { action.data.created = true }
+          }
+
+          if (action.type === 'remove_tag') {
+            const { customer_id, tag } = action.data
+            const { data: cust } = await supabase.from('crm_customers').select('tags').eq('id', customer_id).eq('company_id', COMPANY_ID).maybeSingle()
+            const currentTags: string[] = cust?.tags || []
+            const { error } = await supabase.from('crm_customers').update({ tags: currentTags.filter(t => t !== tag) }).eq('id', customer_id).eq('company_id', COMPANY_ID)
+            if (error) action.data.error = error.message; else action.data.removed = true
+          }
+
+          if (action.type === 'bulk_add_tag') {
+            const { customer_ids, tag } = action.data
+            let count = 0
+            for (const cid of (customer_ids || [])) {
+              const { data: cust } = await supabase.from('crm_customers').select('tags').eq('id', cid).eq('company_id', COMPANY_ID).maybeSingle()
+              const currentTags: string[] = cust?.tags || []
+              if (!currentTags.includes(tag)) {
+                await supabase.from('crm_customers').update({ tags: [...currentTags, tag] }).eq('id', cid).eq('company_id', COMPANY_ID)
+                count++
+              }
+            }
+            action.data.created = true; action.data.tagged_count = count
+          }
+
+          // ── SOURCE SETTINGS ──
+          if (action.type === 'update_sources') {
+            const { action: srcAction, source, sources } = action.data
+            const { data: cfg } = await supabase.from('company_config').select('custom_sources').eq('company_id', COMPANY_ID).maybeSingle()
+            let currentSources: string[] = cfg?.custom_sources || ['Website', 'Phone Call', 'Referral', 'Social Media', 'Walk-in', 'Other']
+            if (srcAction === 'add' && source && !currentSources.includes(source)) currentSources.push(source)
+            else if (srcAction === 'remove' && source) currentSources = currentSources.filter(s => s !== source)
+            else if (srcAction === 'set' && sources) currentSources = sources
+            const { error } = await supabase.from('company_config').upsert({ company_id: COMPANY_ID, custom_sources: currentSources }, { onConflict: 'company_id' })
             if (error) action.data.error = error.message; else action.data.updated = true
           }
           // ── COMPANY SETTINGS ──
