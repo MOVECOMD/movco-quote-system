@@ -144,7 +144,9 @@ export default function AiAssistant() {
         'edit_social_post', 'delete_social_post',
         'create_automation', 'edit_automation', 'delete_automation', 'toggle_automation',
       ]
-      const hasServerSideOnly = actions.length > 0 && actions.every((a: Action) => serverSideActions.includes(a.type))
+      const clientConfirmActions = ['send_email', 'bulk_email', 'book_event', 'move_deal', 'schedule_post', 'send_quote_email']
+      const hasClientAction = actions.some((a: Action) => clientConfirmActions.includes(a.type))
+      const hasServerSideOnly = actions.length > 0 && actions.every((a: Action) => serverSideActions.includes(a.type)) && !hasClientAction
       const hasWebsiteEdit = actions.some((a: Action) => a.type === 'edit_website')
       const hasAnyActions = actions.length > 0
 
@@ -159,7 +161,7 @@ export default function AiAssistant() {
         role: 'assistant',
         content: cleanMsg,
         actions: actions.length > 0 ? actions : undefined,
-        requires_confirm: hasServerSideOnly ? false : data.requires_confirm,
+        requires_confirm: hasClientAction ? true : hasServerSideOnly ? false : data.requires_confirm,
       }
 
       setMessages(prev => [...prev, assistantMsg])
