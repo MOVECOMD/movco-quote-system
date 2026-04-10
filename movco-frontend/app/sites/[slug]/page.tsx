@@ -16,9 +16,19 @@ export default async function PublicSitePage({ params }: { params: { slug: strin
 
   if (!website) return notFound()
 
-   // If custom HTML is set, serve it via iframe-style injection
+  const companyId = website.company_id
+
+  // ═══════════════════════════════════════
+  // CUSTOM HTML MODE — inject company_id
+  // ═══════════════════════════════════════
   const customHtml = (website as any).custom_html
   if (customHtml) {
+    // Inject company_id so forms/booking know which CRM to write to
+    const injectedHtml = customHtml.replace(
+      '</body>',
+      `<script>window.__COMPANY_ID__ = '${companyId}';</script></body>`
+    )
+
     return (
       <html>
         <head>
@@ -26,12 +36,15 @@ export default async function PublicSitePage({ params }: { params: { slug: strin
           <meta name="viewport" content="width=device-width, initial-scale=1" />
         </head>
         <body style={{ margin: 0, padding: 0 }}>
-          <div dangerouslySetInnerHTML={{ __html: customHtml }} />
+          <div dangerouslySetInnerHTML={{ __html: injectedHtml }} />
         </body>
       </html>
     ) as any
   }
 
+  // ═══════════════════════════════════════
+  // BLOCK-BASED MODE
+  // ═══════════════════════════════════════
   const company = (website as any).companies
   const blocks: any[] = website.blocks || []
   const theme: any = website.theme || {}
@@ -45,8 +58,8 @@ export default async function PublicSitePage({ params }: { params: { slug: strin
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>{company?.name || 'Removal Company'}</title>
-        <meta name="description" content={`Professional removal services by ${company?.name}`} />
+        <title>{company?.name || 'Welcome'}</title>
+        <meta name="description" content={`Professional services by ${company?.name}`} />
         <style>{`
           * { box-sizing: border-box; margin: 0; padding: 0; }
           body { font-family: ${fontFamily}; color: #1a1a1a; }
@@ -76,12 +89,14 @@ export default async function PublicSitePage({ params }: { params: { slug: strin
           .coverage-list { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
           .coverage-pill { background: #f0f9f4; color: ${accentColor}; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 500; border: 1px solid ${accentColor}30; }
           footer { background: ${primaryColor}; color: rgba(255,255,255,0.7); padding: 40px 24px; text-align: center; font-size: 14px; }
+          .form-success { background: #d4edda; color: #155724; padding: 16px; border-radius: 8px; text-align: center; display: none; margin-top: 16px; }
+          .form-error { background: #f8d7da; color: #721c24; padding: 16px; border-radius: 8px; text-align: center; display: none; margin-top: 16px; }
           @media (max-width: 640px) { h2 { font-size: 28px; } .section { padding: 48px 0; } }
         `}</style>
       </head>
       <body>
         <nav>
-          <span className="logo">{company?.name || 'Removals'}</span>
+          <span className="logo">{company?.name || 'Welcome'}</span>
           <div className="nav-links">
             <a href="#services">Services</a>
             <a href="#about">About</a>
@@ -94,7 +109,7 @@ export default async function PublicSitePage({ params }: { params: { slug: strin
             key={idx}
             block={block}
             company={company}
-            websiteId={website.id}
+            companyId={companyId}
             accentColor={accentColor}
             primaryColor={primaryColor}
           />
@@ -106,26 +121,76 @@ export default async function PublicSitePage({ params }: { params: { slug: strin
             {company?.phone && <p>{company.phone}</p>}
             {company?.email && <p>{company.email}</p>}
             <p style={{ marginTop: '16px', fontSize: '12px' }}>
-              Powered by MOVCO · {new Date().getFullYear()}
+              Powered by BYM · {new Date().getFullYear()}
             </p>
           </div>
         </footer>
+
+        {/* Inject company_id for any client-side JS */}
+        <script dangerouslySetInnerHTML={{ __html: `window.__COMPANY_ID__ = '${companyId}';` }} />
+
+        {/* Form submission handler for block-based sites */}
+        <script dangerouslySetInnerHTML={{ __html: `
+          document.addEventListener('submit', async function(e) {
+            var form = e.target;
+            if (!form.matches || !form.matches('form[data-crm-form]')) return;
+            e.preventDefault();
+
+            var btn = form.querySelector('button[type="submit"]');
+            var successEl = form.parentElement.querySelector('.form-success');
+            var errorEl = form.parentElement.querySelector('.form-error');
+            var origText = btn.textContent;
+            btn.textContent = 'Submitting...'; btn.disabled = true;
+            if (successEl) successEl.style.display = 'none';
+            if (errorEl) errorEl.style.display = 'none';
+
+            var formType = form.dataset.formType || 'enquiry';
+            var fd = new FormData(form);
+            var payload = {
+              company_id: window.__COMPANY_ID__,
+              first_name: fd.get('name') ? fd.get('name').toString().split(' ')[0] : '',
+              last_name: fd.get('name') ? fd.get('name').toString().split(' ').slice(1).join(' ') : '',
+              email: fd.get('email') || '',
+              phone: fd.get('phone') || '',
+              message: fd.get('message') || '',
+              source: formType === 'quote' ? 'Website Quote Form' : 'Website Contact Form',
+            };
+            if (fd.get('moving_from')) payload.moving_from = fd.get('moving_from');
+            if (fd.get('moving_to')) payload.moving_to = fd.get('moving_to');
+            if (fd.get('moving_date')) payload.moving_date = fd.get('moving_date');
+
+            try {
+              var res = await fetch('/api/website/enquiry', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              });
+              if (!res.ok) throw new Error('Failed');
+              form.reset();
+              if (successEl) { successEl.style.display = 'block'; successEl.textContent = 'Thank you! We will be in touch shortly.'; }
+            } catch(err) {
+              if (errorEl) { errorEl.style.display = 'block'; errorEl.textContent = 'Sorry, something went wrong. Please try again or call us directly.'; }
+            } finally {
+              btn.textContent = origText; btn.disabled = false;
+            }
+          });
+        `}} />
       </body>
     </html>
   )
 }
 
-function BlockRenderer({ block, company, websiteId, accentColor, primaryColor }: any) {
+function BlockRenderer({ block, company, companyId, accentColor, primaryColor }: any) {
   switch (block.type) {
     case 'hero':
       return (
         <section style={{ background: primaryColor, color: '#fff', padding: '100px 24px', textAlign: 'center' }}>
           <div className="container">
             <h1 style={{ fontSize: '52px', fontWeight: 800, marginBottom: '20px', color: '#fff', lineHeight: 1.2 }}>
-              {block.headline || 'Professional Removals'}
+              {block.headline || 'Professional Services'}
             </h1>
             <p style={{ fontSize: '20px', color: 'rgba(255,255,255,0.8)', marginBottom: '40px', maxWidth: '600px', margin: '0 auto 40px' }}>
-              {block.subheadline || 'Trusted, reliable removal services across the UK'}
+              {block.subheadline || 'Trusted, reliable services'}
             </p>
             <a href="#quote" className="btn-primary" style={{ fontSize: '18px', padding: '16px 40px' }}>
               {block.cta_text || 'Get a Free Quote'}
@@ -138,13 +203,9 @@ function BlockRenderer({ block, company, websiteId, accentColor, primaryColor }:
         <section className="section" id="services">
           <div className="container">
             <h2>{block.title || 'Our Services'}</h2>
-            <p>{block.subtitle || 'Everything you need for a stress-free move'}</p>
+            <p>{block.subtitle || ''}</p>
             <div className="grid-3">
-              {(block.services || [
-                { title: 'House Removals', description: 'Full house moves handled with care' },
-                { title: 'Packing Service', description: 'Professional packing and unpacking' },
-                { title: 'Storage Solutions', description: 'Secure short and long-term storage' },
-              ]).map((svc: any, i: number) => (
+              {(block.services || []).map((svc: any, i: number) => (
                 <div className="card" key={i}>
                   <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: accentColor + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '16px' }}>
                     <svg width="24" height="24" fill="none" stroke={accentColor} strokeWidth="2" viewBox="0 0 24 24">
@@ -169,9 +230,7 @@ function BlockRenderer({ block, company, websiteId, accentColor, primaryColor }:
                 {block.subtitle || "Fill in your details and we'll get back to you quickly"}
               </p>
               <div className="card">
-                <form action="/api/website/submit" method="POST">
-                  <input type="hidden" name="website_id" value={websiteId} />
-                  <input type="hidden" name="type" value="quote" />
+                <form data-crm-form="true" data-form-type="quote">
                   <div className="grid-2" style={{ marginTop: 0 }}>
                     <div className="form-group">
                       <label>Your name</label>
@@ -197,17 +256,19 @@ function BlockRenderer({ block, company, websiteId, accentColor, primaryColor }:
                     </div>
                   </div>
                   <div className="form-group">
-                    <label>Preferred moving date</label>
+                    <label>Preferred date</label>
                     <input name="moving_date" type="date" />
                   </div>
                   <div className="form-group">
                     <label>Anything else we should know?</label>
-                    <textarea name="message" placeholder="e.g. piano, large items, access restrictions..." />
+                    <textarea name="message" placeholder="e.g. special items, access restrictions..." />
                   </div>
                   <button type="submit" className="btn-primary" style={{ width: '100%', fontSize: '16px', padding: '16px' }}>
                     {block.button_text || 'Request My Free Quote'}
                   </button>
                 </form>
+                <div className="form-success"></div>
+                <div className="form-error"></div>
               </div>
             </div>
           </div>
@@ -221,7 +282,7 @@ function BlockRenderer({ block, company, websiteId, accentColor, primaryColor }:
               <div>
                 <h2>{block.title || `About ${company?.name || 'Us'}`}</h2>
                 <p style={{ marginTop: '16px', marginBottom: '24px' }}>
-                  {block.body || 'We are a trusted removal company with years of experience.'}
+                  {block.body || 'We are a trusted company with years of experience.'}
                 </p>
                 {block.highlights && block.highlights.map((h: string, i: number) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
@@ -235,8 +296,8 @@ function BlockRenderer({ block, company, websiteId, accentColor, primaryColor }:
                 ))}
               </div>
               <div style={{ background: '#f0f0f0', borderRadius: '16px', height: '360px', overflow: 'hidden' }}>
-                {block.image_url
-                  ? <img src={block.image_url} alt="About us" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                {block.image
+                  ? <img src={block.image} alt="About us" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#aaa', fontSize: '14px' }}>Add a photo in editor</div>
                 }
               </div>
@@ -249,13 +310,9 @@ function BlockRenderer({ block, company, websiteId, accentColor, primaryColor }:
         <section className="section section-alt">
           <div className="container">
             <h2 style={{ textAlign: 'center' }}>{block.title || 'What Our Customers Say'}</h2>
-            <p style={{ textAlign: 'center' }}>{block.subtitle || 'Trusted by hundreds of happy customers'}</p>
+            <p style={{ textAlign: 'center' }}>{block.subtitle || ''}</p>
             <div className="grid-3">
-              {(block.reviews || [
-                { name: 'Sarah M.', text: 'Absolutely brilliant service.', rating: 5 },
-                { name: 'James T.', text: 'Fast, efficient and great value.', rating: 5 },
-                { name: 'Emma L.', text: 'Would not use anyone else!', rating: 5 },
-              ]).map((review: any, i: number) => (
+              {(block.reviews || []).map((review: any, i: number) => (
                 <div className="card" key={i}>
                   <div className="stars">{'★'.repeat(review.rating || 5)}</div>
                   <p style={{ marginBottom: '16px', fontStyle: 'italic' }}>"{review.text}"</p>
@@ -271,9 +328,9 @@ function BlockRenderer({ block, company, websiteId, accentColor, primaryColor }:
         <section className="section">
           <div className="container">
             <h2>{block.title || 'Areas We Cover'}</h2>
-            <p>{block.subtitle || 'We provide removal services across the following areas'}</p>
+            <p>{block.subtitle || ''}</p>
             <div className="coverage-list">
-              {(block.areas || ['London', 'Bristol', 'Bath', 'Cardiff', 'Birmingham', 'Oxford']).map((area: string, i: number) => (
+              {(block.areas || []).map((area: string, i: number) => (
                 <span className="coverage-pill" key={i}>{area}</span>
               ))}
             </div>
@@ -290,9 +347,7 @@ function BlockRenderer({ block, company, websiteId, accentColor, primaryColor }:
                 {block.subtitle || "Have a question? We'd love to hear from you"}
               </p>
               <div className="card">
-                <form action="/api/website/submit" method="POST">
-                  <input type="hidden" name="website_id" value={websiteId} />
-                  <input type="hidden" name="type" value="contact" />
+                <form data-crm-form="true" data-form-type="contact">
                   <div className="form-group">
                     <label>Name</label>
                     <input name="name" placeholder="Your name" required />
@@ -311,6 +366,8 @@ function BlockRenderer({ block, company, websiteId, accentColor, primaryColor }:
                   </div>
                   <button type="submit" className="btn-primary" style={{ width: '100%' }}>Send Message</button>
                 </form>
+                <div className="form-success"></div>
+                <div className="form-error"></div>
               </div>
               <div style={{ marginTop: '32px', display: 'flex', gap: '24px', justifyContent: 'center', flexWrap: 'wrap' }}>
                 {company?.phone && (
@@ -333,7 +390,7 @@ function BlockRenderer({ block, company, websiteId, accentColor, primaryColor }:
         <section className="section">
           <div className="container">
             <h2>{block.title || 'Our Work'}</h2>
-            <p>{block.subtitle || 'A look at some of our recent moves'}</p>
+            <p>{block.subtitle || ''}</p>
             <div className="gallery-grid">
               {(block.images || []).map((url: string, i: number) => (
                 <img key={i} src={url} alt={`Gallery ${i + 1}`} className="gallery-img" />
