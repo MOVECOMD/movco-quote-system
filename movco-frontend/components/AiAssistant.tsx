@@ -36,6 +36,21 @@ const QUICK_COMMANDS = [
   "Help me configure my CRM",
 ]
 
+// ═══ NEW: Website-related keywords that trigger screenshot capture ═══
+const WEBSITE_KEYWORDS = [
+  'website', 'site', 'page', 'hero', 'section', 'heading', 'headline',
+  'colour', 'color', 'font', 'text', 'image', 'photo', 'logo', 'banner',
+  'button', 'nav', 'footer', 'header', 'layout', 'design', 'style',
+  'move', 'swap', 'change', 'update', 'edit', 'fix', 'add', 'remove',
+  'gallery', 'reviews', 'services', 'contact', 'about', 'quote form',
+  'html', 'css', 'block', 'template', 'theme', 'build', 'rebuild',
+]
+
+function isWebsiteRelated(text: string): boolean {
+  const lower = text.toLowerCase()
+  return WEBSITE_KEYWORDS.some(kw => lower.includes(kw))
+}
+
 export default function AiAssistant() {
   const { companyId: COMPANY_ID } = useAuth()
   const [open, setOpen] = useState(false)
@@ -117,6 +132,23 @@ export default function AiAssistant() {
     setLoading(true)
 
     try {
+      // ═══ NEW: Capture website screenshot if on website editor page ═══
+      let screenshot: string | null = null
+      const isOnWebsiteEditor = !!(window as any).__isWebsiteEditorPage
+      const captureFunc = (window as any).captureWebsiteScreenshot
+
+      if (isOnWebsiteEditor && captureFunc && isWebsiteRelated(content)) {
+        try {
+          console.log('📸 Capturing website screenshot for AI context...')
+          screenshot = await captureFunc()
+          if (screenshot) {
+            console.log(`📸 Screenshot captured (${Math.round(screenshot.length / 1024)}KB)`)
+          }
+        } catch (err) {
+          console.warn('Screenshot capture failed, proceeding without:', err)
+        }
+      }
+
       console.log('SENDING COMPANY_ID:', COMPANY_ID)
       const res = await fetch('/api/ai-assistant', {
         method: 'POST',
@@ -124,6 +156,7 @@ export default function AiAssistant() {
         body: JSON.stringify({
           messages: newMessages.map(m => ({ role: m.role, content: m.content })),
           company_id: COMPANY_ID,
+          screenshot, // ═══ NEW: Include screenshot if captured ═══
         }),
       })
       const data = await res.json()

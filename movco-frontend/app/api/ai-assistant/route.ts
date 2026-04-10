@@ -14,6 +14,9 @@ export async function POST(req: NextRequest) {
     const { messages } = body
     const isOnboarding = body.onboarding === true
     const COMPANY_ID = body.company_id
+    // ═══ NEW: Accept screenshot from client ═══
+    const screenshot: string | null = body.screenshot || null
+
     if (!COMPANY_ID && !isOnboarding) {
       return NextResponse.json({ message: 'Missing company_id', actions: [], requires_confirm: false }, { status: 400 })
     }
@@ -144,6 +147,8 @@ Website: slug=${websiteRes.data?.slug || 'none'}, published=${websiteRes.data?.p
 Website blocks: ${JSON.stringify(websiteRes.data?.blocks || [])}
 Media: ${JSON.stringify((mediaRes.data || []).map((m: any) => ({ name: m.name, url: m.url })))}
 
+${screenshot ? `IMPORTANT — VISUAL CONTEXT: A screenshot of the current website preview has been attached to this message. USE IT to understand the actual rendered layout, section positions, colours, spacing, and content. When the user asks to edit the website, refer to what you can SEE in the screenshot to make accurate edits. The screenshot shows exactly what the user sees right now.` : ''}
+
 STATS:
 Revenue this month: £${revenueThisMonth.toLocaleString()} (${completedJobsThisMonth.length} completed)
 Pipeline by stage: ${JSON.stringify(pipelineByStage)}
@@ -259,10 +264,35 @@ For reporting queries (conversion rate, average deal value, customer lifetime va
 - When the website has custom HTML, use edit_html for ALL website changes
 - When asked to "build a website", use build_page and generate ALL appropriate blocks`
 
+    // ═══ NEW: Build messages array with optional screenshot image ═══
+    const apiMessages = messages.map((m: any, idx: number) => {
+      // Attach screenshot to the LAST user message only
+      if (screenshot && m.role === 'user' && idx === messages.length - 1) {
+        return {
+          role: m.role,
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: 'image/jpeg',
+                data: screenshot,
+              },
+            },
+            {
+              type: 'text',
+              text: m.content,
+            },
+          ],
+        }
+      }
+      return { role: m.role, content: m.content }
+    })
+
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY!, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 8000, system: systemPrompt, messages: messages.map((m: any) => ({ role: m.role, content: m.content })) }),
+      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 8000, system: systemPrompt, messages: apiMessages }),
     })
 
     const data = await res.json()
@@ -750,9 +780,29 @@ For reporting queries (conversion rate, average deal value, customer lifetime va
                 const currentHtml = wd?.custom_html || ''
                 if (!currentHtml) { action.data.error = 'No custom HTML yet. Try "build me a website" first.'; } else {
                   const mediaList = (mediaRes.data || []).map((m: any) => ({ name: m.name, url: m.url }))
+
+                  // ═══ NEW: Build edit_html messages with screenshot if available ═══
+                  const editUserContent = screenshot
+                    ? [
+                        {
+                          type: 'image',
+                          source: { type: 'base64', media_type: 'image/jpeg', data: screenshot },
+                        },
+                        {
+                          type: 'text',
+                          text: `SCREENSHOT of the current rendered website is attached above. Use it to understand the visual layout, section order, and what the user sees.\n\nHTML:\n${currentHtml}\n\nIMAGES: ${JSON.stringify(mediaList)}\n\nREQUEST: ${messages[messages.length - 1]?.content}\n\nReturn JSON array of find-and-replace operations:`,
+                        },
+                      ]
+                    : `HTML:\n${currentHtml}\n\nIMAGES: ${JSON.stringify(mediaList)}\n\nREQUEST: ${messages[messages.length - 1]?.content}\n\nReturn JSON array:`
+
                   const htmlRes = await fetch('https://api.anthropic.com/v1/messages', {
                     method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY!, 'anthropic-version': '2023-06-01' },
-                    body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 8000, system: `You are an HTML/CSS editor. Return ONLY a JSON array of find-and-replace operations. Each: {"find":"exact string","replace":"new string"}. RAW JSON only.`, messages: [{ role: 'user', content: `HTML:\n${currentHtml}\n\nIMAGES: ${JSON.stringify(mediaList)}\n\nREQUEST: ${messages[messages.length - 1]?.content}\n\nReturn JSON array:` }] }),
+                    body: JSON.stringify({
+                      model: 'claude-sonnet-4-20250514',
+                      max_tokens: 8000,
+                      system: `You are an HTML/CSS editor. You can SEE a screenshot of the current website if one is attached — use it to understand the actual rendered layout and make precise edits.${screenshot ? ' The screenshot shows exactly what the user sees. Reference visual positions (e.g. "the hero section at the top", "the green button") to ensure your edits target the correct elements.' : ''} Return ONLY a JSON array of find-and-replace operations. Each: {"find":"exact string from the HTML","replace":"new string"}. RAW JSON only — no explanation, no markdown.`,
+                      messages: [{ role: 'user', content: editUserContent }],
+                    }),
                   })
                   const hd = await htmlRes.json(); let rt = (hd.content?.[0]?.text || '').replace(/^```json?\s*/i, '').replace(/```\s*$/g, '').trim()
                   try {

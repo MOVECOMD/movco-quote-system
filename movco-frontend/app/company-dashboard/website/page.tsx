@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import AiAssistant from '@/components/AiAssistant'
 import { renderSiteHtml } from '../../../lib/renderSiteHtml'
 import { useAuth } from '@/context/AuthContext'
 import { getWebsiteTemplates } from '@/lib/websiteTemplates';
+import html2canvas from 'html2canvas'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -98,6 +99,9 @@ const [undoAvailable, setUndoAvailable] = useState(false)
 const [undoInfo, setUndoInfo] = useState<{ timestamp?: string; description?: string } | null>(null)
 const [undoing, setUndoing] = useState(false)
 
+// ═══ NEW: Preview iframe ref for screenshot capture ═══
+const previewIframeRef = useRef<HTMLIFrameElement>(null)
+
   useEffect(() => {
     if (!COMPANY_ID) return
     loadExisting()
@@ -115,6 +119,45 @@ const [undoing, setUndoing] = useState(false)
       setRenderedHtml(html)
     }
   }, [blocks, theme, company])
+
+  // ═══ NEW: Expose screenshot capture function globally for AiAssistant ═══
+  useEffect(() => {
+    (window as any).captureWebsiteScreenshot = async (): Promise<string | null> => {
+      try {
+        const iframe = previewIframeRef.current
+        if (!iframe) return null
+
+        const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document
+        if (!iframeDoc || !iframeDoc.body) return null
+
+        // Use html2canvas to capture the iframe content
+        const canvas = await html2canvas(iframeDoc.documentElement, {
+          width: iframe.clientWidth || 1200,
+          height: Math.min(iframeDoc.documentElement.scrollHeight, 3000), // Cap at 3000px to keep image manageable
+          scale: 0.5, // Half resolution to keep file size down
+          useCORS: true,
+          logging: false,
+          backgroundColor: '#ffffff',
+        })
+
+        // Convert to base64 JPEG (smaller than PNG)
+        const base64 = canvas.toDataURL('image/jpeg', 0.6)
+        // Strip the data:image/jpeg;base64, prefix
+        return base64.split(',')[1] || null
+      } catch (err) {
+        console.warn('Screenshot capture failed:', err)
+        return null
+      }
+    }
+
+    // Also expose a flag so AiAssistant knows we're on the website editor page
+    ;(window as any).__isWebsiteEditorPage = true
+
+    return () => {
+      delete (window as any).captureWebsiteScreenshot
+      delete (window as any).__isWebsiteEditorPage
+    }
+  }, [])
 
 async function checkUndo() {
   if (!COMPANY_ID) return
@@ -740,9 +783,9 @@ if (companyFull?.template_type) setTemplateType(companyFull.template_type)
             minHeight: '100%',
           }}>
             {editorMode === 'html' && customHtml ? (
-              <iframe srcDoc={customHtml} style={{ width: '100%', minHeight: '800px', border: 'none' }} title="HTML Preview" />
+              <iframe ref={previewIframeRef} srcDoc={customHtml} style={{ width: '100%', minHeight: '800px', border: 'none' }} title="HTML Preview" />
             ) : renderedHtml ? (
-              <iframe srcDoc={renderedHtml} style={{ width: '100%', minHeight: '800px', border: 'none' }} title="Site Preview" />
+              <iframe ref={previewIframeRef} srcDoc={renderedHtml} style={{ width: '100%', minHeight: '800px', border: 'none' }} title="Site Preview" />
             ) : (
               <LivePreview blocks={blocks} theme={theme} company={company} />
             )}
