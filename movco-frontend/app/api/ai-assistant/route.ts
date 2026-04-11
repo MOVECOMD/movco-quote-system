@@ -800,7 +800,37 @@ For reporting queries (conversion rate, average deal value, customer lifetime va
                     body: JSON.stringify({
                       model: 'claude-sonnet-4-20250514',
                       max_tokens: 16000,
-                      system: `You are an HTML/CSS editor for a multi-page single-HTML website. You can SEE a screenshot if attached.${screenshot ? ' The screenshot shows what the user sees — use it to target edits precisely.' : ''}
+                      system: `You are an expert HTML/CSS/JS editor and web designer for a multi-page single-HTML website. You can SEE a screenshot if attached.${screenshot ? ' The screenshot shows what the user sees — use it to target edits precisely.' : ''}
+
+You have deep knowledge of CSS and web design. When the user asks for visual changes, apply the correct CSS techniques:
+
+DESIGN PATTERNS YOU KNOW:
+- Borders & frames: border, outline, box-shadow (inset for inner glow/shading)
+- Shadows & depth: box-shadow, text-shadow, drop-shadow filter
+- Shading & overlays: linear-gradient, radial-gradient, rgba overlays on ::before/::after pseudo-elements
+- Rounded corners: border-radius
+- Blur & frosted glass: backdrop-filter: blur(), filter: blur()
+- Colour adjustments: filter: brightness(), contrast(), saturate(), hue-rotate()
+- Spacing: padding, margin, gap
+- Typography: font-size, font-weight, letter-spacing, line-height, text-transform
+- Animations: transition, @keyframes, transform, opacity
+- Layout: flexbox, grid, position, z-index
+- Backgrounds: background-image, background-size (cover/contain), background-position, background-blend-mode, multiple backgrounds
+- Hover effects: :hover pseudo-class with transitions
+- Vignette effect: box-shadow: inset 0 0 100px 50px rgba(0,0,0,.3)
+- Glass effect: background: rgba(255,255,255,.1); backdrop-filter: blur(12px)
+- Gradient borders: border-image or background-clip trick
+- Soft glow: box-shadow: 0 0 30px rgba(color,.3)
+- Image overlays: position:relative + ::before with background gradient
+
+WHEN EDITING CSS:
+- Target the specific CSS selector — don't rewrite unrelated styles
+- Prefer adding properties to existing rules over creating new ones
+- Use CSS variables (var(--name)) when they exist in the :root
+- For "shading around borders" → use box-shadow: inset with rgba
+- For "make it darker/lighter" → adjust background rgba or add an overlay
+- For "add a glow" → use box-shadow with spread
+- For "frosted/glass effect" → use backdrop-filter: blur() with semi-transparent bg
 
 Return ONLY a raw JSON array of operations. Each operation is ONE of these types:
 
@@ -814,14 +844,15 @@ Return ONLY a raw JSON array of operations. Each operation is ONE of these types
    {"op":"insert_before","find":"exact string from HTML","content":"new HTML to insert before it"}
 
 RULES:
-- "find" must be an EXACT substring from the current HTML — copy it precisely including whitespace
-- For adding new pages/sections, use insert_after or insert_before — much more reliable than replacing huge blocks
+- "find" must be an EXACT substring from the current HTML — copy it character-for-character
+- Keep "find" strings short (20-80 chars) but unique enough to match only once
+- When modifying a CSS rule, find a unique part of that rule (e.g. the selector + opening brace + first property)
+- For adding new pages/sections, use insert_after or insert_before
 - For adding nav links, find the last nav link and insert_after it
-- For adding new page divs, find the last page's closing comment (e.g. "<!-- end contact page -->") and insert_after it
+- For adding new page divs, find the last page's closing comment and insert_after it
 - For adding CSS, find the closing </style> and insert_before it
-- For adding JS functions, find a nearby function and insert_after its closing brace
-- Keep "find" strings short but unique — 20-60 chars is ideal
-- RAW JSON array only — no markdown, no explanation`,
+- For adding JS, find a nearby function and insert_after its closing brace
+- RAW JSON array only — no markdown, no backticks, no explanation`,
                       messages: [{ role: 'user', content: editUserContent }],
                     }),
                   })
