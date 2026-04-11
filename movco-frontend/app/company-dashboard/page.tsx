@@ -250,6 +250,7 @@ const [quoteBuilderType, setQuoteBuilderType] = useState<string>('removals');
   const [showEventDetail, setShowEventDetail] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<DiaryEvent | null>(null);
   const [showQuickBookModal, setShowQuickBookModal] = useState(false);
+const [bookEventCustomer, setBookEventCustomer] = useState<Customer | null>(null);
   const [showStageManager, setShowStageManager] = useState(false);
   const [showComposeEmail, setShowComposeEmail] = useState(false);
   const [showBulkEmail, setShowBulkEmail] = useState(false);
@@ -1796,11 +1797,13 @@ const [showDayPlan, setShowDayPlan] = useState(false);
         />
       )}
 
-      {showQuickBookModal && selectedDeal && (
+      {showQuickBookModal && (
         <QuickBookEventModal
-          deal={selectedDeal}
-          onSave={(event) => { quickBookEvent(event); setShowDealDetail(false); setSelectedDeal(null); }}
-          onClose={() => setShowQuickBookModal(false)}
+          deal={selectedDeal || undefined}
+          customer={bookEventCustomer}
+          customers={customers}
+          onSave={(event) => { quickBookEvent(event); setShowDealDetail(false); setSelectedDeal(null); setBookEventCustomer(null); }}
+          onClose={() => { setShowQuickBookModal(false); setBookEventCustomer(null); }}
           eventTypes={customEventTypes}
         />
       )}
@@ -1856,7 +1859,7 @@ const [showDayPlan, setShowDayPlan] = useState(false);
           onComposeEmail={() => { setComposeEmailCustomer(selectedCustomer); setShowComposeEmail(true); }}
           emailConnected={emailConnected}
           onSchedule={detailDeal ? () => { setSelectedDeal(detailDeal); setShowCustomerDetail(false); setShowQuickBookModal(true); } : undefined}
-          onBookEvent={() => { setShowCustomerDetail(false); setEditingEvent(null); setEventPrefillDate(new Date()); setShowEventModal(true); }}
+          onBookEvent={() => { setBookEventCustomer(selectedCustomer); setShowCustomerDetail(false); setShowQuickBookModal(true); }}
           onCreateQuoteFromContact={() => { setShowCustomerDetail(false); setQuotePrefill({ customer_name: selectedCustomer.name, customer_email: selectedCustomer.email || '', customer_phone: selectedCustomer.phone || '', moving_from: selectedCustomer.moving_from || '', moving_to: selectedCustomer.moving_to || '', moving_date: selectedCustomer.moving_date || '', notes: selectedCustomer.notes || '', deal_id: null }); setActiveTab('quotes'); setShowQuoteBuilder(true); }}
           onAddTag={(tag: string) => addTagToCustomer(selectedCustomer.id, tag)}
           onRemoveTag={(tag: string) => removeTagFromCustomer(selectedCustomer.id, tag)}
@@ -5460,27 +5463,230 @@ function DealDetailPopup({ deal, stages, events, onClose, onBookAppointment, onE
 // QUICK BOOK EVENT MODAL
 // ============================================
 
-function QuickBookEventModal({ deal, onSave, onClose, eventTypes }: { deal: Deal; onSave: (event: Partial<DiaryEvent>) => void; onClose: () => void; eventTypes?: { key: string; label: string; color: string }[]; }) {
-  const [form, setForm] = useState({ event_type: 'survey', start_time: '', end_time: '' });
-  const title = `${form.event_type.charAt(0).toUpperCase() + form.event_type.slice(1)} — ${deal.customer_name}`;
+function QuickBookEventModal({ deal, customer, customers, onSave, onClose, eventTypes }: {
+  deal?: Deal | null;
+  customer?: Customer | null;             // NEW: prefill from contact
+  customers?: Customer[];                  // NEW: for contact picker dropdown
+  onSave: (event: Partial<DiaryEvent>) => void;
+  onClose: () => void;
+  eventTypes?: { key: string; label: string; color: string }[];
+}) {
+  const [form, setForm] = useState({
+    event_type: 'survey',
+    start_time: '',
+    end_time: '',
+    customer_name: customer?.name || deal?.customer_name || '',
+    customer_id: customer?.id || deal?.customer_id || null,
+    location: deal?.moving_from || customer?.address || customer?.moving_from || '',
+    description: deal?.notes || '',
+  });
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [showPicker, setShowPicker] = useState(false);
+
+  // Build title from type + customer name
+  const title = form.customer_name
+    ? `${form.event_type.charAt(0).toUpperCase() + form.event_type.slice(1)} — ${form.customer_name}`
+    : `${form.event_type.charAt(0).toUpperCase() + form.event_type.slice(1)}`;
+
+  // Filter customers for picker
+  const filteredCustomers = (customers || []).filter(c =>
+    c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
+    (c.email && c.email.toLowerCase().includes(customerSearch.toLowerCase())) ||
+    (c.phone && c.phone.includes(customerSearch))
+  ).slice(0, 15);
+
+  const selectCustomer = (c: Customer) => {
+    setForm(prev => ({
+      ...prev,
+      customer_name: c.name,
+      customer_id: c.id,
+      location: c.address || c.moving_from || prev.location,
+    }));
+    setShowPicker(false);
+    setCustomerSearch('');
+  };
+
+  const clearCustomer = () => {
+    setForm(prev => ({
+      ...prev,
+      customer_name: '',
+      customer_id: null,
+      location: '',
+    }));
+  };
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-xl font-bold text-gray-900 mb-1">Book Appointment</h2>
-        <p className="text-sm text-gray-500 mb-5">For {deal.customer_name}</p>
+        <h2 className="text-xl font-bold text-gray-900 mb-1">Book Event</h2>
+        {form.customer_name ? (
+          <p className="text-sm text-gray-500 mb-5">For {form.customer_name}</p>
+        ) : (
+          <p className="text-sm text-gray-500 mb-5">Select a contact or enter details</p>
+        )}
+
         <div className="space-y-3">
-          <div><label className="text-xs text-gray-500 mb-1 block">Type</label><select value={form.event_type} onChange={(e) => setForm({ ...form, event_type: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none">{(eventTypes || [{ key: 'survey', label: 'Survey' }, { key: 'job', label: 'Job' }, { key: 'callback', label: 'Callback' }, { key: 'delivery', label: 'Delivery' }, { key: 'other', label: 'Other' }]).map(et => (<option key={et.key} value={et.key}>{et.label}</option>))}</select></div>
-          <div className="bg-gray-50 rounded-lg px-4 py-2.5"><p className="text-xs text-gray-500 mb-0.5">Event title</p><p className="text-sm font-medium text-gray-800">{title}</p></div>
-          {deal.moving_from && <div className="bg-gray-50 rounded-lg px-4 py-2.5"><p className="text-xs text-gray-500 mb-0.5">Location</p><p className="text-sm font-medium text-gray-800">📍 {deal.moving_from}</p></div>}
+          {/* Event Type */}
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Type</label>
+            <select
+              value={form.event_type}
+              onChange={(e) => setForm({ ...form, event_type: e.target.value })}
+              className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              {(eventTypes || [
+                { key: 'survey', label: 'Survey' },
+                { key: 'job', label: 'Job' },
+                { key: 'callback', label: 'Callback' },
+                { key: 'consultation', label: 'Consultation' },
+                { key: 'other', label: 'Other' },
+              ]).map(et => (
+                <option key={et.key} value={et.key}>{et.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Customer Name — with picker if no customer pre-selected */}
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Customer</label>
+            {form.customer_id ? (
+              /* Customer is linked — show badge with clear option */
+              <div className="flex items-center gap-2 px-4 py-2.5 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xs flex-shrink-0">
+                  {form.customer_name.charAt(0).toUpperCase()}
+                </div>
+                <span className="text-sm font-medium text-gray-900 flex-1">{form.customer_name}</span>
+                {!deal && !customer && (
+                  <button
+                    onClick={clearCustomer}
+                    className="text-xs text-gray-400 hover:text-red-500 px-2 py-1 rounded hover:bg-red-50 transition"
+                  >
+                    ✕ Change
+                  </button>
+                )}
+              </div>
+            ) : (
+              /* No customer linked — show picker */
+              <div className="relative">
+                <input
+                  value={customerSearch || form.customer_name}
+                  onChange={(e) => {
+                    setCustomerSearch(e.target.value);
+                    setForm(prev => ({ ...prev, customer_name: e.target.value }));
+                    setShowPicker(true);
+                  }}
+                  onFocus={() => { if (customers && customers.length > 0) setShowPicker(true); }}
+                  placeholder="Search contacts or type a name..."
+                  className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+                {/* Contact picker dropdown */}
+                {showPicker && filteredCustomers.length > 0 && (
+                  <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                    {filteredCustomers.map(c => (
+                      <button
+                        key={c.id}
+                        onClick={() => selectCustomer(c)}
+                        className="w-full px-4 py-2.5 text-left hover:bg-blue-50 flex items-center gap-3 transition border-b border-gray-50 last:border-0"
+                      >
+                        <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 font-bold text-xs flex-shrink-0">
+                          {c.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">{c.name}</p>
+                          <p className="text-xs text-gray-400 truncate">{c.email || c.phone || ''}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {showPicker && customerSearch && filteredCustomers.length === 0 && (
+                  <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border rounded-xl shadow-lg p-3 text-center">
+                    <p className="text-xs text-gray-400">No contacts found — name will be saved as typed</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Auto-generated title preview */}
+          <div className="bg-gray-50 rounded-lg px-4 py-2.5">
+            <p className="text-xs text-gray-500 mb-0.5">Event title</p>
+            <p className="text-sm font-medium text-gray-800">{title || 'Select type & customer'}</p>
+          </div>
+
+          {/* Location */}
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Location (optional)</label>
+            <input
+              value={form.location}
+              onChange={(e) => setForm({ ...form, location: e.target.value })}
+              placeholder="Address or postcode"
+              className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+          </div>
+
+          {/* Date/Time */}
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="text-xs text-gray-500 mb-1 block">Start time *</label><input type="datetime-local" value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" /></div>
-            <div><label className="text-xs text-gray-500 mb-1 block">End time</label><input type="datetime-local" value={form.end_time} onChange={(e) => setForm({ ...form, end_time: e.target.value })} className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" /></div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Start time *</label>
+              <input
+                type="datetime-local"
+                value={form.start_time}
+                onChange={(e) => setForm({ ...form, start_time: e.target.value })}
+                className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">End time</label>
+              <input
+                type="datetime-local"
+                value={form.end_time}
+                onChange={(e) => setForm({ ...form, end_time: e.target.value })}
+                className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">Notes (optional)</label>
+            <textarea
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              placeholder="Any notes for this event..."
+              rows={2}
+              className="w-full px-4 py-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+            />
           </div>
         </div>
+
+        {/* Actions */}
         <div className="flex gap-3 mt-5">
-          <button onClick={() => { if (!form.start_time) return alert('Start time is required'); onSave({ title, event_type: form.event_type, start_time: new Date(form.start_time).toISOString(), end_time: form.end_time ? new Date(form.end_time).toISOString() : null, customer_name: deal.customer_name, location: deal.moving_from || null, deal_id: deal.id, description: deal.notes || null }); }} className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition">Book Appointment</button>
-          <button onClick={onClose} className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition">Cancel</button>
+          <button
+            onClick={() => {
+              if (!form.start_time) return alert('Start time is required');
+              if (!form.customer_name) return alert('Please select or enter a customer name');
+              onSave({
+                title,
+                event_type: form.event_type,
+                start_time: new Date(form.start_time).toISOString(),
+                end_time: form.end_time ? new Date(form.end_time).toISOString() : null,
+                customer_name: form.customer_name,
+                location: form.location || null,
+                deal_id: deal?.id || null,
+                description: form.description || null,
+              });
+            }}
+            className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-lg hover:bg-blue-700 transition"
+          >
+            Book Event
+          </button>
+          <button
+            onClick={onClose}
+            className="px-6 py-2.5 bg-gray-100 text-gray-700 font-medium rounded-lg hover:bg-gray-200 transition"
+          >
+            Cancel
+          </button>
         </div>
       </div>
     </div>
