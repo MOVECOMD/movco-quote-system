@@ -790,17 +790,38 @@ For reporting queries (conversion rate, average deal value, customer lifetime va
                         },
                         {
                           type: 'text',
-                          text: `SCREENSHOT of the current rendered website is attached above. Use it to understand the visual layout, section order, and what the user sees.\n\nHTML:\n${currentHtml}\n\nIMAGES: ${JSON.stringify(mediaList)}\n\nREQUEST: ${messages[messages.length - 1]?.content}\n\nReturn JSON array of find-and-replace operations:`,
+                          text: `SCREENSHOT of the current rendered website is attached above. Use it to understand the visual layout, section order, and what the user sees.\n\nHTML:\n${currentHtml}\n\nIMAGES: ${JSON.stringify(mediaList)}\n\nREQUEST: ${messages[messages.length - 1]?.content}\n\nReturn JSON array of operations (replace, insert_after, or insert_before):`,
                         },
                       ]
-                    : `HTML:\n${currentHtml}\n\nIMAGES: ${JSON.stringify(mediaList)}\n\nREQUEST: ${messages[messages.length - 1]?.content}\n\nReturn JSON array:`
+                    : `HTML:\n${currentHtml}\n\nIMAGES: ${JSON.stringify(mediaList)}\n\nREQUEST: ${messages[messages.length - 1]?.content}\n\nReturn JSON array of operations (replace, insert_after, or insert_before):`
 
                   const htmlRes = await fetch('https://api.anthropic.com/v1/messages', {
                     method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY!, 'anthropic-version': '2023-06-01' },
                     body: JSON.stringify({
                       model: 'claude-sonnet-4-20250514',
-                      max_tokens: 8000,
-                      system: `You are an HTML/CSS editor. You can SEE a screenshot of the current website if one is attached — use it to understand the actual rendered layout and make precise edits.${screenshot ? ' The screenshot shows exactly what the user sees. Reference visual positions (e.g. "the hero section at the top", "the green button") to ensure your edits target the correct elements.' : ''} Return ONLY a JSON array of find-and-replace operations. Each: {"find":"exact string from the HTML","replace":"new string"}. RAW JSON only — no explanation, no markdown.`,
+                      max_tokens: 16000,
+                      system: `You are an HTML/CSS editor for a multi-page single-HTML website. You can SEE a screenshot if attached.${screenshot ? ' The screenshot shows what the user sees — use it to target edits precisely.' : ''}
+
+Return ONLY a raw JSON array of operations. Each operation is ONE of these types:
+
+1. FIND & REPLACE — change existing content:
+   {"op":"replace","find":"exact string from HTML","replace":"new string"}
+
+2. INSERT AFTER — add new content after a matched string:
+   {"op":"insert_after","find":"exact string from HTML","content":"new HTML to insert after it"}
+
+3. INSERT BEFORE — add new content before a matched string:
+   {"op":"insert_before","find":"exact string from HTML","content":"new HTML to insert before it"}
+
+RULES:
+- "find" must be an EXACT substring from the current HTML — copy it precisely including whitespace
+- For adding new pages/sections, use insert_after or insert_before — much more reliable than replacing huge blocks
+- For adding nav links, find the last nav link and insert_after it
+- For adding new page divs, find the last page's closing comment (e.g. "<!-- end contact page -->") and insert_after it
+- For adding CSS, find the closing </style> and insert_before it
+- For adding JS functions, find a nearby function and insert_after its closing brace
+- Keep "find" strings short but unique — 20-60 chars is ideal
+- RAW JSON array only — no markdown, no explanation`,
                       messages: [{ role: 'user', content: editUserContent }],
                     }),
                   })
@@ -808,7 +829,18 @@ For reporting queries (conversion rate, average deal value, customer lifetime va
                   try {
                     const fb = rt.indexOf('['), lb = rt.lastIndexOf(']'); if (fb === -1 || lb === -1) throw new Error('No array')
                     const ops = JSON.parse(rt.substring(fb, lb + 1)); let mod = currentHtml; let applied = 0, failed = 0
-                    for (const op of ops) { if (op.find && op.replace !== undefined) { if (mod.includes(op.find)) { mod = mod.replace(op.find, op.replace); applied++ } else failed++ } }
+                    for (const op of ops) {
+                      const opType = op.op || 'replace'
+                      if (!op.find || !mod.includes(op.find)) { failed++; continue }
+
+                      if (opType === 'replace' && op.replace !== undefined) {
+                        mod = mod.replace(op.find, op.replace); applied++
+                      } else if (opType === 'insert_after' && op.content) {
+                        mod = mod.replace(op.find, op.find + op.content); applied++
+                      } else if (opType === 'insert_before' && op.content) {
+                        mod = mod.replace(op.find, op.content + op.find); applied++
+                      } else { failed++ }
+                    }
                     action.data.edit_results = { total_operations: ops.length, applied, failed }
                     if (applied > 0) { customHtml = mod; action.data.html_set = true; if (failed > 0) action.data.partial_warning = `${applied}/${ops.length} changes applied.` } else action.data.error = `None of the edits matched. Try being more specific.`
                   } catch { action.data.error = 'Could not generate edits. Try rephrasing.' }
